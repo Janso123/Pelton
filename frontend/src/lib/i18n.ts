@@ -25,9 +25,9 @@ import { writable, derived } from 'svelte/store'
 import en from './locales/en'
 import { getUserLocale } from './api'
 
-export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr'
+export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt'
 
-export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr']
+export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt']
 
 // each language is shown in its own spelling, not translated into the
 // currently active one, so it stays recognizable no matter what is selected.
@@ -39,6 +39,9 @@ export const localeNames: Record<Locale, string> = {
   es: 'Español',
   pl: 'Polski',
   tr: 'Türkçe',
+  // qualified because the catalog is European Portuguese, not pt-BR:
+  // ficheiro/gerir/ecrã rather than arquivo/gerenciar/tela.
+  pt: 'Português (Portugal)',
 }
 
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
@@ -48,6 +51,7 @@ const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<str
   es: () => import('./locales/es'),
   pl: () => import('./locales/pl'),
   tr: () => import('./locales/tr'),
+  pt: () => import('./locales/pt'),
 }
 
 // catalogs holds every locale's strings that have been loaded so far. english
