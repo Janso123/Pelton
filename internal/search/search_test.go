@@ -251,3 +251,70 @@ func TestFieldChipIsExact(t *testing.T) {
 		t.Errorf("subject chip did not find message 3, got %v", got)
 	}
 }
+
+// phraseCorpus is the shape of the bug in #435: several messages share one word
+// with the query and exactly one carries all of them.
+var phraseCorpus = []Doc{
+	{ID: 1, Subject: "Deine Rechnung von Apple", From: "Apple apple@example.test", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	{ID: 2, Subject: "Newsletter von Beispiel", Date: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)},
+	{ID: 3, Subject: "Rechnung Stadtwerke", Body: "deine Zahlung", Date: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)},
+	{ID: 4, Subject: "Deine Bestellung", Date: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+}
+
+// Typing several words asks for all of them. Matching any one of them made the
+// result set the union of four common words, which relevance ranking hid and
+// the total reported as a real count.
+func TestEveryWordMustMatch(t *testing.T) {
+	idx := testIndex(t, phraseCorpus...)
+
+	res, err := idx.Search(Query{Text: "Deine Rechnung von Apple"})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if res.Total != 1 {
+		t.Errorf("Total = %d, want 1: only message 1 carries every word", res.Total)
+	}
+}
+
+// The order results come back in must not change which results they are. This
+// is what the user saw: relevance found the message, newest-first returned
+// unrelated mail, and retyping the query did not help because the match set was
+// wrong rather than the ranking.
+func TestSortDoesNotChangeWhatMatches(t *testing.T) {
+	idx := testIndex(t, phraseCorpus...)
+
+	for _, sort := range []Sort{SortRelevance, SortNewest, SortOldest, SortSubjectAsc, SortSubjectDesc} {
+		got := ids(t, idx, Query{Text: "Deine Rechnung von Apple", Sort: sort})
+		if len(got) != 1 || got[0] != 1 {
+			t.Errorf("sort %s returned %v, want [1]", sort, got)
+		}
+	}
+}
+
+// Requiring every word must not turn a stop word into a query that matches
+// nothing. The analyzer drops "for" from the index and from the query alike, so
+// what is actually being asked for is invoice AND march.
+func TestStopWordDoesNotEmptyTheResults(t *testing.T) {
+	idx := testIndex(t, corpus...)
+	if got := ids(t, idx, Query{Text: "invoice for march"}); !contains(got, 1) {
+		t.Errorf("search %q did not find message 1, got %v", "invoice for march", got)
+	}
+}
+
+// Still-typing keeps working with words in front of the one being typed.
+func TestPrefixMatchesAfterEarlierWords(t *testing.T) {
+	idx := testIndex(t, corpus...)
+	if got := ids(t, idx, Query{Text: "Grüne Rechn"}); !contains(got, 4) {
+		t.Errorf("search %q did not find message 4, got %v", "Grüne Rechn", got)
+	}
+}
+
+// A half-typed last word narrows the search like any other. On its own it
+// widened it: the prefix reached every message whose subject or sender started
+// with those letters, whatever the rest of the query said.
+func TestPrefixDoesNotWidenTheQuery(t *testing.T) {
+	idx := testIndex(t, corpus...)
+	if got := ids(t, idx, Query{Text: "Lunch invoi"}); len(got) != 0 {
+		t.Errorf("search %q returned %v, want nothing: no message is both", "Lunch invoi", got)
+	}
+}

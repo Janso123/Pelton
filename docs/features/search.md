@@ -13,6 +13,8 @@ Press ++cmd+f++ (macOS) or ++ctrl+f++ (Windows and Linux) to put the cursor in t
 
 A query is matched against the subject, the sender, the recipients and the message body at once. A hit in the subject or the sender ranks above a hit buried in a body, so the message you meant is usually first.
 
+Every word you type has to be there. Searching `invoice march` finds messages containing both words, not messages containing either, and the words have to appear in the same place: all of them in the subject, or all of them in the body. Common words like `the` and `for` are not indexed and are ignored if you type them.
+
 Matching tolerates small mistakes:
 
 | You type | You still find |
