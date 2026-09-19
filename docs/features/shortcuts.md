@@ -83,6 +83,17 @@ Only in a development run, started with `PELTON_DEV` (what `make run` sets) or `
 | ++f7++ | Process: goroutines, heap, database and cache sizes |
 | ++f8++ | Frames: frame timing for the ui |
 
+You do not have to remember the keys. In a development run the **DEV** badge in
+the status bar opens a menu listing each overlay, its key, and whether it is
+open. Clicking an entry toggles it.
+
+Everything the overlays show is read on the machine and displayed there. Nothing
+is collected and nothing is sent anywhere.
+
+The browser inspector is a separate thing and is not one of these. It is fixed
+when the binary is built, so `make run` has it and a downloaded Pelton does not,
+whatever environment variables are set.
+
 The overlays are draggable and several can be open at once. They always start closed.
 
 The activity log shows the same lines Pelton writes to its log, so it follows the log level. Set `PELTON_DEBUG=1` for the full sync detail.
