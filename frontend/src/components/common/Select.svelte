@@ -11,9 +11,13 @@
   // The popup is positioned fixed rather than absolute. Most of these sit in
   // the settings panel, which scrolls; an absolutely positioned list would be
   // clipped by that scroll container as soon as a row near the bottom was
-  // opened.
-  import { createEventDispatcher, tick } from 'svelte'
+  // opened. It is also moved to the end of <body>, because a fixed position is
+  // only measured against the viewport while no ancestor carries a transform:
+  // see lib/portal.ts.
+  import { createEventDispatcher, onDestroy, tick } from 'svelte'
   import { IconChevronDown, IconCheck } from '@tabler/icons-svelte'
+  import { portal } from '../../lib/portal'
+  import { popPopup, pushPopup } from '../../lib/popups'
   import {
     flatten,
     indexOfValue,
@@ -91,23 +95,39 @@
   }
 
   async function openList(startAt = indexOfValue(options, value)): Promise<void> {
-    if (disabled) {
+    if (disabled || open) {
       return
     }
     place()
     active = startAt >= 0 ? startAt : firstEnabled(options)
     open = true
+    pushPopup()
     await tick()
+    // focused here rather than by an action on the list, so it happens after
+    // the portal has moved the list: focus does not survive being reparented.
+    listEl?.focus()
     scrollActiveIntoView()
   }
 
   function closeList(refocus = true): void {
+    if (!open) {
+      return
+    }
     open = false
+    popPopup()
     buffer = ''
     if (refocus) {
       buttonEl?.focus()
     }
   }
+
+  // a picker can be unmounted with its list still open, by the dialog around it
+  // closing. the count has to come back down or escape stops reaching dialogs.
+  onDestroy(() => {
+    if (open) {
+      popPopup()
+    }
+  })
 
   function choose(index: number): void {
     const option = options[index]
@@ -152,8 +172,11 @@
         return
       case 'Tab':
         // Tab leaves the control, as it does on a native select. The highlight
-        // is abandoned rather than chosen: only Enter commits.
-        closeList(false)
+        // is abandoned rather than chosen: only Enter commits. Focus goes back
+        // to the button first so the browser walks on from there, and so a
+        // dialog's focus trap still sees focus inside itself: the list is not
+        // in the dialog's subtree any more.
+        closeList()
         return
       case 'Enter':
       case ' ':
@@ -217,57 +240,50 @@
 </button>
 
 {#if open}
-  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-  <div class="scrim" on:click={() => closeList()}></div>
+  <div class="popup" use:portal>
+    <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+    <div class="scrim" on:click={() => closeList()}></div>
 
-  <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
-  <ul
-    bind:this={listEl}
-    id={listId}
-    class="list"
-    class:above={!box.below}
-    role="listbox"
-    aria-label={ariaLabel}
-    tabindex="-1"
-    style="top: {box.top}px; inset-inline-start: {box.start}px; min-width: {box.width}px;"
-    on:keydown={onListKeydown}
-    use:focusOnMount
-  >
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- the keys are handled once on the listbox above, which is what the aria
-         listbox pattern asks for: options are not individually focusable, they
-         are pointed at by the active highlight. -->
-    {#each rows as row, i (row.group !== null ? `g${i}` : row.option.value)}
-      {#if row.group !== null}
-        <li class="group-label" role="presentation">{row.group}</li>
-      {:else}
-        <li
-          role="option"
-          aria-selected={row.option.value === value}
-          aria-disabled={row.option.disabled || undefined}
-          class="opt"
-          class:active={row.index === active}
-          data-active={row.index === active}
-          on:click={() => choose(row.index)}
-          on:mousemove={() => (active = row.index)}
-        >
-          <span class="tick">
-            {#if row.option.value === value}<IconCheck size={13} stroke={2} />{/if}
-          </span>
-          <span class="opt-label">{row.option.label}</span>
-        </li>
-      {/if}
-    {/each}
-  </ul>
+    <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+    <ul
+      bind:this={listEl}
+      id={listId}
+      class="list"
+      class:above={!box.below}
+      role="listbox"
+      aria-label={ariaLabel}
+      tabindex="-1"
+      style="top: {box.top}px; inset-inline-start: {box.start}px; min-width: {box.width}px;"
+      on:keydown={onListKeydown}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- the keys are handled once on the listbox above, which is what the aria
+           listbox pattern asks for: options are not individually focusable, they
+           are pointed at by the active highlight. -->
+      {#each rows as row, i (row.group !== null ? `g${i}` : row.option.value)}
+        {#if row.group !== null}
+          <li class="group-label" role="presentation">{row.group}</li>
+        {:else}
+          <li
+            role="option"
+            aria-selected={row.option.value === value}
+            aria-disabled={row.option.disabled || undefined}
+            class="opt"
+            class:active={row.index === active}
+            data-active={row.index === active}
+            on:click={() => choose(row.index)}
+            on:mousemove={() => (active = row.index)}
+          >
+            <span class="tick">
+              {#if row.option.value === value}<IconCheck size={13} stroke={2} />{/if}
+            </span>
+            <span class="opt-label">{row.option.label}</span>
+          </li>
+        {/if}
+      {/each}
+    </ul>
+  </div>
 {/if}
-
-<script context="module" lang="ts">
-  // the list takes focus when it opens so the keys reach it, and so a screen
-  // reader announces the listbox rather than leaving the user on the button.
-  function focusOnMount(node: HTMLElement): void {
-    node.focus()
-  }
-</script>
 
 <style>
   .select {
@@ -306,15 +322,17 @@
     white-space: nowrap;
   }
 
+  /* 320 is the popup band Modal reserves above the overlays it stacks from
+     300, so a picker opened inside a dialog draws over it rather than under. */
   .scrim {
     position: fixed;
     inset: 0;
-    z-index: 200;
+    z-index: 320;
   }
 
   .list {
     position: fixed;
-    z-index: 201;
+    z-index: 321;
     max-height: 280px;
     overflow-y: auto;
     margin: 0;

@@ -10,6 +10,7 @@
   import { fade, scale } from 'svelte/transition'
   import { IconX } from '@tabler/icons-svelte'
   import { prefs } from '../../stores/prefs'
+  import { popupIsOpen } from '../../lib/popups'
   import { t } from '../../lib/i18n'
 
   /** Heading, also the dialog's accessible name. */
@@ -98,6 +99,12 @@
       return
     }
     if (event.key === 'Escape') {
+      // a picker open over the dialog gets the key first. this listens at the
+      // capture phase, so without asking, escape would close the dialog out
+      // from under the open list and discard the edits behind it.
+      if (popupIsOpen()) {
+        return
+      }
       event.stopPropagation()
       if (confirming) {
         confirming = false
