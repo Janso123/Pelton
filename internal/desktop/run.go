@@ -26,8 +26,8 @@ type Config struct {
 	Version         string
 	LicenseManifest string
 	ProgramLicense  string
-	// TrayIcon is the .ico shown in the Windows notification area; unused on
-	// other platforms.
+	// TrayIcon is the .ico shown in the Windows notification area and the
+	// Linux tray; unused on macOS.
 	TrayIcon []byte
 	// DemoMode runs the app in the cosmetic screenshot mode (--potatoes-are-nice).
 	DemoMode bool

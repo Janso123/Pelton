@@ -27,10 +27,10 @@ var licenseManifest string
 //go:embed LICENSE
 var programLicense string
 
-// trayIcon is the Windows notification-area icon (see the desktop package's
-// tray_windows.go). Embedded on every platform - it is a few KB - but only
-// used on Windows. nightlyTrayIcon is the nightly build's own icon, so a
-// nightly in the notification area is never mistaken for a real install.
+// trayIcon is the tray icon for Windows and Linux (see the desktop package's
+// tray_windows.go and tray_linux.go). Embedded on every platform - it is a
+// few KB - but unused on macOS. nightlyTrayIcon is the nightly build's own
+// icon, so a nightly in the tray is never mistaken for a real install.
 //
 //go:embed build/windows/icon.ico
 var trayIcon []byte

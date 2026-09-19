@@ -1,9 +1,9 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package desktop
 
-// The tray icon is Windows-only (#84): macOS reopens the hidden window via
-// the Dock, and on Linux tray protocols are too fragmented to rely on.
+// No tray on macOS (see tray.go): the Dock icon reopens the hidden window,
+// and Quit lives in the native menu.
 
 func (a *App) startTray() {}
 

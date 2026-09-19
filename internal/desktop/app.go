@@ -103,8 +103,8 @@ type App struct {
 	// embedded license data served to the about section on demand.
 	licenseManifest string
 	programLicense  string
-	// trayIcon is the embedded .ico for the Windows notification-area icon
-	// (see tray_windows.go); empty elsewhere.
+	// trayIcon is the embedded .ico for the tray (see tray_windows.go and
+	// tray_linux.go); empty on macOS.
 	trayIcon []byte
 	// mailMenuItems are the native Mail-menu items that act on the open message;
 	// they start disabled and SetMailActionsEnabled toggles them as the frontend's
@@ -225,8 +225,8 @@ func (a *App) startup(ctx context.Context) {
 	// before the frontend has painted anything into it.
 	a.restoreGeometry()
 
-	// the Windows tray icon (no-op elsewhere). started after the store is up
-	// so its menu labels can follow the language setting.
+	// the tray icon (Windows and Linux; no-op elsewhere). started after the
+	// store is up so its menu labels can follow the language setting.
 	a.startTray()
 
 	// demo mode is purely cosmetic: the frontend renders fixed sample data, so we
