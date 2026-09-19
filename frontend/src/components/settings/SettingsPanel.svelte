@@ -1828,7 +1828,7 @@
   }
 
   .nav {
-    border-right: var(--hairline) solid var(--border-subtle);
+    border-inline-end: var(--hairline) solid var(--border-subtle);
     padding: var(--space-3);
     overflow-y: auto;
     display: flex;
@@ -1908,7 +1908,7 @@
     border-radius: var(--radius-control);
     color: var(--text-secondary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-list);
   }
 
@@ -2049,7 +2049,7 @@
     border-radius: var(--radius-control);
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
 
   .result:hover {
@@ -2085,7 +2085,7 @@
   /* a small marker for features that are still rough around the edges. */
   .badge-experimental {
     display: inline-block;
-    margin-left: var(--space-2);
+    margin-inline-start: var(--space-2);
     padding: 1px 6px;
     border-radius: var(--radius-control);
     background: var(--warning-bg, var(--surface-sunken));

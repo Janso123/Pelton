@@ -47,11 +47,11 @@
     padding: var(--space-1) var(--space-3);
     font-size: var(--fz-meta);
     cursor: var(--cursor-action);
-    border-right: var(--hairline) solid var(--border-subtle);
+    border-inline-end: var(--hairline) solid var(--border-subtle);
   }
 
   button:last-child {
-    border-right: none;
+    border-inline-end: none;
   }
 
   button:hover {

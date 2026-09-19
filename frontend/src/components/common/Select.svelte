@@ -47,7 +47,7 @@
   let active = -1
   let buffer = ''
   let bufferTimer: ReturnType<typeof setTimeout> | undefined
-  let box = { top: 0, left: 0, width: 0, below: true }
+  let box = { top: 0, start: 0, width: 0, below: true }
 
   $: options = flatten(items)
 
@@ -77,9 +77,14 @@
   function place(): void {
     const rect = buttonEl.getBoundingClientRect()
     const room = window.innerHeight - rect.bottom
+    // measured from the start edge rather than the left one, so a list wider
+    // than its button grows away from the reading direction instead of always
+    // rightward (#356). inset-inline-start resolves against the document's own
+    // direction, which is what the offset is measured against here.
+    const rtl = document.documentElement.dir === 'rtl'
     box = {
       top: room < 240 && rect.top > room ? rect.top : rect.bottom + 4,
-      left: rect.left,
+      start: rtl ? window.innerWidth - rect.right : rect.left,
       width: rect.width,
       below: !(room < 240 && rect.top > room),
     }
@@ -224,7 +229,7 @@
     role="listbox"
     aria-label={ariaLabel}
     tabindex="-1"
-    style="top: {box.top}px; left: {box.left}px; min-width: {box.width}px;"
+    style="top: {box.top}px; inset-inline-start: {box.start}px; min-width: {box.width}px;"
     on:keydown={onListKeydown}
     use:focusOnMount
   >
@@ -276,7 +281,7 @@
     background: var(--surface-raised);
     color: var(--text-primary);
     font: inherit;
-    text-align: left;
+    text-align: start;
     cursor: var(--cursor-action);
   }
 

@@ -264,7 +264,7 @@
 
   .ref-list {
     margin: var(--space-2) 0;
-    padding-left: var(--space-5);
+    padding-inline-start: var(--space-5);
     font-size: var(--fz-meta);
     color: var(--text-secondary);
     word-break: break-all;

@@ -331,7 +331,7 @@
     flex-direction: column;
     gap: var(--space-1);
     padding: var(--space-3);
-    border-right: var(--hairline) solid var(--border-subtle);
+    border-inline-end: var(--hairline) solid var(--border-subtle);
     overflow-y: auto;
   }
 
@@ -348,7 +348,7 @@
     font: inherit;
     font-size: var(--fz-label);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
 
   .book:hover {
@@ -378,7 +378,7 @@
     color: var(--accent);
     font: inherit;
     font-size: var(--fz-meta);
-    text-align: left;
+    text-align: start;
     padding: var(--space-1) var(--space-2);
     cursor: var(--cursor-action);
   }
@@ -388,7 +388,7 @@
     flex-direction: column;
     gap: var(--space-2);
     padding: var(--space-3);
-    border-right: var(--hairline) solid var(--border-subtle);
+    border-inline-end: var(--hairline) solid var(--border-subtle);
     overflow-y: auto;
   }
 
@@ -424,7 +424,7 @@
     background: transparent;
     color: var(--text-primary);
     font: inherit;
-    text-align: left;
+    text-align: start;
     cursor: var(--cursor-action);
   }
 

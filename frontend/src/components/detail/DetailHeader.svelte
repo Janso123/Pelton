@@ -133,7 +133,9 @@
 </script>
 
 <header class="head">
-  <h1 class="subject">{detail.subject || $t('detail.noSubject')}</h1>
+  <!-- the subject is the sender's words, so it reads in its own direction
+       whatever the interface is set to (#356). -->
+  <h1 dir="auto" class="subject">{detail.subject || $t('detail.noSubject')}</h1>
 
   <div class="from-row">
     <Avatar name={detail.fromName} email={detail.fromAddress} size={36} />
@@ -153,7 +155,7 @@
             <IconStar size={15} stroke={1.6} />
           {/if}
         </button>
-        <span class="from-name">{displayName(detail.fromName, detail.fromAddress)}</span>
+        <span dir="auto" class="from-name">{displayName(detail.fromName, detail.fromAddress)}</span>
         {#if detail.fromName}
           <span class="from-addr">&lt;{detail.fromAddress}&gt;</span>
         {/if}

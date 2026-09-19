@@ -692,7 +692,7 @@
     font-size: var(--fz-label);
   }
   .seg button + button {
-    border-left: var(--hairline) solid var(--border-default);
+    border-inline-start: var(--hairline) solid var(--border-default);
   }
   .seg button.on {
     background: var(--accent);
@@ -732,7 +732,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     direction: rtl;
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-meta);
     color: var(--text-secondary);
   }

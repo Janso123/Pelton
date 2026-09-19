@@ -70,7 +70,7 @@
     background: var(--surface-raised);
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
 
   .tile:hover {

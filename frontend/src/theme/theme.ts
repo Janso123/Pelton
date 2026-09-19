@@ -5,6 +5,7 @@
 
 import type { ThemePref, DensityPref } from '../lib/types'
 import { applyAccent } from './accent'
+import { ensureArabicFont, arabicFallback } from './rtlfont'
 
 export { applyAccent }
 
@@ -110,13 +111,44 @@ export function applyMonoFont(stack: string | null): void {
   setFontToken('--font-mono', stack)
 }
 
+// the stacks last handed to applyUIFont/applyMonoFont, so a change of reading
+// direction can re-apply them with or without the Arabic fallback rather than
+// waiting for the user to pick a font again.
+const chosenFonts: Record<string, string | null> = { '--font-ui': null, '--font-mono': null }
+let rtl = false
+
 function setFontToken(name: string, stack: string | null): void {
+  chosenFonts[name] = stack
   const root = document.documentElement
-  if (stack) {
-    root.style.setProperty(name, stack)
+  // a right-to-left interface appends the Arabic face to whatever stack is in
+  // force, including one the user chose, since none of the offered faces covers
+  // Arabic either.
+  const applied = stack && rtl ? `${stack}, ${arabicFallback}` : stack
+  if (applied) {
+    root.style.setProperty(name, applied)
   } else {
     root.style.removeProperty(name)
   }
+}
+
+/**
+ * Sets the interface reading direction (#356).
+ *
+ * The attribute goes on the root, so every logical css property in the app
+ * resolves against it and the whole layout mirrors without a second set of
+ * rules. Arabic text needs a face to render with, so the font is loaded before
+ * the switch: doing it after leaves a frame of empty boxes on a machine with no
+ * Arabic font of its own.
+ */
+export async function applyDirection(direction: 'ltr' | 'rtl'): Promise<void> {
+  if (direction === 'rtl') {
+    await ensureArabicFont()
+  }
+  rtl = direction === 'rtl'
+  document.documentElement.dir = direction
+  // re-apply so the fallback is added or dropped to match.
+  setFontToken('--font-ui', chosenFonts['--font-ui'])
+  setFontToken('--font-mono', chosenFonts['--font-mono'])
 }
 
 // applyReduceMotion marks the root so css can disable transitions and

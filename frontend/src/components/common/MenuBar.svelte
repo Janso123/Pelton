@@ -530,7 +530,9 @@
   .flyout {
     position: absolute;
     top: calc(-1 * var(--space-1));
-    left: 100%;
+    /* a submenu opens away from its parent, which is leftward in a
+       right-to-left interface. */
+    inset-inline-start: 100%;
     z-index: 221;
     min-width: 200px;
     padding: var(--space-1);
@@ -550,7 +552,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-label);
     border-radius: var(--radius-control);
   }
@@ -596,7 +598,7 @@
   }
 
   .hint {
-    margin-left: var(--space-4);
+    margin-inline-start: var(--space-4);
     font-size: var(--fz-meta);
     color: var(--text-tertiary);
     white-space: nowrap;

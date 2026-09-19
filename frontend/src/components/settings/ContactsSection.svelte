@@ -444,7 +444,7 @@
     color: var(--text-primary);
     font: inherit;
     font-size: var(--fz-label);
-    text-align: left;
+    text-align: start;
     cursor: var(--cursor-action);
   }
 

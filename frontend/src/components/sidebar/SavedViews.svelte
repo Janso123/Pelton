@@ -158,7 +158,7 @@
     background: transparent;
     color: var(--text-secondary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-list);
     line-height: 1.2;
   }
@@ -200,7 +200,7 @@
     display: none;
     align-items: center;
     gap: 1px;
-    padding-right: var(--space-2);
+    padding-inline-end: var(--space-2);
   }
 
   .row:hover .actions {

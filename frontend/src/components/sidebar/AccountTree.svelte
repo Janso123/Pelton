@@ -157,7 +157,7 @@
     border: none;
     background: transparent;
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     border-radius: var(--radius-control);
   }
 
@@ -208,7 +208,7 @@
     justify-content: center;
     flex-shrink: 0;
     padding: var(--space-1);
-    margin-right: var(--space-2);
+    margin-inline-end: var(--space-2);
     border: none;
     background: transparent;
     color: var(--text-tertiary);

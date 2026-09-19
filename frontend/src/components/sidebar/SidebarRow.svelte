@@ -40,7 +40,7 @@
   class="row"
   class:active
   data-reorder-id={reorderId}
-  style={`padding-left:${indent}`}
+  style={`padding-inline-start:${indent}`}
   on:contextmenu|preventDefault={(e) => dispatch('contextmenu', e)}
 >
   {#each guides as level (level)}
@@ -90,7 +90,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    padding-right: var(--space-3);
+    padding-inline-end: var(--space-3);
     border-radius: var(--radius-control);
   }
 
@@ -152,7 +152,7 @@
     background: transparent;
     color: var(--text-secondary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-list);
     line-height: 1.2;
   }

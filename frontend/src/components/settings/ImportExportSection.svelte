@@ -275,7 +275,7 @@
     margin-top: var(--space-4);
     padding: var(--space-4);
     border: var(--hairline) solid var(--border-default);
-    border-left: 2px solid var(--danger);
+    border-inline-start: 2px solid var(--danger);
     border-radius: var(--radius-card);
     background: var(--surface-sunken);
   }
@@ -287,7 +287,7 @@
   }
   .confirm ul {
     margin: var(--space-3) 0;
-    padding-left: var(--space-6);
+    padding-inline-start: var(--space-6);
     font-size: var(--fz-label);
     color: var(--text-secondary);
   }
@@ -363,11 +363,11 @@
   }
 
   .check.sub {
-    margin-left: calc(var(--space-2) + 14px);
+    margin-inline-start: calc(var(--space-2) + 14px);
   }
 
   .pw-input {
-    margin-left: calc(var(--space-2) + 14px);
+    margin-inline-start: calc(var(--space-2) + 14px);
     height: var(--control-height);
     padding: 0 var(--space-3);
     border: var(--hairline) solid var(--border-default);

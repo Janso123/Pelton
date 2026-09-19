@@ -327,7 +327,7 @@
 
   /* what detection currently resolves to, so "automatic" is not a blind choice. */
   .role-note {
-    margin-left: auto;
+    margin-inline-start: auto;
     font-size: var(--fz-meta);
     color: var(--text-tertiary);
   }

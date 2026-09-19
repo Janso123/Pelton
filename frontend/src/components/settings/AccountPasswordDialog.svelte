@@ -213,7 +213,7 @@
 
   /* the quiet option, kept away from the two that answer the question now. */
   .dismiss {
-    margin-right: auto;
+    margin-inline-end: auto;
     padding: var(--space-2) 0;
     font-size: var(--fz-label);
     color: var(--text-tertiary);

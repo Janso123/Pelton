@@ -57,21 +57,24 @@
     cursor: default;
   }
 
+  /* the knob travels from the start of the track to its end, so in a
+     right-to-left interface "on" is to the left, the way every other toggle on
+     such a system reads. */
   .knob {
     position: absolute;
     top: 50%;
-    left: 2px;
+    inset-inline-start: 2px;
     width: 14px;
     height: 14px;
     border-radius: 999px;
     background: var(--surface-base);
     transform: translateY(-50%);
-    transition: left 0.14s ease;
+    transition: inset-inline-start 0.14s ease;
     box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
   }
 
   .switch.on .knob {
-    left: 18px;
+    inset-inline-start: 18px;
     background: var(--accent-fg, #fff);
   }
 </style>

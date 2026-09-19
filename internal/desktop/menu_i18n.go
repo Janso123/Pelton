@@ -34,7 +34,8 @@ type menuStrings struct {
 	closeTab         string
 }
 
-// menuLocales mirrors the frontend's supported languages (en/de/fr/nl/es/pl/tr).
+// menuLocales mirrors the frontend's supported languages
+// (en/de/fr/nl/es/pl/tr/pt/ar).
 // Keeping this as a Go-side table, separate from the frontend's TypeScript
 // locale files, is unavoidable: the native menu is built by the Go process
 // before any frontend code runs, and wails' menu API takes plain strings, not
@@ -279,6 +280,38 @@ var menuLocales = map[string]menuStrings{
 		openInTab:        "Abrir em Novo Separador",
 		switchProfile:    "Mudar Perfil…",
 		closeTab:         "Fechar Separador",
+	},
+	// the app name stays in latin script: it is a proper noun, and macOS puts it
+	// in the bold application menu next to the apple logo either way.
+	"ar": {
+		appMenu:          "Pelton",
+		about:            "حول Pelton",
+		preferences:      "التفضيلات…",
+		hide:             "إخفاء Pelton",
+		quit:             "إنهاء Pelton",
+		fileMenu:         "ملف",
+		compose:          "رسالة جديدة",
+		exportPDF:        "تصدير الرسالة بصيغة PDF…",
+		closeWindow:      "إغلاق النافذة",
+		mailboxMenu:      "صندوق البريد",
+		syncNow:          "المزامنة الآن",
+		openWindow:       "فتح Pelton",
+		addMailbox:       "إضافة صندوق بريد…",
+		manageMailboxes:  "إدارة صناديق البريد…",
+		contacts:         "جهات الاتصال…",
+		mailMenu:         "رسالة",
+		undo:             "تراجع",
+		markRead:         "تحديد كمقروءة",
+		markUnread:       "تحديد كغير مقروءة",
+		flagUnflag:       "وضع علامة / إزالتها",
+		archive:          "أرشفة",
+		deleteMessage:    "حذف الرسالة",
+		viewMenu:         "عرض",
+		toggleFullscreen: "تبديل ملء الشاشة",
+		lowPowerMode:     "وضع توفير الطاقة",
+		openInTab:        "فتح في علامة تبويب جديدة",
+		switchProfile:    "تبديل الملف الشخصي…",
+		closeTab:         "إغلاق علامة التبويب",
 	},
 }
 

@@ -20,6 +20,9 @@ importers:
       '@fontsource/familjen-grotesk':
         specifier: ^5.3.0
         version: 5.3.0
+      '@fontsource/noto-sans-arabic':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@fontsource/spline-sans-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -214,6 +217,9 @@ packages:
 
   '@fontsource/familjen-grotesk@5.3.0':
     resolution: {integrity: sha512-Kh6DXwAtw+kyvCSpiOI3wss/LvOJtJJRl9NTf9YpYpmcpsZ5BGQLTF9nVm9TUmnpLTe4z3iyAcvnLfsQgQR0lg==}
+
+  '@fontsource/noto-sans-arabic@5.3.0':
+    resolution: {integrity: sha512-i3t6GR0LOReyJVEk+YfYCnxv53wuIelg7Y9NGNvOq4Diq/EP0YszaGXkQwfQNigLjfO4POrLaPGM0sNliGYk7A==}
 
   '@fontsource/spline-sans-mono@5.3.0':
     resolution: {integrity: sha512-9MJxL52KuuVskwM3LbCwEP/L3ClsHsCd18gwmm5df/ZFh/TIg3LE9DT4pLyB5ptKCvEEi7JwclAe8HhCfzlBWg==}
@@ -1370,6 +1376,8 @@ snapshots:
   '@exodus/bytes@1.15.1': {}
 
   '@fontsource/familjen-grotesk@5.3.0': {}
+
+  '@fontsource/noto-sans-arabic@5.3.0': {}
 
   '@fontsource/spline-sans-mono@5.3.0': {}
 

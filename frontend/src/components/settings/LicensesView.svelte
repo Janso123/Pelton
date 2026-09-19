@@ -112,7 +112,7 @@
 
   .program span {
     flex: 1;
-    text-align: left;
+    text-align: start;
   }
 
   h4 {
@@ -139,7 +139,7 @@
     color: var(--text-primary);
     font-size: var(--fz-label);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     border-radius: var(--radius-control);
   }
 

@@ -229,7 +229,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     border-radius: var(--radius-control);
     font-size: var(--fz-label);
   }

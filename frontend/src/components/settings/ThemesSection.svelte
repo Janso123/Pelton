@@ -317,7 +317,7 @@
     border-radius: var(--radius-card);
     background: var(--surface-raised);
     overflow: hidden;
-    text-align: left;
+    text-align: start;
     padding: 0;
   }
 
@@ -337,7 +337,7 @@
     background: none;
     padding: 0;
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
 
   .preview,

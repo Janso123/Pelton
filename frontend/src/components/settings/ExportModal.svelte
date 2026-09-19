@@ -164,14 +164,14 @@
   }
 
   .check.sub {
-    margin-left: calc(var(--space-2) + 14px);
+    margin-inline-start: calc(var(--space-2) + 14px);
   }
 
   .password-fields {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    margin-left: calc(var(--space-2) + 14px);
+    margin-inline-start: calc(var(--space-2) + 14px);
   }
 
   .pw-input {

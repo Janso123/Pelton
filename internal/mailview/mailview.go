@@ -84,7 +84,18 @@ func buildPolicy(allowRemote, allowFonts bool) *bluemonday.Policy {
 	// (img-src) when remote content is off, so keeping it does not leak.
 	p.AllowStyles("color", "background-color", "background", "text-align",
 		"font-weight", "font-style", "text-decoration", "font-size", "line-height",
-		"margin", "padding", "border", "border-color").Globally()
+		"margin", "padding", "border", "border-color",
+		// direction and unicode-bidi are how html mail says it reads right to
+		// left (#356). Stripping them was why Hebrew and Arabic mail arrived
+		// left-aligned with its punctuation and numbers out of order: the sender
+		// had said which way to read it and the sanitizer removed the answer.
+		// Neither can do anything but lay text out.
+		"direction", "unicode-bidi").Globally()
+
+	// the dir attribute is the other half of that, and the more common one: it
+	// is what a mail client writes on <html>, <body> or a <div> rather than a
+	// style. Allowed everywhere, since mail sets it at whatever level it likes.
+	p.AllowAttrs("dir").Globally()
 
 	// font-family is the sender's own typeface. It cannot pull anything down:
 	// the reading pane's csp limits font-src to data:, so a named family either

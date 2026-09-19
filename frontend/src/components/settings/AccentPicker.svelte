@@ -114,7 +114,7 @@
     height: 26px;
     border-radius: var(--radius-control);
     border: var(--hairline) solid var(--border-strong);
-    margin-left: var(--space-2);
+    margin-inline-start: var(--space-2);
   }
 
   .hex {

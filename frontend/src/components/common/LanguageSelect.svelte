@@ -86,7 +86,7 @@
     color: var(--text-primary);
     font-size: var(--fz-label);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
 
   /* a fixed box so a wide flag and a tall one line up. */

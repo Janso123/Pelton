@@ -811,7 +811,7 @@
     grid-template-rows: auto auto 1fr;
     height: 100%;
     background: var(--surface-raised);
-    border-right: var(--hairline) solid var(--border-default);
+    border-inline-end: var(--hairline) solid var(--border-default);
     min-width: 0;
   }
 
