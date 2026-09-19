@@ -13,27 +13,36 @@ import (
 // ui-only and defined here. raw strings keep the contract in one place next to
 // the defaults.
 const (
-	settingAccent         = "accent"
-	settingDensity        = "density"
-	settingShowBadge      = "show_mailbox_badge"
-	settingShowDateTime   = "show_datetime"
-	settingShowPGP        = "show_pgp"
+	settingAccent       = "accent"
+	settingDensity      = "density"
+	settingShowBadge    = "show_mailbox_badge"
+	settingShowDateTime = "show_datetime"
+	settingShowPGP      = "show_pgp"
 	// settingIndexDecrypted lets search see inside encrypted mail. Off by
 	// default: the search index is an ordinary file on disk, so indexing
 	// decrypted text writes the plaintext there and gives up much of what the
 	// encryption was for. Toggling it rebuilds the index either way, so turning
 	// it off actually removes the plaintext rather than merely stopping additions.
 	settingIndexDecrypted = "search_index_decrypted"
-	settingShowAuth       = "show_auth"
-	settingToastPosition  = "toast_position"
-	settingPaneLocked     = "pane_locked"
-	settingSidebarWidth   = "sidebar_width"
-	settingListWidth      = "list_width"
-	settingSendDelay      = "send_delay_seconds"
-	settingFlagHighlight  = "flag_highlight"
-	settingShortcutHints  = "show_shortcut_hints"
-	settingAccountEmail   = "show_account_email"
-	settingRemoteAlways   = "remote_images_always"
+	// the sort order search results come back in, remembered separately for the
+	// three shapes a query takes (#404). "auto" lets the ui pick from the query:
+	// free text has scores worth ranking by, a query built only from chips does
+	// not, and a date window says the user is thinking chronologically. Splitting
+	// the memory three ways is what keeps a deliberate choice from following the
+	// user onto a search where it makes no sense.
+	settingSearchSortText     = "search_sort_text"
+	settingSearchSortDated    = "search_sort_dated"
+	settingSearchSortFiltered = "search_sort_filtered"
+	settingShowAuth           = "show_auth"
+	settingToastPosition      = "toast_position"
+	settingPaneLocked         = "pane_locked"
+	settingSidebarWidth       = "sidebar_width"
+	settingListWidth          = "list_width"
+	settingSendDelay          = "send_delay_seconds"
+	settingFlagHighlight      = "flag_highlight"
+	settingShortcutHints      = "show_shortcut_hints"
+	settingAccountEmail       = "show_account_email"
+	settingRemoteAlways       = "remote_images_always"
 	// settingBlockTrackers keeps images that look like tracking pixels blocked
 	// even once remote content is loaded, so seeing a newsletter's pictures does
 	// not also confirm the open to the sender (#205). Off by default, since the
@@ -43,16 +52,16 @@ const (
 	// default: every other mail client honours them, and a named family cannot
 	// fetch anything (the reading pane's csp limits font-src to data:). Off puts
 	// every message in the reader font.
-	settingSenderFonts    = "sender_fonts"
+	settingSenderFonts = "sender_fonts"
 	// settingHarvestAddresses keeps learning addresses from mail for compose
 	// autocomplete. On by default, since it is what autocomplete was before
 	// there were contacts. Off leaves only the synced address books, which is
 	// what someone who maintains a real one asked for (#168).
 	settingHarvestAddresses = "harvest_addresses"
 	settingAvatarSource     = "avatar_source"
-	settingAvatarStyle    = "avatar_style"
-	settingMultiSelect    = "multi_select_enabled"
-	settingSelectedCount  = "show_selected_count"
+	settingAvatarStyle      = "avatar_style"
+	settingMultiSelect      = "multi_select_enabled"
+	settingSelectedCount    = "show_selected_count"
 	// settingSelectAllScope is how far select-all reaches. The default offers
 	// the rest rather than taking it: a mailbox holds more than the pages that
 	// were scrolled to, and silently selecting all of it is not what a click on
@@ -62,15 +71,15 @@ const (
 	// default: those span every account, so "everything in this list" is a much
 	// bigger claim there than in one mailbox.
 	settingSelectAllUnified = "select_all_unified"
-	settingIndentGuides   = "sidebar_indent_guides"
-	settingRowTemplate    = "row_template"
-	settingRowAvatar      = "row_show_avatar"
-	settingRowSnippet     = "row_show_snippet"
-	settingPreviewLines   = "preview_lines"
-	settingUIScale        = "ui_scale"
-	settingMessageFont    = "message_font_size"
-	settingFlaggedCount   = "show_flagged_count"
-	settingViewsPlacement = "views_placement"
+	settingIndentGuides     = "sidebar_indent_guides"
+	settingRowTemplate      = "row_template"
+	settingRowAvatar        = "row_show_avatar"
+	settingRowSnippet       = "row_show_snippet"
+	settingPreviewLines     = "preview_lines"
+	settingUIScale          = "ui_scale"
+	settingMessageFont      = "message_font_size"
+	settingFlaggedCount     = "show_flagged_count"
+	settingViewsPlacement   = "views_placement"
 	// newer feature settings.
 	settingFlagColorSync       = "flag_color_sync"
 	settingShowOffline         = "show_offline_indicator"
@@ -174,6 +183,9 @@ const (
 	defaultAvatarSource = "bimi_gravatar"
 	// generated placeholder style: initials, mono, pixel, geometric.
 	defaultAvatarStyle = "initials"
+	// search result order: auto, relevance, newest, oldest, subjectAsc,
+	// subjectDesc. "auto" reads the order off the query rather than fixing one.
+	defaultSearchSort = "auto"
 	// list row template: relaxed (avatar + 3 lines), comfortable (3 lines),
 	// compact (2 lines), single (1 line).
 	defaultRowTemplate = "relaxed"
@@ -245,6 +257,12 @@ type UIPrefsDTO struct {
 	// SelectAllUnified offers select-all in the unified views as well. Off by
 	// default: a unified list spans every account.
 	SelectAllUnified bool `json:"selectAllUnified"`
+	// SearchSortText/Dated/Filtered are the remembered sort order for each shape
+	// of search: words typed, a date window set, and chips only. "auto" (the
+	// default) leaves the choice to the query.
+	SearchSortText     string `json:"searchSortText"`
+	SearchSortDated    string `json:"searchSortDated"`
+	SearchSortFiltered string `json:"searchSortFiltered"`
 	// SidebarIndentGuides draws vertical guide lines for nested folders.
 	SidebarIndentGuides bool `json:"sidebarIndentGuides"`
 	// RowTemplate selects the message-list row layout: relaxed, comfortable,
@@ -422,6 +440,9 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		ShowSelectedCount:   a.boolSetting(settingSelectedCount, true),
 		SelectAllScope:      a.stringSetting(settingSelectAllScope, "offer"),
 		SelectAllUnified:    a.boolSetting(settingSelectAllUnified, false),
+		SearchSortText:      a.stringSetting(settingSearchSortText, defaultSearchSort),
+		SearchSortDated:     a.stringSetting(settingSearchSortDated, defaultSearchSort),
+		SearchSortFiltered:  a.stringSetting(settingSearchSortFiltered, defaultSearchSort),
 		SidebarIndentGuides: a.boolSetting(settingIndentGuides, false),
 		RowTemplate:         a.stringSetting(settingRowTemplate, defaultRowTemplate),
 		RowShowAvatar:       a.boolSetting(settingRowAvatar, true),
@@ -525,7 +546,7 @@ func (a *App) SetSetting(key, value string) error {
 		// rebuilt from scratch rather than re-indexed in place: switching this
 		// off has to remove the plaintext already written, and overwriting
 		// documents would leave it in the index's older segments.
-		goSafe("rebuilding the search index", a.rebuildSearchIndex)
+		goSafe("rebuilding the search index", func() { _ = a.rebuildSearchIndex() })
 	}
 	return nil
 }

@@ -79,6 +79,11 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 		To:      strings.TrimSpace(req.To),
 		Subject: strings.TrimSpace(req.Subject),
 		Limit:   selectAllCap,
+		// the same order the list is showing. The cap means this can be a prefix
+		// of the matches rather than all of them, and "select everything" should
+		// take the ones the user can see, not a different slice ranked another
+		// way.
+		Sort: searchSort(req.Sort),
 	}
 	if req.AfterUnix > 0 {
 		q.After = time.Unix(req.AfterUnix, 0)

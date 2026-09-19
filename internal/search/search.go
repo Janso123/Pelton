@@ -64,6 +64,44 @@ type Doc struct {
 	Date      time.Time
 }
 
+// Sort is the order a page of results comes back in.
+type Sort string
+
+const (
+	// SortRelevance ranks by score, which is what a free-text query wants.
+	SortRelevance Sort = "relevance"
+	// SortNewest and SortOldest order by message date, ignoring score. With no
+	// free text there is nothing meaningful to score, so these are what a
+	// query built only from chips should use.
+	SortNewest Sort = "newest"
+	SortOldest Sort = "oldest"
+	// SortSubjectAsc and SortSubjectDesc order alphabetically by subject.
+	SortSubjectAsc  Sort = "subjectAsc"
+	SortSubjectDesc Sort = "subjectDesc"
+)
+
+// fieldSubjectSort is the sortable copy of the subject: one keyword term rather
+// than the analyzed tokens the searchable subject field holds. Sorting on an
+// analyzed field orders by whichever of its terms sorts first, which for a
+// subject is close to arbitrary.
+const fieldSubjectSort = "subject_sort"
+
+// sortOrders maps a Sort onto the Bleve sort spec it runs as.
+//
+// Every order ends in _id so it is total. Anything less is not a detail: equal
+// sort keys are the normal case here, not an edge case (every message in a
+// thread shares a subject, a newsletter arrives on the same score every month),
+// and Bleve's order among equal keys is not stable between queries. Paging by
+// offset over an unstable order returns one message on two pages and never
+// returns another at all.
+var sortOrders = map[Sort][]string{
+	SortRelevance:   {"-_score", "-date", "_id"},
+	SortNewest:      {"-date", "_id"},
+	SortOldest:      {"date", "_id"},
+	SortSubjectAsc:  {fieldSubjectSort, "-date", "_id"},
+	SortSubjectDesc: {"-" + fieldSubjectSort, "-date", "_id"},
+}
+
 // Query is a search request: free text plus optional field constraints and a
 // date window. The field constraints (From/To/Subject) come from typed search
 // chips (from:, to:, subject:) and each narrows the results to that field; they
@@ -82,6 +120,10 @@ type Query struct {
 	// Offset skips that many ranked hits, so the caller can page instead of
 	// silently losing everything past the first page.
 	Offset int
+	// Sort is the order results come back in. An empty or unrecognized value
+	// means relevance, which is what every caller wanted before there was a
+	// choice.
+	Sort Sort
 }
 
 // Hit is one search result: the message id and its relevance score.
@@ -160,8 +202,9 @@ func (i *Index) Delete(id int64) error {
 	return nil
 }
 
-// Search runs a query and returns one page of matching message ids ranked by
-// relevance, along with the total number of matches.
+// Search runs a query and returns one page of matching message ids in the order
+// q.Sort asks for (relevance by default), along with the total number of
+// matches.
 func (i *Index) Search(q Query) (Results, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -173,13 +216,7 @@ func (i *Index) Search(q Query) (Results, error) {
 	}
 
 	req := bleve.NewSearchRequestOptions(i.build(q), limit, offset, false)
-	// Score alone is not a total order. Equal scores are the normal case, not an
-	// edge case: every message in a thread shares a subject, and a newsletter
-	// scores the same every month. Bleve's order among equal scores is not
-	// stable between queries, so paging by offset could return one message on
-	// two pages and never return another at all. Date breaks the tie the way a
-	// mail client should, and the document id makes the order total.
-	req.SortBy([]string{"-_score", "-date", "_id"})
+	req.SortBy(sortOrder(q.Sort))
 	res, err := i.idx.Search(req)
 	if err != nil {
 		return Results{}, fmt.Errorf("search: query %q: %w", q.Text, err)
@@ -194,6 +231,16 @@ func (i *Index) Search(q Query) (Results, error) {
 		hits = append(hits, Hit{ID: id, Score: h.Score})
 	}
 	return Results{Hits: hits, Total: res.Total}, nil
+}
+
+// sortOrder returns the Bleve sort spec for s, falling back to relevance for an
+// empty or unrecognized value so an older frontend, or a value that stopped
+// existing, still gets the order search always had.
+func sortOrder(s Sort) []string {
+	if order, ok := sortOrders[s]; ok {
+		return order
+	}
+	return sortOrders[SortRelevance]
 }
 
 // build assembles the Bleve query from the request: a text part (fuzzy, multi
@@ -341,13 +388,27 @@ func dateQuery(after, before time.Time) query.Query {
 // the mapping field names).
 func toIndexable(d Doc) map[string]any {
 	return map[string]any{
-		"subject": d.Subject,
-		"from":    d.From,
-		"to":      d.To,
-		"cc":      d.Cc,
-		"body":    d.Body,
-		"date":    d.Date,
+		"subject":        d.Subject,
+		fieldSubjectSort: subjectSortKey(d.Subject),
+		"from":           d.From,
+		"to":             d.To,
+		"cc":             d.Cc,
+		"body":           d.Body,
+		"date":           d.Date,
 	}
+}
+
+// subjectSortKey is the single term the subject sorts on. Lowercased, because
+// otherwise every capitalized subject sorts ahead of every lowercase one and the
+// order looks broken; trimmed, because leading whitespace would sort a subject
+// to the front for a reason nobody can see.
+//
+// It is otherwise the subject verbatim. Reply and forward prefixes are left
+// alone: stripping them means a list of prefixes, and mail arrives with
+// localized ones (AW:, WG:, SV:, RIF:) that no fixed list covers, so a partial
+// list would sort some replies by their subject and others by "re".
+func subjectSortKey(subject string) string {
+	return strings.ToLower(strings.TrimSpace(subject))
 }
 
 // docID renders a message id as the stable Bleve document id.
@@ -364,10 +425,18 @@ func buildMapping() *mapping.IndexMappingImpl {
 	date := bleve.NewDateTimeFieldMapping()
 	date.Store = false
 
+	// the sortable subject is a keyword: one term, unanalyzed, so sorting on it
+	// orders by the whole subject rather than by whichever word in it happens to
+	// sort first. It is never searched, only sorted on.
+	subjectSort := bleve.NewKeywordFieldMapping()
+	subjectSort.Store = false
+	subjectSort.IncludeInAll = false
+
 	doc := bleve.NewDocumentMapping()
 	for _, name := range []string{"subject", "from", "to", "cc", "body"} {
 		doc.AddFieldMappingsAt(name, text)
 	}
+	doc.AddFieldMappingsAt(fieldSubjectSort, subjectSort)
 	doc.AddFieldMappingsAt("date", date)
 
 	im := bleve.NewIndexMapping()

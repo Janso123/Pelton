@@ -113,6 +113,10 @@ export function requestMailSearch(text: string): void {
       to: '',
       subject: '',
       hasAttachment: false,
+      // always the best matches, whatever the list is sorted by: the palette
+      // shows a handful of rows off a half-typed query, which is the one place
+      // ranking is the only useful order.
+      sort: 'relevance',
     })
       .then((res) => {
         if (seq === mailSeq) {

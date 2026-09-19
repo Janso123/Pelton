@@ -47,6 +47,7 @@
     restoreToList,
     emptyFilter,
     filterActive,
+    searchSortKind,
     type SearchFilter,
   } from '../../stores/messages'
   import {
@@ -65,7 +66,7 @@
     clearExpandOffer,
     clearAll,
   } from '../../stores/selectall'
-  import { prefs } from '../../stores/prefs'
+  import { prefs, setSearchSort } from '../../stores/prefs'
   import {
     setSeen,
     getMessage,
@@ -82,7 +83,7 @@
   import { openInTab } from '../../stores/tabs'
   import { errorMessage, toastError } from '../../stores/toast'
   import { isVIPAddress } from '../../stores/vip'
-  import type { Selection, MessageSummary, SwipeAction, EditorMode } from '../../lib/types'
+  import type { Selection, MessageSummary, SwipeAction, EditorMode, SearchSortPref } from '../../lib/types'
   import { t } from '../../lib/i18n'
   import {
     markSeen,
@@ -280,6 +281,18 @@
 
   function onFilter(event: CustomEvent<SearchFilter>): void {
     searchFilter = event.detail
+    applySearch($searchQuery.trim(), searchFilter)
+  }
+
+  // a sort picked from the search bar is remembered for this kind of search and
+  // the results are read again in the new order (#404). It goes through
+  // applySearch so the rows reordering also resets the scroll and drops a
+  // selection that would otherwise point at whatever moved into those rows.
+  function onSort(event: CustomEvent<SearchSortPref>): void {
+    if (!$searchSortKind) {
+      return
+    }
+    setSearchSort($searchSortKind, event.detail)
     applySearch($searchQuery.trim(), searchFilter)
   }
 
@@ -621,7 +634,7 @@
 
 <section class="list-col">
   <div class="header">
-    <SearchBar value={$searchQuery} on:search={onSearch} on:filter={onFilter} />
+    <SearchBar value={$searchQuery} on:search={onSearch} on:filter={onFilter} on:sort={onSort} />
   </div>
 
   {#if selectionCount > 0}

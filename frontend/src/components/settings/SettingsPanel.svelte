@@ -62,6 +62,8 @@
     setAvatarStyle,
     setMultiSelectEnabled,
     setSelectAllScope,
+    setSearchSort,
+    searchSortPref,
     setSelectAllUnified,
     setShowSelectedCount,
     setSidebarIndentGuides,
@@ -118,7 +120,15 @@
   import { downloadProgress } from '../../stores/progress'
   import { toastInfo, toastError, errorMessage } from '../../stores/toast'
   import { t } from '../../lib/i18n'
-  import type { ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, LogStatus, SelectAllScope } from '../../lib/types'
+  import type { ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, LogStatus, SelectAllScope, SearchKind, SearchSortPref } from '../../lib/types'
+  import { searchSorts, automaticSort } from '../../lib/searchsort'
+
+  // the three kinds of search that remember their own result order (#404).
+  const searchSortRows: { kind: SearchKind; label: string }[] = [
+    { kind: 'text', label: 'settingsPanel.searchSort.text' },
+    { kind: 'dated', label: 'settingsPanel.searchSort.dated' },
+    { kind: 'filtered', label: 'settingsPanel.searchSort.filtered' },
+  ]
 
   let editorModeOptions: { key: EditorMode; label: string }[] = []
   $: editorModeOptions = [
@@ -202,6 +212,7 @@
     { cat: 'display', label: $t('settingsPanel.label.bodyFont'), kw: 'font' },
     { cat: 'display', label: $t('settingsPanel.toggle.senderFonts'), kw: 'font email typeface sender' },
     { cat: 'list', label: $t('settingsPanel.label.selectAllScope'), kw: 'select all bulk selection' },
+    { cat: 'list', label: $t('settingsPanel.subhead.searchSort'), kw: 'search sort order relevance newest oldest alphabetical subject' },
     { cat: 'list', label: $t('settingsPanel.toggle.selectAllUnified'), kw: 'select all unified inbox' },
     { cat: 'display', label: $t('settingsPanel.label.uiFont'), kw: 'font interface' },
     { cat: 'display', label: $t('settingsPanel.label.monoFont'), kw: 'font monospace code' },
@@ -445,6 +456,9 @@
 
   function onSelectAllScope(event: Event): void {
     setSelectAllScope((event.currentTarget as HTMLSelectElement).value as SelectAllScope)
+  }
+  function onSearchSort(kind: SearchKind, event: Event): void {
+    setSearchSort(kind, (event.currentTarget as HTMLSelectElement).value as SearchSortPref)
   }
   function onBodyFont(event: Event): void {
     setBodyFont((event.currentTarget as HTMLSelectElement).value)
@@ -1078,6 +1092,26 @@
             />
           </div>
           <p class="hint">{$t('settingsPanel.hint.selectAllUnified')}</p>
+
+          <h4 class="subhead">{$t('settingsPanel.subhead.searchSort')}</h4>
+          <p class="hint">{$t('settingsPanel.hint.searchSort')}</p>
+          {#each searchSortRows as row (row.kind)}
+            <div class="row">
+              <span class="row-label">{$t(row.label)}</span>
+              <select
+                class="select"
+                value={searchSortPref($prefs, row.kind)}
+                on:change={(e) => onSearchSort(row.kind, e)}
+              >
+                <option value="auto">
+                  {$t('settingsPanel.searchSort.auto')} ({$t(`messageList.search.sort.${automaticSort(row.kind)}`)})
+                </option>
+                {#each searchSorts as option (option)}
+                  <option value={option}>{$t(`messageList.search.sort.${option}`)}</option>
+                {/each}
+              </select>
+            </div>
+          {/each}
 
           <h4 class="subhead">{$t('settingsPanel.category.sidebar')}</h4>
           <div class="toggle" title={$t('settingsPanel.hint.indentGuides')}>

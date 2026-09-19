@@ -6,10 +6,13 @@
   // button inserts before/after date chips. everything is emitted as free text
   // plus a structured SearchFilter so the list re-runs the ranked search.
   import { createEventDispatcher, tick } from 'svelte'
-  import { IconSearch, IconX, IconCalendar, IconBookmarkPlus } from '@tabler/icons-svelte'
+  import { IconSearch, IconX, IconCalendar, IconBookmarkPlus, IconArrowsSort, IconCheck } from '@tabler/icons-svelte'
   import { prefs } from '../../stores/prefs'
   import { shortcutLabel, t } from '../../lib/i18n'
   import { emptyFilter, type SearchFilter } from '../../stores/messages'
+  import { activeSortPref, searchSortKind } from '../../stores/messages'
+  import { searchSorts, automaticSort } from '../../lib/searchsort'
+  import type { SearchSortPref } from '../../lib/types'
   import { selection } from '../../stores/selection'
   import { openViewEditor } from '../../stores/views'
   import DateTimePicker from '../common/DateTimePicker.svelte'
@@ -26,7 +29,7 @@
   }
 
   const searchHint = shortcutLabel('mod+f')
-  const dispatch = createEventDispatcher<{ search: string; filter: SearchFilter }>()
+  const dispatch = createEventDispatcher<{ search: string; filter: SearchFilter; sort: SearchSortPref }>()
 
   // chip fields and the aliases that produce them ("sender:" -> from).
   type ChipField = 'from' | 'to' | 'subject' | 'has' | 'before' | 'after'
@@ -220,6 +223,25 @@
 
   $: hasContent = text !== '' || chips.length > 0
 
+  let showSort = false
+
+  // closing the popovers when the search is cleared, so neither reopens over a
+  // list that is no longer a result set.
+  $: if (!hasContent) {
+    showSort = false
+  }
+
+  // what "automatic" resolves to right now, shown beside the option so the
+  // choice is not between a named order and a word that explains nothing.
+  $: autoLabel = $searchSortKind ? $t(`messageList.search.sort.${automaticSort($searchSortKind)}`) : ''
+
+  // the list owns re-running the search: reordering the rows has to reset the
+  // scroll and the selection the same way any other search does.
+  function pickSort(pref: SearchSortPref): void {
+    dispatch('sort', pref)
+    showSort = false
+  }
+
   // viewName is what the new view is called before the user renames it.
   //
   // A keyword token becomes a chip as soon as it is typed, which leaves the text
@@ -303,6 +325,56 @@
     >
       <IconBookmarkPlus size={16} stroke={1.7} />
     </button>
+  {/if}
+
+  {#if $searchSortKind}
+    <div class="filter-wrap">
+      <button
+        type="button"
+        class="filter-btn"
+        aria-label={$t('messageList.search.sortBy')}
+        aria-expanded={showSort}
+        title={$t('messageList.search.sortBy')}
+        on:click={() => (showSort = !showSort)}
+      >
+        <IconArrowsSort size={16} stroke={1.7} />
+      </button>
+
+      {#if showSort}
+        <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+        <div class="scrim" on:click={() => (showSort = false)}></div>
+        <div class="menu sort-menu" role="menu">
+          <span class="menu-label">{$t('messageList.search.sortBy')}</span>
+          <button
+            type="button"
+            class="sort-opt"
+            role="menuitemradio"
+            aria-checked={$activeSortPref === 'auto'}
+            on:click={() => pickSort('auto')}
+          >
+            <span class="sort-check">
+              {#if $activeSortPref === 'auto'}<IconCheck size={13} stroke={2} />{/if}
+            </span>
+            <span class="sort-name">{$t('messageList.search.sort.auto')}</span>
+            <span class="sort-note">{autoLabel}</span>
+          </button>
+          {#each searchSorts as option (option)}
+            <button
+              type="button"
+              class="sort-opt"
+              role="menuitemradio"
+              aria-checked={$activeSortPref === option}
+              on:click={() => pickSort(option)}
+            >
+              <span class="sort-check">
+                {#if $activeSortPref === option}<IconCheck size={13} stroke={2} />{/if}
+              </span>
+              <span class="sort-name">{$t(`messageList.search.sort.${option}`)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+    </div>
   {/if}
 
   <div class="filter-wrap">
@@ -528,6 +600,53 @@
     border-radius: var(--radius-card);
     background: var(--surface-overlay);
     box-shadow: var(--shadow-overlay);
+  }
+
+  .sort-menu {
+    width: 208px;
+    padding: var(--space-1);
+  }
+
+  .sort-menu .menu-label {
+    padding: var(--space-2) var(--space-2) var(--space-1);
+    margin: 0;
+  }
+
+  .sort-opt {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    border: none;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: var(--cursor-action);
+    text-align: left;
+    padding: var(--space-2);
+    border-radius: var(--radius-control);
+    font-size: var(--fz-label);
+  }
+  .sort-opt:hover {
+    background: var(--surface-hover);
+  }
+
+  /* the tick keeps its column whether or not it is showing, so the labels do
+     not shift sideways as the choice moves. */
+  .sort-check {
+    display: inline-flex;
+    justify-content: center;
+    width: 13px;
+    flex-shrink: 0;
+    color: var(--accent);
+  }
+
+  .sort-name {
+    flex: 1;
+  }
+
+  .sort-note {
+    color: var(--text-tertiary);
+    font-size: var(--fz-meta);
   }
 
   .menu-label {

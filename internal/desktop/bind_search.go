@@ -20,15 +20,22 @@ const settingSearchWatermark = "search_indexed_max_id"
 const indexFileName = "search.bleve"
 
 // settingSearchIndexVersion records which projection the index was built with.
-// Bumping searchIndexVersion rewinds the watermark so every cached message is
-// indexed again, which is the only way a change to what gets indexed reaches
-// mail that was synced under the old projection.
+// Bumping searchIndexVersion rebuilds the index from the cache, which is the
+// only way a change to what gets indexed reaches mail that was synced under the
+// old projection.
 const settingSearchIndexVersion = "search_index_version"
 
 // searchIndexVersion 2 indexes a text rendering of the html body for messages
 // with no text/plain part. Those were previously indexed with an empty body, so
 // their text was visible in the list snippet but could never be found.
-const searchIndexVersion = 2
+//
+// Version 3 adds the sortable subject field the alphabetical search orders on
+// (#404). That one is a mapping change rather than a projection change, and
+// Bleve fixes a mapping when the index is created: writing the new field into
+// an index built without it would have it dynamically mapped as analyzed text,
+// which sorts by whichever word comes first alphabetically. Hence the rebuild
+// rather than a reindex in place.
+const searchIndexVersion = 3
 
 // searchBatchSize bounds how many messages are read and indexed per commit during
 // a backfill.
@@ -41,32 +48,27 @@ func openSearchIndex(dataDir string) (*search.Index, error) {
 }
 
 // backfillSearch brings the index up to date with the cached messages. It runs at
-// startup and is cheap once the watermark has caught up. When the projection has
-// changed since the index was built it first rewinds the watermark, so the same
-// pass rebuilds every document.
+// startup and is cheap once the watermark has caught up. When the index was built
+// under an older version it is discarded and built again from the cache first,
+// since a mapping only takes effect on a new index.
 func (a *App) backfillSearch() {
 	if a.index == nil {
 		return
 	}
 	want := strconv.Itoa(searchIndexVersion)
-	reindex := a.stringSetting(settingSearchIndexVersion, "0") != want
-	if reindex {
-		a.searchMu.Lock()
-		err := a.store.Set(a.ctx, settingSearchWatermark, "0")
-		a.searchMu.Unlock()
-		if err != nil {
+	if a.stringSetting(settingSearchIndexVersion, "0") != want {
+		if err := a.rebuildSearchIndex(); err != nil {
 			// leave the version unstamped so the next startup tries again rather
 			// than leaving the index permanently half-built.
-			a.log.Error("rewind search watermark for reindex", "err", err)
-			reindex = false
+			return
 		}
-	}
-	if err := a.indexNewMessages(); err != nil || !reindex {
+		if err := a.store.Set(a.ctx, settingSearchIndexVersion, want); err != nil {
+			a.log.Error("persist search index version", "err", err)
+		}
 		return
 	}
-	if err := a.store.Set(a.ctx, settingSearchIndexVersion, want); err != nil {
-		a.log.Error("persist search index version", "err", err)
-	}
+	// indexNewMessages logs whatever went wrong itself.
+	_ = a.indexNewMessages()
 }
 
 // indexNewMessages indexes every message past the stored watermark in batches,
@@ -158,9 +160,12 @@ func (a *App) searchWatermark() int64 {
 // Used when what gets indexed changes in a way that overwriting documents would
 // not undo, which is the case for decrypted text: a plaintext already written
 // has to actually leave the index, not merely stop being added.
-func (a *App) rebuildSearchIndex() {
+// It reports whether the rebuild finished, so a caller that stamps something
+// against the new index (the version) can tell a rebuilt index apart from one
+// that was left half-built.
+func (a *App) rebuildSearchIndex() error {
 	if a.index == nil {
-		return
+		return nil
 	}
 	a.searchMu.Lock()
 	if err := a.index.Close(); err != nil {
@@ -174,7 +179,7 @@ func (a *App) rebuildSearchIndex() {
 	if err != nil {
 		a.log.Error("reopen search index after rebuild", "err", err)
 		a.searchMu.Unlock()
-		return
+		return err
 	}
 	a.index = idx
 	if err := a.store.Set(a.ctx, settingSearchWatermark, "0"); err != nil {
@@ -184,7 +189,9 @@ func (a *App) rebuildSearchIndex() {
 
 	if err := a.indexNewMessages(); err != nil {
 		a.log.Error("rebuild search index", "err", err)
+		return err
 	}
+	return nil
 }
 
 // searchBody returns the text search should index for a message. Encrypted mail
@@ -248,6 +255,18 @@ type SearchRequestDTO struct {
 	Subject string `json:"subject"`
 	// HasAttachment filters to messages that carry at least one attachment.
 	HasAttachment bool `json:"hasAttachment"`
+	// Sort is the order results come back in: relevance, newest, oldest,
+	// subjectAsc or subjectDesc. Empty means relevance. The ui resolves its
+	// "automatic" setting to one of these before asking, so the choice of what
+	// suits a given query stays in one place rather than being split across the
+	// two sides.
+	Sort string `json:"sort"`
+}
+
+// searchSort maps the ui's sort name onto the index's. An unknown name is left
+// to the index, which falls back to relevance.
+func searchSort(name string) search.Sort {
+	return search.Sort(strings.TrimSpace(name))
 }
 
 // SearchResultDTO is one page of search results. Total is how many documents
@@ -281,6 +300,7 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 		Subject: strings.TrimSpace(req.Subject),
 		Limit:   req.Limit,
 		Offset:  req.Offset,
+		Sort:    searchSort(req.Sort),
 	}
 	if req.AfterUnix > 0 {
 		q.After = time.Unix(req.AfterUnix, 0)
