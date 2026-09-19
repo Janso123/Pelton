@@ -12,3 +12,6 @@ https://github.com/peltonapp/Pelton/graphs/contributors.
 
 If you have sent a pull request that was merged and would like to be listed
 here by name, feel free to add yourself in the same PR or a follow-up one.
+
+- [ruipdev](https://github.com/ruipdev) wrote the European Portuguese
+  translation, all 1647 strings.
