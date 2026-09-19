@@ -19,6 +19,7 @@ import { type AsyncState, idle, loading, ready, failed } from '../lib/async'
 import { searchKind, resolveSort } from '../lib/searchsort'
 import { errorMessage, push, toastError } from './toast'
 import { prefs, searchSortPref } from './prefs'
+import { refreshCountsSoon } from './sidebarcounts'
 
 // how many rows we request per page.
 export const PAGE_SIZE = 50
@@ -465,6 +466,10 @@ export function removeFromList(id: number): void {
       total: removed ? Math.max(0, s.data.total - 1) : s.data.total,
     })
   })
+  // the message left a folder (deleted, archived, moved or snoozed), so that
+  // folder's badge and every unified view it feeds are now wrong. This fires
+  // even when the row was not loaded: the count changed either way.
+  refreshCountsSoon()
 }
 
 // neighbourInList returns the row that should take id's place when it leaves
@@ -503,6 +508,8 @@ export function restoreToList(summary: MessageSummary): void {
     const items = [...s.data.items, summary].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     return ready({ ...s.data, items, total: s.data.total + 1 })
   })
+  // an undone delete puts the message back where it was, badge included.
+  refreshCountsSoon()
 }
 
 // patchInList applies a partial update to one row, for optimistic flag changes.
@@ -516,4 +523,11 @@ export function patchInList(id: number, patch: Partial<MessageSummary>): void {
       items: s.data.items.map((m) => (m.id === id ? { ...m, ...patch } : m)),
     })
   })
+  // only the two flags the sidebar counts. Read state drives every folder badge
+  // and the unified views; flagged drives the Flagged view. A color label or an
+  // offline copy changes nothing the sidebar shows, and refreshing on those
+  // would re-read the whole tree for a row that did not move.
+  if ('seen' in patch || 'flagged' in patch) {
+    refreshCountsSoon()
+  }
 }

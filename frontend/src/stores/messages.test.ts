@@ -1,8 +1,16 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { get } from 'svelte/store'
 import { idle, ready } from '../lib/async'
 import type { MessageSummary } from '../lib/types'
+
+// the sidebar refresh is stubbed so the assertions are about which changes ask
+// for one, not about the request it would make.
+vi.mock('./sidebarcounts', () => ({ refreshCountsSoon: vi.fn() }))
+
 import { messageList, neighbourInList, patchInList, removeFromList, restoreToList } from './messages'
+import { refreshCountsSoon } from './sidebarcounts'
+
+const refreshed = vi.mocked(refreshCountsSoon)
 
 function summary(id: number, over: Partial<MessageSummary> = {}): MessageSummary {
   return {
@@ -49,6 +57,56 @@ function ids(): number[] {
 
 beforeEach(() => {
   messageList.set(idle())
+  refreshed.mockClear()
+})
+
+// #403: the sidebar used to wait for the next sync, so a folder kept its unread
+// count and its bold highlight long after the mail had been dealt with.
+describe('sidebar counts follow local changes', () => {
+  it('refreshes when a message leaves the list', () => {
+    load([1, 2, 3])
+    removeFromList(2)
+    expect(refreshed).toHaveBeenCalledTimes(1)
+  })
+
+  // deleting from the reading pane can name a message off the loaded page. The
+  // row is not there to remove, but the folder's count still changed.
+  it('refreshes even when the row was not loaded', () => {
+    load([1, 2])
+    removeFromList(99)
+    expect(refreshed).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes when an undone delete puts a message back', () => {
+    load([1, 3])
+    restoreToList(summary(2))
+    expect(refreshed).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes on the two flags the sidebar counts', () => {
+    load([1, 2])
+    patchInList(1, { seen: true })
+    patchInList(2, { flagged: true })
+    expect(refreshed).toHaveBeenCalledTimes(2)
+  })
+
+  // a color label and an offline copy change nothing the sidebar shows, so
+  // re-reading the whole tree for them would be work for no visible result.
+  it('stays put for changes the sidebar does not show', () => {
+    load([1, 2])
+    patchInList(1, { flagColor: 3 })
+    patchInList(2, { offline: true })
+    patchInList(1, { snoozeUntil: '2026-10-01T09:00:00Z' })
+    expect(refreshed).not.toHaveBeenCalled()
+  })
+
+  // marking an already-read message read is still a statement about read state;
+  // the sidebar is asked either way rather than this guessing at the outcome.
+  it('refreshes on a seen patch that changes nothing', () => {
+    load([1])
+    patchInList(1, { seen: false })
+    expect(refreshed).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('removeFromList', () => {
