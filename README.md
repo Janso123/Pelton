@@ -141,13 +141,15 @@ Pelton is a modern, Free and Open-Source Software (FOSS) email client written in
 
 ## <img src="https://api.iconify.design/tabler/star.svg?color=white" width="26" style="vertical-align: -4px;"> Star History
 
-<a href="https://www.star-history.com/?repos=peltonapp%2Fpelton&type=timeline&releases=&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=peltonapp%2Fpelton&type=date&releases&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=peltonapp/pelton&type=timeline&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=peltonapp/pelton&type=timeline&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=peltonapp/pelton&type=timeline&legend=bottom-right" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=peltonapp/pelton&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=peltonapp/pelton&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=peltonapp/pelton&type=date&legend=bottom-right" />
  </picture>
 </a>
+
+**View full history here: [star-history.com](https://www.star-history.com/?repos=peltonapp%2Fpelton&type=date&releases&legend=bottom-right)**
 
 ## <img src="https://api.iconify.design/tabler/download.svg?color=white" width="26" style="vertical-align: -4px;"> Installation
 
