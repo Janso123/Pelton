@@ -16,6 +16,8 @@
   // see lib/portal.ts.
   import { createEventDispatcher, onDestroy, tick } from 'svelte'
   import { IconChevronDown, IconCheck } from '@tabler/icons-svelte'
+  import { currentUIScale } from '../../theme/theme'
+  import { placeBelow } from '../../lib/popupplace'
   import { portal } from '../../lib/portal'
   import { popPopup, pushPopup } from '../../lib/popups'
   import {
@@ -76,22 +78,18 @@
 
   const listId = `select-list-${Math.random().toString(36).slice(2, 9)}`
 
-  // place positions the popup against the button in viewport coordinates, and
-  // flips it above when there is not enough room below.
+  // place positions the popup against the button. The arithmetic, including
+  // the conversion out of the interface zoom, is in lib/popupplace.ts.
+  // inset-inline-start resolves against the document's own direction, which is
+  // what `start` is measured against.
   function place(): void {
     const rect = buttonEl.getBoundingClientRect()
-    const room = window.innerHeight - rect.bottom
-    // measured from the start edge rather than the left one, so a list wider
-    // than its button grows away from the reading direction instead of always
-    // rightward (#356). inset-inline-start resolves against the document's own
-    // direction, which is what the offset is measured against here.
-    const rtl = document.documentElement.dir === 'rtl'
-    box = {
-      top: room < 240 && rect.top > room ? rect.top : rect.bottom + 4,
-      start: rtl ? window.innerWidth - rect.right : rect.left,
-      width: rect.width,
-      below: !(room < 240 && rect.top > room),
-    }
+    box = placeBelow(
+      rect,
+      { width: window.innerWidth, height: window.innerHeight },
+      currentUIScale(),
+      document.documentElement.dir === 'rtl',
+    )
   }
 
   async function openList(startAt = indexOfValue(options, value)): Promise<void> {

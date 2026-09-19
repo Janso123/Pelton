@@ -7,6 +7,8 @@
   import { createEventDispatcher, onDestroy } from 'svelte'
   import { parseColor, formatColor, toHex, rgbToHsv, hsvToRgb } from '../../theme/color'
   import type { RGBA } from '../../theme/color'
+  import { currentUIScale } from '../../theme/theme'
+  import { portal } from '../../lib/portal'
   import { t } from '../../lib/i18n'
 
   /** the token's current value, in any notation. */
@@ -79,12 +81,18 @@
 
   // the popover is fixed-positioned: the settings modal scrolls its body, and
   // an absolutely positioned panel would be clipped by that overflow.
+  //
+  // The measurements are divided by the interface scale because css `zoom` on
+  // <html> leaves getBoundingClientRect in unscaled screen pixels while a
+  // fixed element is placed in the zoomed layout space; see
+  // ContextMenu.svelte. Dividing is a no-op at 100%.
   function place(): void {
+    const scale = currentUIScale()
     const rect = anchor.getBoundingClientRect()
     const height = 268
-    flipped = rect.bottom + height + 8 > window.innerHeight
-    popTop = flipped ? rect.top - height - 6 : rect.bottom + 6
-    popLeft = Math.max(8, Math.min(rect.left, window.innerWidth - 232))
+    flipped = rect.bottom / scale + height + 8 > window.innerHeight / scale
+    popTop = flipped ? rect.top / scale - height - 6 : rect.bottom / scale + 6
+    popLeft = Math.max(8, Math.min(rect.left / scale, window.innerWidth / scale - 232))
   }
 
   function close(): void {
@@ -203,6 +211,7 @@
   <div
     class="pop"
     class:flipped
+    use:portal
     bind:this={popover}
     style:top={popTop + 'px'}
     style:left={popLeft + 'px'}
@@ -270,9 +279,11 @@
     border-radius: 3px;
   }
 
+  /* 320 is the popup band Modal reserves above the overlays it stacks from
+     300: the popover now sits in <body>, outside whatever opened it. */
   .pop {
     position: fixed;
-    z-index: 200;
+    z-index: 320;
     width: 224px;
     display: flex;
     flex-direction: column;
