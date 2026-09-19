@@ -425,6 +425,11 @@ export interface UIPrefs {
   // selectAllUnified offers select-all in the unified views too. Off by
   // default, since those span every account.
   selectAllUnified: boolean
+  // the remembered sort order for each kind of search (see SearchKind). 'auto',
+  // the default, reads the order off the query instead of fixing one.
+  searchSortText: SearchSortPref
+  searchSortDated: SearchSortPref
+  searchSortFiltered: SearchSortPref
   // sidebarIndentGuides draws vertical guide lines for nested folders.
   sidebarIndentGuides: boolean
   // rowTemplate selects the list row layout: relaxed, comfortable, compact, single.
@@ -915,6 +920,24 @@ export type EditorMode = 'plaintext' | 'markdown' | 'wysiwyg'
 export type ThemePref = 'system' | 'light' | 'dark' | 'schedule'
 export type DensityPref = 'compact' | 'medium' | 'luxe'
 export type SelectAllScope = 'offer' | 'all' | 'loaded'
+
+// SearchSort is an order search results can actually come back in. The backend
+// takes one of these; 'auto' is never sent, it is resolved first.
+export type SearchSort = 'relevance' | 'newest' | 'oldest' | 'subjectAsc' | 'subjectDesc'
+
+// SearchSortPref is what the user picked for a kind of search, which may be
+// 'auto': let the query decide.
+export type SearchSortPref = SearchSort | 'auto'
+
+// SearchKind is the shape a query has, and the unit the sort choice is
+// remembered by (#404). A sort picked while looking through a date range is
+// remembered for date ranges; it does not follow the user onto a text search,
+// where a different order is the right one.
+//
+//   text     words were typed, with or without chips
+//   dated    no words, but a before:/after: window is set
+//   filtered no words and no dates, only from:/to:/subject:/has: chips
+export type SearchKind = 'text' | 'dated' | 'filtered'
 
 // Selection identifies what the message list is currently showing: a unified
 // cross-account view, a single account folder, or a user-defined saved View

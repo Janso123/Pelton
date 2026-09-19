@@ -1672,7 +1672,9 @@ export namespace desktop {
 	    to: string;
 	    subject: string;
 	    hasAttachment: boolean;
-	
+	    unreadOnly: boolean;
+	    sort: string;
+
 	    static createFrom(source: any = {}) {
 	        return new SearchRequestDTO(source);
 	    }
@@ -1688,6 +1690,8 @@ export namespace desktop {
 	        this.to = source["to"];
 	        this.subject = source["subject"];
 	        this.hasAttachment = source["hasAttachment"];
+	        this.unreadOnly = source["unreadOnly"];
+	        this.sort = source["sort"];
 	    }
 	}
 	export class SearchResultDTO {
@@ -2002,6 +2006,9 @@ export namespace desktop {
 	    showSelectedCount: boolean;
 	    selectAllScope: string;
 	    selectAllUnified: boolean;
+	    searchSortText: string;
+	    searchSortDated: string;
+	    searchSortFiltered: string;
 	    sidebarIndentGuides: boolean;
 	    rowTemplate: string;
 	    rowShowAvatar: boolean;
@@ -2087,6 +2094,9 @@ export namespace desktop {
 	        this.showSelectedCount = source["showSelectedCount"];
 	        this.selectAllScope = source["selectAllScope"];
 	        this.selectAllUnified = source["selectAllUnified"];
+	        this.searchSortText = source["searchSortText"];
+	        this.searchSortDated = source["searchSortDated"];
+	        this.searchSortFiltered = source["searchSortFiltered"];
 	        this.sidebarIndentGuides = source["sidebarIndentGuides"];
 	        this.rowTemplate = source["rowTemplate"];
 	        this.rowShowAvatar = source["rowShowAvatar"];

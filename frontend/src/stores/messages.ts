@@ -3,8 +3,8 @@
 // results. it handles pagination and exposes optimistic helpers so flag toggles
 // and deletes reflect immediately without a round trip.
 
-import { writable, get } from 'svelte/store'
-import type { MessageSummary, Selection } from '../lib/types'
+import { writable, get, derived, type Readable } from 'svelte/store'
+import type { MessageSummary, Selection, SearchSort, SearchSortPref, SearchKind } from '../lib/types'
 import {
   listFolderMessages,
   listViewMessages,
@@ -16,8 +16,9 @@ import {
   type MessageIDs,
 } from '../lib/api'
 import { type AsyncState, idle, loading, ready, failed } from '../lib/async'
+import { searchKind, resolveSort } from '../lib/searchsort'
 import { errorMessage, push, toastError } from './toast'
-import { prefs } from './prefs'
+import { prefs, searchSortPref } from './prefs'
 
 // how many rows we request per page.
 export const PAGE_SIZE = 50
@@ -97,6 +98,7 @@ export async function loadList(sel: Selection): Promise<void> {
   currentOffset = 0
   // leaving a result set: a late search page must not append onto a folder.
   currentSearch = null
+  searchSortKind.set(null)
   backfillFailed.set(false)
   const generation = ++loadGeneration
   messageList.update((s) => loading(s))
@@ -241,6 +243,7 @@ export interface SearchFilter {
   to: string
   subject: string
   hasAttachment: boolean
+  unreadOnly: boolean
 }
 
 export const emptyFilter: SearchFilter = {
@@ -250,6 +253,13 @@ export const emptyFilter: SearchFilter = {
   to: '',
   subject: '',
   hasAttachment: false,
+  unreadOnly: false,
+}
+
+// datesActive reports whether the filter carries a date window, which is what
+// separates a 'dated' search from a 'filtered' one.
+function datesActive(f: SearchFilter): boolean {
+  return f.afterUnix > 0 || f.beforeUnix > 0
 }
 
 // filterActive reports whether any chip constraint is set (used to decide
@@ -261,7 +271,8 @@ export function filterActive(f: SearchFilter): boolean {
     f.from !== '' ||
     f.to !== '' ||
     f.subject !== '' ||
-    f.hasAttachment
+    f.hasAttachment ||
+    f.unreadOnly
   )
 }
 
@@ -274,7 +285,28 @@ const searchPageSize = 200
 
 // the search the current result set belongs to, so loadMore can ask for the
 // next page of the same query. null whenever the list is not a result set.
-let currentSearch: { query: string; filter: SearchFilter } | null = null
+//
+// The resolved sort is part of it: every page of one result set has to be
+// fetched in the same order, or paging by offset would interleave two orders
+// and both duplicate and skip messages. Changing the sort re-runs the search
+// from the first page rather than appending to what is there.
+let currentSearch: { query: string; filter: SearchFilter; sort: SearchSort } | null = null
+
+// searchSortKind is the kind of search the active result set is, or null when
+// the list is not showing one. The sort menu needs it to know which preference
+// a choice belongs to, and to show what 'automatic' currently resolves to.
+export const searchSortKind = writable<SearchKind | null>(null)
+
+/**
+ * The sort preference in force for the search on screen, and 'auto' when there
+ * is none. Reading it from prefs rather than storing a second copy means the
+ * settings pane and the menu can never disagree.
+ */
+export const activeSortPref: Readable<SearchSortPref> = derived(
+  [prefs, searchSortKind],
+  ([$prefs, $kind]) => ($kind ? searchSortPref($prefs, $kind) : 'auto'),
+)
+
 
 // allMatchingIds returns every id the current list matches, ignoring paging,
 // for select all. It follows whatever the list is showing: a result set asks
@@ -290,8 +322,13 @@ export function allMatchingIds(): Promise<MessageIDs> {
       to: active.filter.to,
       subject: active.filter.subject,
       hasAttachment: active.filter.hasAttachment,
+      unreadOnly: active.filter.unreadOnly,
       limit: 0,
       offset: 0,
+      // the same order the list is in: the backend caps how many ids it
+      // returns, so a different order here would select a different set of
+      // messages from the one on screen.
+      sort: active.sort,
     })
   }
   if (!currentSelection) {
@@ -305,6 +342,7 @@ function searchPage(
   query: string,
   filter: SearchFilter,
   offset: number,
+  sort: SearchSort,
 ): Promise<{ messages: MessageSummary[]; total: number }> {
   return search({
     query,
@@ -314,15 +352,23 @@ function searchPage(
     to: filter.to,
     subject: filter.subject,
     hasAttachment: filter.hasAttachment,
+    unreadOnly: filter.unreadOnly,
     limit: searchPageSize,
     offset,
+    sort,
   })
 }
 
 // runSearch replaces the list with the first page of ranked search results for a
 // query and the structured chip constraints.
 export async function runSearch(query: string, filter: SearchFilter = emptyFilter): Promise<void> {
-  currentSearch = { query, filter }
+  // the order is settled once, here, and every page of this result set is then
+  // fetched in it. Resolving it per page would let a preference change landing
+  // mid-scroll page one order onto another.
+  const kind = searchKind(query, datesActive(filter))
+  const sort = resolveSort(searchSortPref(get(prefs), kind), kind)
+  searchSortKind.set(kind)
+  currentSearch = { query, filter, sort }
   // the same generation guard every other loader here uses. Without it a search
   // that resolves after the list has moved on writes its results over whatever
   // is showing now: clearing the search bar fires both a query change and a
@@ -332,7 +378,7 @@ export async function runSearch(query: string, filter: SearchFilter = emptyFilte
   const generation = ++loadGeneration
   messageList.update((s) => loading(s))
   try {
-    const { messages, total } = await searchPage(query, filter, 0)
+    const { messages, total } = await searchPage(query, filter, 0, sort)
     if (generation !== loadGeneration) {
       return
     }
@@ -377,7 +423,7 @@ async function loadMoreSearch(): Promise<void> {
   // what stops it from launching the same page several times over.
   messageList.update((s) => loading(s))
   try {
-    const { messages, total } = await searchPage(active.query, active.filter, offset)
+    const { messages, total } = await searchPage(active.query, active.filter, offset, active.sort)
     messageList.update((s) => {
       // the status is 'loading' here (this function set it), so only the data
       // is checked: a newer query landing mid-flight is what must be discarded.
