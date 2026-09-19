@@ -1672,6 +1672,7 @@ export namespace desktop {
 	    to: string;
 	    subject: string;
 	    hasAttachment: boolean;
+	    unreadOnly: boolean;
 	    sort: string;
 
 	    static createFrom(source: any = {}) {
@@ -1689,6 +1690,7 @@ export namespace desktop {
 	        this.to = source["to"];
 	        this.subject = source["subject"];
 	        this.hasAttachment = source["hasAttachment"];
+	        this.unreadOnly = source["unreadOnly"];
 	        this.sort = source["sort"];
 	    }
 	}

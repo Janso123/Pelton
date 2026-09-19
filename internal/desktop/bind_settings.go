@@ -28,8 +28,8 @@ const (
 	// three shapes a query takes (#404). "auto" lets the ui pick from the query:
 	// free text has scores worth ranking by, a query built only from chips does
 	// not, and a date window says the user is thinking chronologically. Splitting
-	// the memory three ways is what keeps a deliberate choice from following the
-	// user onto a search where it makes no sense.
+	// the memory three ways is what keeps a choice made for one kind of search
+	// from following the user onto a search where it makes no sense.
 	settingSearchSortText     = "search_sort_text"
 	settingSearchSortDated    = "search_sort_dated"
 	settingSearchSortFiltered = "search_sort_filtered"

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/search"
+	"github.com/peltonapp/Pelton/internal/storage"
 )
 
 // selectAllCap is the most ids one select-all will hand back. A selection is an
@@ -92,7 +93,7 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 		q.Before = time.Unix(req.BeforeUnix, 0)
 	}
 	if q.Text == "" && q.From == "" && q.To == "" && q.Subject == "" &&
-		q.After.IsZero() && q.Before.IsZero() && !req.HasAttachment {
+		q.After.IsZero() && q.Before.IsZero() && !req.HasAttachment && !req.UnreadOnly {
 		return MessageIDsDTO{IDs: []int64{}}, nil
 	}
 
@@ -102,12 +103,19 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 	}
 	ids := make([]int64, 0, len(res.Hits))
 	for _, h := range res.Hits {
-		// the has:attachment chip is a message field rather than an indexed one,
-		// so it is applied here exactly as the result list applies it. A hit whose
-		// message is gone is skipped, which also covers stale index entries.
-		if req.HasAttachment {
+		// the has:attachment and is:unread chips are message fields rather than
+		// indexed ones, so they are applied here exactly as the result list
+		// applies them. A hit whose message is gone is skipped, which also covers
+		// stale index entries.
+		if req.HasAttachment || req.UnreadOnly {
 			m, err := a.store.GetMessage(a.ctx, h.ID)
-			if err != nil || !m.HasAttachments {
+			if err != nil {
+				continue
+			}
+			if req.HasAttachment && !m.HasAttachments {
+				continue
+			}
+			if req.UnreadOnly && m.Flags.Has(storage.FlagSeen) {
 				continue
 			}
 		}

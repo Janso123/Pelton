@@ -32,17 +32,18 @@
   const dispatch = createEventDispatcher<{ search: string; filter: SearchFilter; sort: SearchSortPref }>()
 
   // chip fields and the aliases that produce them ("sender:" -> from).
-  type ChipField = 'from' | 'to' | 'subject' | 'has' | 'before' | 'after'
+  type ChipField = 'from' | 'to' | 'subject' | 'has' | 'is' | 'before' | 'after'
   const alias: Record<string, ChipField> = {
     from: 'from',
     sender: 'from',
     to: 'to',
     subject: 'subject',
     has: 'has',
+    is: 'is',
     before: 'before',
     after: 'after',
   }
-  const keywordList = ['from', 'sender', 'to', 'subject', 'has', 'before', 'after']
+  const keywordList = ['from', 'sender', 'to', 'subject', 'has', 'is', 'before', 'after']
 
   interface Chip {
     field: ChipField
@@ -65,10 +66,14 @@
     return $t(`messageList.search.chip.${field}`)
   }
 
-  // chipText renders a chip's value; has:attachment has no free value.
+  // chipText renders a chip's value; has:attachment and is:unread each stand for
+  // one thing, so they read as a plain label rather than a field and a value.
   function chipText(chip: Chip): string {
     if (chip.field === 'has') {
       return $t('messageList.search.chip.hasAttachment')
+    }
+    if (chip.field === 'is') {
+      return $t('messageList.search.chip.isUnread')
     }
     return `${fieldLabel(chip.field)}: ${chip.value}`
   }
@@ -87,6 +92,9 @@
     }
     if (field === 'has') {
       return raw.toLowerCase().startsWith('attach') ? { field, value: 'attachment' } : null
+    }
+    if (field === 'is') {
+      return raw.toLowerCase().startsWith('unread') ? { field, value: 'unread' } : null
     }
     if ((field === 'before' || field === 'after') && Number.isNaN(Date.parse(raw))) {
       return null
@@ -118,6 +126,8 @@
         f.subject = c.value
       } else if (c.field === 'has') {
         f.hasAttachment = true
+      } else if (c.field === 'is') {
+        f.unreadOnly = true
       } else if (c.field === 'after') {
         f.afterUnix = Math.floor(Date.parse(c.value) / 1000) || 0
       } else if (c.field === 'before') {
@@ -269,6 +279,7 @@
       queryTo: f.to ? [f.to] : [],
       querySubject: f.subject,
       hasAttachment: f.hasAttachment,
+      unreadOnly: f.unreadOnly,
     })
   }
 </script>

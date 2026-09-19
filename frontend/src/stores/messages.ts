@@ -243,6 +243,7 @@ export interface SearchFilter {
   to: string
   subject: string
   hasAttachment: boolean
+  unreadOnly: boolean
 }
 
 export const emptyFilter: SearchFilter = {
@@ -252,6 +253,7 @@ export const emptyFilter: SearchFilter = {
   to: '',
   subject: '',
   hasAttachment: false,
+  unreadOnly: false,
 }
 
 // datesActive reports whether the filter carries a date window, which is what
@@ -269,7 +271,8 @@ export function filterActive(f: SearchFilter): boolean {
     f.from !== '' ||
     f.to !== '' ||
     f.subject !== '' ||
-    f.hasAttachment
+    f.hasAttachment ||
+    f.unreadOnly
   )
 }
 
@@ -319,6 +322,7 @@ export function allMatchingIds(): Promise<MessageIDs> {
       to: active.filter.to,
       subject: active.filter.subject,
       hasAttachment: active.filter.hasAttachment,
+      unreadOnly: active.filter.unreadOnly,
       limit: 0,
       offset: 0,
       // the same order the list is in: the backend caps how many ids it
@@ -348,6 +352,7 @@ function searchPage(
     to: filter.to,
     subject: filter.subject,
     hasAttachment: filter.hasAttachment,
+    unreadOnly: filter.unreadOnly,
     limit: searchPageSize,
     offset,
     sort,

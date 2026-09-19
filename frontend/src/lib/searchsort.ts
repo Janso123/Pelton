@@ -1,11 +1,11 @@
 // searchsort.ts decides what order a page of search results comes back in
 // (#404).
 //
-// There are two steps and they are deliberately separate. First a query is
-// classified into one of three kinds by what it is made of; then that kind's
-// remembered preference is read, and 'auto' is resolved into a real order. The
-// backend is only ever handed a real order, so the rule for what suits a query
-// lives here rather than being half in the ui and half in Go.
+// There are two steps, kept apart. First a query is classified into one of
+// three kinds by what it is made of; then that kind's remembered preference is
+// read, and 'auto' is resolved into a real order. The backend is only ever
+// handed a real order, so the rule for what suits a query lives here rather
+// than being half in the ui and half in Go.
 
 import type { SearchSort, SearchSortPref, SearchKind } from './types'
 

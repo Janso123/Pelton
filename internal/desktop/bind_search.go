@@ -255,6 +255,8 @@ type SearchRequestDTO struct {
 	Subject string `json:"subject"`
 	// HasAttachment filters to messages that carry at least one attachment.
 	HasAttachment bool `json:"hasAttachment"`
+	// UnreadOnly filters to messages that have not been read.
+	UnreadOnly bool `json:"unreadOnly"`
 	// Sort is the order results come back in: relevance, newest, oldest,
 	// subjectAsc or subjectDesc. Empty means relevance. The ui resolves its
 	// "automatic" setting to one of these before asking, so the choice of what
@@ -275,8 +277,8 @@ func searchSort(name string) search.Sort {
 // truncated one, which is what made search look like it lost mail.
 //
 // Total counts index matches, so it is an upper bound on what the list shows:
-// the attachment filter and any message deleted since it was indexed are
-// applied after ranking, per page.
+// the attachment and unread filters, and any message deleted since it was
+// indexed, are applied after ranking, per page.
 type SearchResultDTO struct {
 	Messages []MessageSummaryDTO `json:"messages"`
 	Total    int                 `json:"total"`
@@ -308,10 +310,10 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 	if req.BeforeUnix > 0 {
 		q.Before = time.Unix(req.BeforeUnix, 0)
 	}
-	// an empty request (no text, no field chip, no date, no attachment filter)
-	// means "show the normal list", so return nothing here.
+	// an empty request (no text, no field chip, no date, no flag filter) means
+	// "show the normal list", so return nothing here.
 	if q.Text == "" && q.From == "" && q.To == "" && q.Subject == "" &&
-		q.After.IsZero() && q.Before.IsZero() && !req.HasAttachment {
+		q.After.IsZero() && q.Before.IsZero() && !req.HasAttachment && !req.UnreadOnly {
 		return empty, nil
 	}
 
@@ -323,8 +325,11 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 	// hits are ranked; fetch each full message so rows render like the normal
 	// list. a missing message (deleted since indexing) is simply skipped, which
 	// also covers stale index entries without a separate cleanup pass. the
-	// has:attachment chip is applied here since attachment presence is a stored
-	// message field, not an indexed one.
+	// has:attachment and is:unread chips are applied here: attachments and read
+	// state are stored message fields, not indexed ones. Read state is also the
+	// one filter that goes stale the moment it is used, since opening a result
+	// marks it read, so reading it from the store rather than the index is what
+	// keeps it honest.
 	vips := a.vipSet()
 	out := make([]MessageSummaryDTO, 0, len(res.Hits))
 	for _, h := range res.Hits {
@@ -333,6 +338,9 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 			continue
 		}
 		if req.HasAttachment && !m.HasAttachments {
+			continue
+		}
+		if req.UnreadOnly && m.Flags.Has(storage.FlagSeen) {
 			continue
 		}
 		email, folderName := a.lookupContext(a.ctx, m.AccountID, m.FolderID)

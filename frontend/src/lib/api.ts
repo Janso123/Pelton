@@ -604,6 +604,7 @@ export interface SearchRequest {
   to: string
   subject: string
   hasAttachment: boolean
+  unreadOnly: boolean
   // the order results come back in, already resolved from the "automatic"
   // setting: the backend is told an order, never asked to guess one.
   sort: SearchSort
