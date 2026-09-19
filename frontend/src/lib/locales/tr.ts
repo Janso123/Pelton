@@ -308,6 +308,7 @@ const tr: Record<string, string> = {
   'common.statusBar.lowPower': 'Düşük güç',
   'common.statusBar.devMode': 'GELİŞTİRİCİ MODU',
   'common.statusBar.devModeTitle': 'Gerçek posta kutunuza değil, geliştirme veri dizinine bağlı çalışıyor.',
+  'common.statusBar.devToolsTitle': 'Geliştirici araçları açık. Panelleri görmek için tıklayın.',
   'common.statusBar.nightly': 'Gece Sürümü',
   'common.statusBar.nightlyTitle': 'Test edilmemiş gece sürümü. Gerçek gelen kutunuzla kullanmayın.',
   'nightly.appName': 'Pelton Nightly',

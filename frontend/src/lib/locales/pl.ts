@@ -308,6 +308,7 @@ const pl: Record<string, string> = {
   'common.statusBar.lowPower': 'Oszczędzanie energii',
   'common.statusBar.devMode': 'TRYB DEWELOPERSKI',
   'common.statusBar.devModeTitle': 'Działa na deweloperskim katalogu danych, nie na prawdziwej skrzynce.',
+  'common.statusBar.devToolsTitle': 'Narzędzia deweloperskie są włączone. Kliknij, aby otworzyć nakładki.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Nieprzetestowana kompilacja nightly. Nie używaj jej z prawdziwą skrzynką.',
   'nightly.appName': 'Pelton Nightly',
