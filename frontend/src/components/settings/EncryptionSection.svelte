@@ -31,6 +31,7 @@
     setSMIMERevocation,
   } from '../../lib/api'
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
+  import Select from '../common/Select.svelte'
   import { sidebar } from '../../stores/accounts'
   import { openPassphrase } from '../../stores/passphrase'
   import { errorMessage, toastError, toastSuccess, toastInfo } from '../../stores/toast'
@@ -317,15 +318,18 @@
     {#each accounts as account (account.id)}
       <div class="account">
         <span class="row-label">{account.email}</span>
-        <select
+        <Select
           value={accountKeys[account.id] ?? ''}
-          on:change={(e) => void onAccountKey(account.id, e.currentTarget.value)}
-        >
-          <option value="">{$t('encryption.signingAuto')}</option>
-          {#each signingKeys as key (key.fingerprint)}
-            <option value={key.fingerprint}>{label(key)} ({shortId(key.fingerprint)})</option>
-          {/each}
-        </select>
+          ariaLabel={account.email}
+          items={[
+            { value: '', label: $t('encryption.signingAuto') },
+            ...signingKeys.map((key) => ({
+              value: key.fingerprint,
+              label: `${label(key)} (${shortId(key.fingerprint)})`,
+            })),
+          ]}
+          on:change={(e) => void onAccountKey(account.id, e.detail)}
+        />
       </div>
     {/each}
   {/if}
@@ -538,14 +542,11 @@
     color: var(--text-primary);
   }
 
-  .account select {
+  /* a signing key label is long, so this one is capped rather than sized: the
+     rest of its look comes from the control itself. */
+  .account :global(.select) {
     max-width: 60%;
     padding: var(--space-1) var(--space-2);
-    font-family: var(--font-ui);
     font-size: var(--fz-meta);
-    color: var(--text-primary);
-    background: var(--surface-raised);
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
   }
 </style>

@@ -6,6 +6,8 @@
   import { onMount } from 'svelte'
   import { IconPlus, IconPencil, IconTrash } from '@tabler/icons-svelte'
   import Modal from '../common/Modal.svelte'
+  import Select from '../common/Select.svelte'
+  import type { SelectItem } from '../../lib/selectnav'
   import { signatures, persistSignature, removeSignature, getAccountSignatures, setAccountSignatures } from '../../stores/signatures'
   import { sidebar } from '../../stores/accounts'
   import { errorMessage, toastError } from '../../stores/toast'
@@ -16,6 +18,15 @@
   $: accounts = $sidebar.data?.accounts ?? []
   $: headers = $signatures.filter((s) => s.kind === 'header')
   $: footers = $signatures.filter((s) => s.kind === 'footer')
+
+  // the assignment pickers carry signature ids, which the select handles as
+  // strings; 0 is the "none" entry.
+  function signatureItems(list: Signature[]): SelectItem[] {
+    return [
+      { value: '0', label: $t('signatures.none') },
+      ...list.map((s) => ({ value: String(s.id), label: s.name })),
+    ]
+  }
 
   // the editor draft. id 0 means a new block.
   const blank = (): Signature => ({ id: 0, name: '', kind: 'footer', format: 'markdown', content: '' })
@@ -134,14 +145,22 @@
   >
     <div class="editor-row">
       <input class="field" placeholder={$t('signatures.namePlaceholder')} bind:value={draft.name} />
-      <select class="field" bind:value={draft.kind}>
-        <option value="header">{$t('signatures.kindHeader')}</option>
-        <option value="footer">{$t('signatures.kindFooter')}</option>
-      </select>
-      <select class="field" bind:value={draft.format}>
-        <option value="markdown">Markdown</option>
-        <option value="html">HTML</option>
-      </select>
+      <!-- neither of these carried an accessible name as a native select
+           either, so none is invented here: a wrong one reads worse than none. -->
+      <Select
+        bind:value={draft.kind}
+        items={[
+          { value: 'header', label: $t('signatures.kindHeader') },
+          { value: 'footer', label: $t('signatures.kindFooter') },
+        ]}
+      />
+      <Select
+        bind:value={draft.format}
+        items={[
+          { value: 'markdown', label: 'Markdown' },
+          { value: 'html', label: 'HTML' },
+        ]}
+      />
     </div>
     <textarea class="content" rows="10" placeholder={$t('signatures.contentPlaceholder')} bind:value={draft.content}></textarea>
 
@@ -160,23 +179,21 @@
         <span class="assign-acc" title={acc.email}>{acc.email}</span>
         <label class="assign-field">
           <span>{$t('signatures.kindHeader')}</span>
-          <select
-            value={assignments[acc.id]?.headerId ?? 0}
-            on:change={(e) => setAssignment(acc.id, 'header', Number(e.currentTarget.value))}
-          >
-            <option value={0}>{$t('signatures.none')}</option>
-            {#each headers as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
-          </select>
+          <Select
+            value={String(assignments[acc.id]?.headerId ?? 0)}
+            ariaLabel={$t('signatures.kindHeader')}
+            items={signatureItems(headers)}
+            on:change={(e) => setAssignment(acc.id, 'header', Number(e.detail))}
+          />
         </label>
         <label class="assign-field">
           <span>{$t('signatures.kindFooter')}</span>
-          <select
-            value={assignments[acc.id]?.footerId ?? 0}
-            on:change={(e) => setAssignment(acc.id, 'footer', Number(e.currentTarget.value))}
-          >
-            <option value={0}>{$t('signatures.none')}</option>
-            {#each footers as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
-          </select>
+          <Select
+            value={String(assignments[acc.id]?.footerId ?? 0)}
+            ariaLabel={$t('signatures.kindFooter')}
+            items={signatureItems(footers)}
+            on:change={(e) => setAssignment(acc.id, 'footer', Number(e.detail))}
+          />
         </label>
       </div>
     {/each}
@@ -387,12 +404,4 @@
     color: var(--text-tertiary);
   }
 
-  .assign-field select {
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
-    background: var(--surface-base);
-    color: var(--text-primary);
-    padding: var(--space-1) var(--space-2);
-    font-size: var(--fz-label);
-  }
 </style>

@@ -6,6 +6,7 @@
   import { createEventDispatcher } from 'svelte'
   import { IconX } from '@tabler/icons-svelte'
   import Modal from '../common/Modal.svelte'
+  import Select from '../common/Select.svelte'
   import type { View, Account } from '../../lib/types'
   import { viewIconNames, viewIconComponent, viewColors, viewColorCss } from '../../lib/viewicons'
   import { saveView } from '../../lib/api'
@@ -218,20 +219,24 @@
       <div class="two">
         <label class="field">
           <span class="label">{$t('views.dateWindow')}</span>
-          <select bind:value={draft.withinDays}>
-            {#each windows as w (w.days)}
-              <option value={w.days}>{$t(w.key)}</option>
-            {/each}
-          </select>
+          <Select
+            value={String(draft.withinDays)}
+            ariaLabel={$t('views.dateWindow')}
+            items={windows.map((w) => ({ value: String(w.days), label: $t(w.key) }))}
+            on:change={(e) => (draft.withinDays = Number(e.detail))}
+          />
         </label>
         <label class="field">
           <span class="label">{$t('views.accountScope')}</span>
-          <select bind:value={draft.accountId}>
-            <option value={0}>{$t('views.allAccounts')}</option>
-            {#each accounts as acc (acc.id)}
-              <option value={acc.id}>{acc.email}</option>
-            {/each}
-          </select>
+          <Select
+            value={String(draft.accountId)}
+            ariaLabel={$t('views.accountScope')}
+            items={[
+              { value: '0', label: $t('views.allAccounts') },
+              ...accounts.map((acc) => ({ value: String(acc.id), label: acc.email })),
+            ]}
+            on:change={(e) => (draft.accountId = Number(e.detail))}
+          />
         </label>
       </div>
 
@@ -282,8 +287,7 @@
     color: var(--text-secondary);
   }
 
-  input[type='text'],
-  select {
+  input[type='text'] {
     width: 100%;
     padding: var(--space-2) var(--space-3);
     border: var(--hairline) solid var(--border-default);
@@ -294,9 +298,14 @@
     outline: none;
   }
 
-  input[type='text']:focus,
-  select:focus {
+  input[type='text']:focus {
     border-color: var(--accent);
+  }
+
+  /* the select carries its own border, background and focus ring; how wide it
+     is, is the form's business rather than the control's. */
+  .field :global(.select) {
+    width: 100%;
   }
 
   .chips {
