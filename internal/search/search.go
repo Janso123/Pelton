@@ -289,8 +289,22 @@ var textFields = []struct {
 }
 
 // textQuery matches the free text across all fields with per-field boosts, so
-// the best field wins the score. Each hit must match the text somewhere (the
-// per-field alternatives form a disjunction).
+// the best field wins the score. Each hit must match the text in at least one
+// field (the per-field alternatives form a disjunction).
+//
+// Every term has to be present in whichever field matches. Without that, a
+// four-word query matched any message carrying any one of the four words, and
+// the only thing keeping the results sensible was the ranking: the message the
+// user meant scored highest and the thousands of one-word matches sat below the
+// page. Sorting by date instead of score removed that cover and handed back the
+// newest message containing the word "von" (#435). It also made the total a
+// count of a set nobody asked for.
+//
+// Requiring the terms within a field rather than across the document is what
+// keeps stop words harmless. The analyzer drops them, and it drops them inside
+// the match query, so "invoice for march" asks for invoice AND march. Building
+// the conjunction here instead, one clause per typed word, would ask for a word
+// the index deliberately does not hold and match nothing at all.
 //
 // Fuzziness is applied only when it pays for itself. Measured against a real
 // 5k-message mailbox, unconditional edit-distance-1 grew the matching set by
@@ -305,6 +319,7 @@ func textQuery(text string) query.Query {
 		mq := bleve.NewMatchQuery(text)
 		mq.SetField(f.name)
 		mq.SetBoost(f.boost)
+		mq.SetOperator(query.MatchQueryOperatorAnd)
 		if fuzzy {
 			mq.SetFuzziness(fuzziness)
 			mq.SetPrefix(fuzzyPrefix)
@@ -337,6 +352,11 @@ func shouldFuzz(text string) bool {
 // a prefix scan of every body term costs far more and matches far too much to
 // rank usefully. Matching a prefix also covers the common word-ending case, so
 // "invoice" reaches "invoices" without a stemmer.
+//
+// The terms before it still have to match. A half-typed last word is the least
+// certain part of a query, and on its own it would widen the search at the
+// moment the user is narrowing it: "Rechnung App" would reach every message
+// from Apple, none of which mention a Rechnung.
 func prefixAlternatives(text string) []query.Query {
 	terms := strings.Fields(text)
 	if len(terms) == 0 {
@@ -348,12 +368,20 @@ func prefixAlternatives(text string) []query.Query {
 	if utf8.RuneCountInString(last) < minPrefixTerm {
 		return nil
 	}
+	rest := strings.Join(terms[:len(terms)-1], " ")
 	out := make([]query.Query, 0, 2)
 	for _, field := range []string{"subject", "from"} {
 		pq := bleve.NewPrefixQuery(last)
 		pq.SetField(field)
 		pq.SetBoost(boostPrefix)
-		out = append(out, pq)
+		if rest == "" {
+			out = append(out, pq)
+			continue
+		}
+		mq := bleve.NewMatchQuery(rest)
+		mq.SetField(field)
+		mq.SetOperator(query.MatchQueryOperatorAnd)
+		out = append(out, bleve.NewConjunctionQuery(mq, pq))
 	}
 	return out
 }
