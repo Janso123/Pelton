@@ -127,7 +127,7 @@
 
   .signals {
     margin: 0;
-    padding-left: var(--space-5);
+    padding-inline-start: var(--space-5);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);

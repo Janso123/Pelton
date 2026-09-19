@@ -53,7 +53,7 @@
     width: 13px;
     height: 13px;
     padding: 0;
-    margin-left: var(--space-1);
+    margin-inline-start: var(--space-1);
     border: none;
     background: transparent;
     vertical-align: -2px;
@@ -81,7 +81,7 @@
     font-size: var(--fz-meta);
     font-weight: var(--fw-regular);
     line-height: 1.45;
-    text-align: left;
+    text-align: start;
     white-space: normal;
     pointer-events: none;
   }

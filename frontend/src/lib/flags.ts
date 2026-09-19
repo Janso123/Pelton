@@ -33,6 +33,8 @@ const defaultCountry: Record<string, string> = {
   pl: 'pl',
   tr: 'tr',
   pt: 'pt',
+  // ar has no entry: it is spoken across many regions, so flagFor falls back to
+  // the reader's own.
 }
 
 /**
@@ -42,8 +44,37 @@ const defaultCountry: Record<string, string> = {
  */
 export function flagFor(language: string): string | undefined {
   const code = language.toLowerCase().slice(0, 2)
-  const country = osRegionFor(code) ?? defaultCountry[code]
+  // last resort is the reader's own region, for a language spoken across many
+  // of them.
+  const country = osRegionFor(code) ?? defaultCountry[code] ?? osRegion()
   return country ? byCountry[country] : undefined
+}
+
+/**
+ * The reader's own region, whatever language it belongs to.
+ *
+ * Every tag is read, not just the first. navigator.language is the interface
+ * language's conventional tag, and the webview rewrites one it does not
+ * recognize: an "en-DE" machine (English interface, German region) reports
+ * "en-GB" there, which is a country the reader has nothing to do with. The rest
+ * of the list keeps the real one, so the first tag carrying a region we have a
+ * flag for wins.
+ *
+ * It is best effort. A machine that names no region anywhere gets no flag,
+ * which is the honest answer rather than a guess.
+ */
+function osRegion(): string | undefined {
+  if (typeof navigator === 'undefined') {
+    return undefined
+  }
+  const tags = navigator.languages?.length ? navigator.languages : [navigator.language || '']
+  for (const tag of tags) {
+    const region = tag.toLowerCase().split('-')[1]
+    if (region && region.length === 2 && byCountry[region]) {
+      return region
+    }
+  }
+  return undefined
 }
 
 /**

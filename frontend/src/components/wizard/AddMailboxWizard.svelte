@@ -626,7 +626,7 @@
     border-radius: var(--radius-card);
     background: var(--surface-raised);
     color: var(--text-primary);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
   }
   .choice:hover {
@@ -866,7 +866,7 @@
   }
 
   .seg button + button {
-    border-left: var(--hairline) solid var(--border-default);
+    border-inline-start: var(--hairline) solid var(--border-default);
   }
 
   .seg button.on {

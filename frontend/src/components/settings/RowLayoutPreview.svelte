@@ -143,7 +143,7 @@
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    margin-left: auto;
+    margin-inline-start: auto;
     color: var(--text-tertiary);
     flex-shrink: 0;
   }

@@ -274,7 +274,7 @@
     background: var(--surface-raised);
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     transition: border-color 0.1s ease, background 0.1s ease;
   }
   .preset:hover {
@@ -295,7 +295,7 @@
     font-weight: var(--fw-medium);
   }
   .p-sub {
-    margin-left: auto;
+    margin-inline-start: auto;
     font-size: var(--fz-meta);
     color: var(--text-tertiary);
   }

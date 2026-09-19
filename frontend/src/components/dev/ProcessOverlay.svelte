@@ -97,7 +97,7 @@
 
   dd {
     margin: 0;
-    text-align: right;
+    text-align: end;
     color: var(--text-primary);
     font-variant-numeric: tabular-nums;
   }

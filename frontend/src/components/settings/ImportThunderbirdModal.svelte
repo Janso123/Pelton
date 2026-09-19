@@ -424,7 +424,7 @@
     gap: var(--space-1);
     width: 100%;
     padding: var(--space-3);
-    text-align: left;
+    text-align: start;
     border: var(--hairline) solid var(--border-default);
     border-radius: var(--radius-card);
     background: var(--surface-raised);
@@ -505,7 +505,7 @@
   .scroll-list {
     max-height: 220px;
     overflow-y: auto;
-    padding-right: var(--space-2);
+    padding-inline-end: var(--space-2);
   }
 
   .action-btn {

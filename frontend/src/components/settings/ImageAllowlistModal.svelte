@@ -152,7 +152,7 @@
     color: var(--text-tertiary);
     font-size: var(--fz-meta);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
   }
   .example:hover {
     color: var(--accent);

@@ -133,7 +133,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-label);
     border-radius: var(--radius-control);
   }
@@ -163,8 +163,8 @@
   /* the hint sits at the right edge, so the keys line up down the menu however
      long the labels are. */
   .hint {
-    margin-left: auto;
-    padding-left: var(--space-4);
+    margin-inline-start: auto;
+    padding-inline-start: var(--space-4);
     font-family: inherit;
     font-size: var(--fz-meta);
     color: var(--text-tertiary);

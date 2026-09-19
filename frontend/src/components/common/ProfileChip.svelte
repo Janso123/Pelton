@@ -119,7 +119,7 @@
   .menu {
     position: absolute;
     bottom: calc(100% + var(--space-1));
-    right: 0;
+    inset-inline-end: 0;
     z-index: 320;
     min-width: 180px;
     padding: var(--space-1);
@@ -139,7 +139,7 @@
     background: transparent;
     color: var(--text-secondary);
     font-size: var(--fz-label);
-    text-align: left;
+    text-align: start;
     border-radius: var(--radius-control);
     cursor: var(--cursor-action);
   }

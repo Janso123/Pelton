@@ -555,7 +555,7 @@
     border: none;
     background: transparent;
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     padding: var(--space-2);
     border-radius: var(--radius-control);
   }
@@ -603,7 +603,7 @@
   .menu {
     position: absolute;
     top: calc(100% + var(--space-1));
-    right: 0;
+    inset-inline-end: 0;
     z-index: 41;
     width: 232px;
     padding: var(--space-3);
@@ -632,7 +632,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     padding: var(--space-2);
     border-radius: var(--radius-control);
     font-size: var(--fz-label);

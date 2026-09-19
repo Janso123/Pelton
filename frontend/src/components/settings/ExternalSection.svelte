@@ -506,7 +506,7 @@
   }
 
   .badge {
-    margin-left: var(--space-2);
+    margin-inline-start: var(--space-2);
     padding: 2px var(--space-2);
     border-radius: var(--radius-pill, 999px);
     font-size: var(--fz-caption, 0.72rem);

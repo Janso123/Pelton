@@ -397,7 +397,7 @@
   .popover {
     position: absolute;
     bottom: calc(100% + 6px);
-    left: var(--space-3);
+    inset-inline-start: var(--space-3);
     z-index: 90;
   }
 

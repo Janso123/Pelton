@@ -941,7 +941,7 @@
   }
   .badge-experimental {
     display: inline-block;
-    margin-left: var(--space-2);
+    margin-inline-start: var(--space-2);
     padding: 1px 6px;
     border-radius: var(--radius-control);
     background: var(--warning-bg, var(--surface-sunken));
@@ -1125,7 +1125,7 @@
     border-radius: var(--radius-card);
     background: var(--surface-raised);
     color: var(--text-primary);
-    text-align: left;
+    text-align: start;
     cursor: var(--cursor-action);
     transition: border-color 0.15s ease, transform 0.15s ease;
   }
@@ -1341,7 +1341,7 @@
     flex-direction: column;
     gap: 2px;
     flex: 1;
-    text-align: left;
+    text-align: start;
   }
 
   .p-title {
@@ -1376,7 +1376,7 @@
      instead of following the centered card layouts. */
   .liability {
     max-width: 62ch;
-    text-align: left;
+    text-align: start;
   }
 
   /* shared nav + buttons. */

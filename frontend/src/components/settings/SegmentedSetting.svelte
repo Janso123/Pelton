@@ -49,7 +49,7 @@
 
   button {
     border: none;
-    border-right: var(--hairline) solid var(--border-subtle);
+    border-inline-end: var(--hairline) solid var(--border-subtle);
     background: var(--surface-raised);
     color: var(--text-secondary);
     padding: var(--space-2) var(--space-4);
@@ -58,7 +58,7 @@
   }
 
   button:last-child {
-    border-right: none;
+    border-inline-end: none;
   }
 
   button:hover {

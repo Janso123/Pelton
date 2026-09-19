@@ -179,7 +179,7 @@
   }
 
   .save-all {
-    margin-left: auto;
+    margin-inline-start: auto;
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
@@ -228,7 +228,7 @@
     padding: var(--space-3);
     border: none;
     background: transparent;
-    text-align: left;
+    text-align: start;
     cursor: var(--cursor-action);
   }
   .card-main:hover {
@@ -242,7 +242,7 @@
     flex-shrink: 0;
     width: 40px;
     border: none;
-    border-left: var(--hairline) solid var(--border-subtle);
+    border-inline-start: var(--hairline) solid var(--border-subtle);
     background: transparent;
     color: var(--text-tertiary);
     cursor: var(--cursor-action);

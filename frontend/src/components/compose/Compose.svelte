@@ -794,8 +794,8 @@
 
   .preview :global(blockquote) {
     margin: 0 0 var(--space-2);
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--border-strong);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 2px solid var(--border-strong);
     color: var(--text-secondary);
   }
 
@@ -854,7 +854,7 @@
 
   .send-split .send {
     border-radius: var(--radius-control) 0 0 var(--radius-control);
-    border-right: none;
+    border-inline-end: none;
   }
 
   .send-caret {
@@ -921,7 +921,7 @@
     background: transparent;
     color: var(--text-primary);
     cursor: var(--cursor-action);
-    text-align: left;
+    text-align: start;
     font-size: var(--fz-label);
   }
 
