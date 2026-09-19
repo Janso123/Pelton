@@ -16,6 +16,7 @@
   import { profiles, currentProfile } from '../../stores/profiles'
   import { prefs, setLowPowerMode } from '../../stores/prefs'
   import OutboxPanel from './OutboxPanel.svelte'
+  import { devToolsAvailable } from '../../stores/devoverlays'
   import { t } from '../../lib/i18n'
 
   // devMode is read once at startup: it's fixed for the lifetime of the
@@ -77,6 +78,9 @@
   $: percent = determinate ? Math.min(100, Math.round(($syncCounts.done / $syncCounts.total) * 100)) : 0
 
   let panelOpen = false
+  // the Developer menu hanging off the DEV badge. Never persisted: the overlays
+  // are scratch tools and every launch starts with the menu shut.
+  let devMenuOpen = false
 
   $: pending = $outbox.filter((r) => r.state === 'queued' || r.state === 'sending')
   $: failed = $outbox.filter((r) => r.state === 'failed')
@@ -107,11 +111,38 @@
         {$t('common.statusBar.nightly')}
       </span>
     {/if}
-    {#if devMode}
-      <span class="dev-badge" title={$t('common.statusBar.devModeTitle')}>
-        <IconBug size={13} stroke={1.8} />
-        {$t('common.statusBar.devMode')}
-      </span>
+    <!-- the badge is a button whenever the overlays are available, since it is
+         the only thing on screen that says they exist (#188). A PELTON_DEVTOOLS
+         run has the overlays without the separate data directory, so it gets the
+         badge too, with a title that says which of the two it means. -->
+    {#if devMode || $devToolsAvailable}
+      <div class="dev-wrap">
+        {#if $devToolsAvailable}
+          <button
+            type="button"
+            class="dev-badge clickable"
+            aria-expanded={devMenuOpen}
+            title={devMode ? $t('common.statusBar.devModeTitle') : $t('common.statusBar.devToolsTitle')}
+            on:click={() => (devMenuOpen = !devMenuOpen)}
+          >
+            <IconBug size={13} stroke={1.8} />
+            {$t('common.statusBar.devMode')}
+          </button>
+        {:else}
+          <span class="dev-badge" title={$t('common.statusBar.devModeTitle')}>
+            <IconBug size={13} stroke={1.8} />
+            {$t('common.statusBar.devMode')}
+          </span>
+        {/if}
+
+        {#if devMenuOpen}
+          <div class="popover dev-popover">
+            {#await import('../dev/DevMenu.svelte') then m}
+              <svelte:component this={m.default} on:close={() => (devMenuOpen = false)} />
+            {/await}
+          </div>
+        {/if}
+      </div>
     {/if}
     <!-- which profile you are writing from. Only once there is more than one:
          an install with a single profile has no question to answer. -->
@@ -249,6 +280,11 @@
   <!-- click-away closes the popover. -->
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <div class="scrim" on:click={() => (panelOpen = false)}></div>
+{/if}
+
+{#if devMenuOpen}
+  <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+  <div class="scrim" on:click={() => (devMenuOpen = false)}></div>
 {/if}
 
 <style>
@@ -403,6 +439,27 @@
     font-size: var(--fz-meta);
     font-weight: var(--fw-semibold);
     letter-spacing: 0.02em;
+    /* the button form has to look identical to the span form. */
+    border: none;
+    font-family: inherit;
+  }
+
+  .dev-badge.clickable {
+    cursor: var(--cursor-action);
+  }
+  .dev-badge.clickable:hover {
+    filter: brightness(1.15);
+  }
+
+  /* the badge sits in the middle of the row, so its menu is positioned against
+     the badge rather than against the bar's left edge like the outbox panel. */
+  .dev-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .dev-popover {
+    left: 0;
   }
 
   /* the nightly marker takes the badge shape but the purple of the nightly

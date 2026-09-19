@@ -308,6 +308,7 @@ const de: Record<string, string> = {
   'common.statusBar.lowPower': 'Energiesparmodus',
   'common.statusBar.devMode': 'ENTWICKLERMODUS',
   'common.statusBar.devModeTitle': 'Läuft mit dem Entwickler-Datenverzeichnis, nicht mit deinem echten Postfach.',
+  'common.statusBar.devToolsTitle': 'Entwicklerwerkzeuge sind aktiv. Klicken für die Overlays.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Ungetesteter Nightly-Build. Nicht mit deinem echten Postfach verwenden.',
   'nightly.appName': 'Pelton Nightly',

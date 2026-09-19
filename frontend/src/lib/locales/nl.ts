@@ -308,6 +308,7 @@ const nl: Record<string, string> = {
   'common.statusBar.lowPower': 'Energiebesparend',
   'common.statusBar.devMode': 'ONTWIKKELMODUS',
   'common.statusBar.devModeTitle': 'Draait op de ontwikkel-datamap, niet je echte mailbox.',
+  'common.statusBar.devToolsTitle': 'Ontwikkelaarsgereedschap staat aan. Klik voor de overlays.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Ongeteste nightly-build. Gebruik hem niet met je echte mailbox.',
   'nightly.appName': 'Pelton Nightly',

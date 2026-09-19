@@ -308,6 +308,7 @@ const pt: Record<string, string> = {
   'common.statusBar.lowPower': 'Baixo consumo',
   'common.statusBar.devMode': 'MODO DE DESENVOLVEDOR',
   'common.statusBar.devModeTitle': 'A executar contra o diretório de dados de desenvolvimento, não a sua caixa de correio real.',
+  'common.statusBar.devToolsTitle': 'As ferramentas de programação estão activas. Clique para ver os painéis.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Compilação nightly não testada. Não use com a sua caixa de entrada real.',
   'nightly.appName': 'Pelton Nightly',

@@ -156,7 +156,7 @@ pelton "mailto:someone@example.com"
 | --- | --- |
 | `PELTON_DEBUG` | Same as `--debug`: forces file logging on at debug level. |
 | `PELTON_DEV` | Points Pelton at an isolated config/database directory instead of your real one. Set by `make run` for local development; see [Build from source](install/build-from-source.md). Not something you'd normally set on a regular install. |
-| `PELTON_DEVTOOLS` | Enables browser devtools in a packaged build. `PELTON_DEV` also enables them; this is for getting devtools without the rest of what `PELTON_DEV` does. |
+| `PELTON_DEVTOOLS` | Turns on the [developer overlays](features/shortcuts.md#developer-overlays) in a packaged build. `PELTON_DEV` turns them on as well; this is for getting them without the rest of what `PELTON_DEV` does. It does not enable the browser inspector, which is fixed when the binary is built. |
 
 ## Need help?
 

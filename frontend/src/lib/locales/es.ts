@@ -308,6 +308,7 @@ const es: Record<string, string> = {
   'common.statusBar.lowPower': 'Bajo consumo',
   'common.statusBar.devMode': 'MODO DESARROLLADOR',
   'common.statusBar.devModeTitle': 'Usando la carpeta de datos de desarrollo, no tu buzón real.',
+  'common.statusBar.devToolsTitle': 'Las herramientas de desarrollo están activas. Haz clic para ver los paneles.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Compilación nightly sin probar. No la uses con tu buzón real.',
   'nightly.appName': 'Pelton Nightly',

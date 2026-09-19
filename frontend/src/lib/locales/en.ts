@@ -308,6 +308,7 @@ const en: Record<string, string> = {
   'common.statusBar.lowPower': 'Low power',
   'common.statusBar.devMode': 'DEVELOPER MODE',
   'common.statusBar.devModeTitle': 'Running against the dev data directory, not your real mailbox.',
+  'common.statusBar.devToolsTitle': 'Developer tools are on. Click for the overlays.',
   'common.statusBar.nightly': 'Nightly',
   'common.statusBar.nightlyTitle': 'Untested nightly build. Do not use it with your real inbox.',
   'nightly.appName': 'Pelton Nightly',
