@@ -28,6 +28,7 @@
   import { initPrefs, prefs, setPaneWidths, setLowPowerMode } from './stores/prefs'
   import { applyScale } from './theme/theme'
   import { loadSidebar, refreshSidebar, sidebar } from './stores/accounts'
+  import { refreshCountsSoon } from './stores/sidebarcounts'
   import { initSidebarState } from './stores/sidebarstate'
   import { loadSignatures } from './stores/signatures'
   import { loadVIPSenders } from './stores/vip'
@@ -379,7 +380,15 @@
       }),
     )
     unsubscribers.push(watchSyncStates())
-    unsubscribers.push(onOutboxChanged(() => void loadOutbox()))
+    unsubscribers.push(
+      onOutboxChanged(() => {
+        void loadOutbox()
+        // a message leaving the outbox lands in Sent, and a queued one that
+        // failed goes back. Neither touches the message list, so the badge
+        // would otherwise wait for the next sync (#403).
+        refreshCountsSoon()
+      }),
+    )
     unsubscribers.push(onViewsChanged(() => void loadViews()))
     unsubscribers.push(onProfileChanged(() => void reloadForProfile()))
     unsubscribers.push(onAgentProposals(() => void loadProposals()))
