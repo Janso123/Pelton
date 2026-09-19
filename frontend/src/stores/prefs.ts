@@ -5,7 +5,7 @@
 // source of truth.
 
 import { writable } from 'svelte/store'
-import type { UIPrefs, ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, SelectAllScope } from '../lib/types'
+import type { UIPrefs, ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, SelectAllScope, SearchKind, SearchSortPref } from '../lib/types'
 import { getUIPrefs, setSetting, SettingKeys, systemColorScheme, setWindowTheme, getThemeApply } from '../lib/api'
 import { applyTheme, applyDensity, applyAccent, applyScale, applyReduceMotion, applyHandCursor, setThemeSchedule, applyUIFont, applyMonoFont, applyCorners, watchSystemTheme, setSystemSchemeOverride, resolveTheme } from '../theme/theme'
 import { applyUserTheme } from '../theme/usertheme'
@@ -39,6 +39,9 @@ const defaults: UIPrefs = {
   showSelectedCount: true,
   selectAllScope: 'offer',
   selectAllUnified: false,
+  searchSortText: 'auto',
+  searchSortDated: 'auto',
+  searchSortFiltered: 'auto',
   sidebarIndentGuides: false,
   rowTemplate: 'relaxed',
   rowShowAvatar: true,
@@ -291,6 +294,37 @@ export function setPaletteProfiles(value: boolean): void {
 export function setSwipeEnabled(value: boolean): void {
   prefs.update((p) => ({ ...p, swipeEnabled: value }))
   void setSetting(SettingKeys.swipeEnabled, String(value))
+}
+
+// the settings key each kind of search remembers its sort order under (#404).
+const searchSortKeys: Record<SearchKind, string> = {
+  text: SettingKeys.searchSortText,
+  dated: SettingKeys.searchSortDated,
+  filtered: SettingKeys.searchSortFiltered,
+}
+
+// setSearchSort remembers a sort order for one kind of search. Picking an order
+// while looking at a date range is a statement about date ranges, so it is
+// stored against that kind rather than becoming the order for every search.
+export function setSearchSort(kind: SearchKind, pref: SearchSortPref): void {
+  prefs.update((p) => {
+    if (kind === 'text') {
+      return { ...p, searchSortText: pref }
+    }
+    if (kind === 'dated') {
+      return { ...p, searchSortDated: pref }
+    }
+    return { ...p, searchSortFiltered: pref }
+  })
+  void setSetting(searchSortKeys[kind], pref)
+}
+
+// searchSortPref reads back what a kind of search is set to.
+export function searchSortPref(p: UIPrefs, kind: SearchKind): SearchSortPref {
+  if (kind === 'text') {
+    return p.searchSortText
+  }
+  return kind === 'dated' ? p.searchSortDated : p.searchSortFiltered
 }
 
 // setSwipeLeftAction / setSwipeRightAction pick what each swipe direction does.

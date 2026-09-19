@@ -38,6 +38,7 @@ import type {
   Draft,
   OutboxRow,
   UIPrefs,
+  SearchSort,
   ViewKey,
   Discovered,
   AddAccountRequest,
@@ -603,6 +604,10 @@ export interface SearchRequest {
   to: string
   subject: string
   hasAttachment: boolean
+  unreadOnly: boolean
+  // the order results come back in, already resolved from the "automatic"
+  // setting: the backend is told an order, never asked to guess one.
+  sort: SearchSort
 }
 
 // SearchResult is one page of ranked results. total counts index matches and is
@@ -1210,6 +1215,9 @@ export const SettingKeys = {
   multiSelectEnabled: 'multi_select_enabled',
   selectAllScope: 'select_all_scope',
   selectAllUnified: 'select_all_unified',
+  searchSortText: 'search_sort_text',
+  searchSortDated: 'search_sort_dated',
+  searchSortFiltered: 'search_sort_filtered',
   showSelectedCount: 'show_selected_count',
   sidebarIndentGuides: 'sidebar_indent_guides',
   rowTemplate: 'row_template',

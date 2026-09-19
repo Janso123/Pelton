@@ -160,6 +160,87 @@ func TestOffsetPagesThroughResults(t *testing.T) {
 	}
 }
 
+// sortCorpus has subjects and dates that disagree, so an order that silently
+// fell back to relevance would still be visible in the result.
+var sortCorpus = []Doc{
+	{ID: 1, Subject: "Zebra crossing report", Date: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)},
+	{ID: 2, Subject: "apple harvest report", Date: time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)},
+	{ID: 3, Subject: "Mango season report", Date: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)},
+}
+
+// Each sort actually orders by what it says. The date orders are the ones a
+// user notices first; the subject orders are why the index carries a second,
+// unanalyzed copy of the subject at all.
+func TestSortOrders(t *testing.T) {
+	idx := testIndex(t, sortCorpus...)
+
+	cases := []struct {
+		sort Sort
+		want []int64
+	}{
+		{SortNewest, []int64{2, 3, 1}},
+		{SortOldest, []int64{1, 3, 2}},
+		// "apple" sorts ahead of "Zebra" only because the sort key is
+		// lowercased; on the raw subject every capital letter would come first.
+		{SortSubjectAsc, []int64{2, 3, 1}},
+		{SortSubjectDesc, []int64{1, 3, 2}},
+	}
+	for _, c := range cases {
+		got := ids(t, idx, Query{Text: "report", Sort: c.sort})
+		if len(got) != len(c.want) {
+			t.Errorf("%s: got %v, want %v", c.sort, got, c.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Errorf("%s: got %v, want %v", c.sort, got, c.want)
+				break
+			}
+		}
+	}
+}
+
+// An unset sort has to keep behaving the way search did before there was a
+// choice, since that is what an older caller sends.
+func TestUnknownSortFallsBackToRelevance(t *testing.T) {
+	want := sortOrder(SortRelevance)
+	for _, s := range []Sort{"", "nonsense"} {
+		got := sortOrder(s)
+		if len(got) != len(want) {
+			t.Fatalf("sort %q: got %v, want %v", s, got, want)
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("sort %q: got %v, want %v", s, got, want)
+			}
+		}
+	}
+}
+
+// Paging has to stay stable under a date sort too: messages sharing a date are
+// the normal case, and without the id tiebreak they would drift between pages.
+func TestDateSortPagesWithoutRepeats(t *testing.T) {
+	sameDay := time.Date(2026, 5, 5, 0, 0, 0, 0, time.UTC)
+	docs := make([]Doc, 0, 30)
+	for i := 1; i <= 30; i++ {
+		docs = append(docs, Doc{ID: int64(i), Subject: "weekly report", Date: sameDay})
+	}
+	idx := testIndex(t, docs...)
+
+	seen := map[int64]bool{}
+	for offset := 0; offset < 30; offset += 10 {
+		for _, id := range ids(t, idx, Query{Text: "weekly", Limit: 10, Offset: offset, Sort: SortNewest}) {
+			if seen[id] {
+				t.Errorf("message %d returned on more than one page", id)
+			}
+			seen[id] = true
+		}
+	}
+	if len(seen) != 30 {
+		t.Errorf("paging reached %d of 30 messages", len(seen))
+	}
+}
+
 // Field chips stay precise: no fuzziness, and every token must be present.
 func TestFieldChipIsExact(t *testing.T) {
 	idx := testIndex(t, corpus...)

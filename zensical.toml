@@ -42,6 +42,7 @@ nav = [
   { "Features" = [
     { "Shortcuts" = "features/shortcuts.md" },
     { "Command palette" = "features/command-palette.md" },
+    { "Search" = "features/search.md" },
     { "Scanning links and attachments" = "features/virustotal.md" },
     { "Encryption" = "features/encryption.md" },
   ] },
