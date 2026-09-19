@@ -534,3 +534,102 @@ jobs:
           gh release upload "${{ github.event.release.tag_name }}" \
             "Pelton-$VERSION-vendored.tar.gz" \
             --clobber
+
+  # ---------------------------------------------------------------------------
+  # Publish SHA256SUMS.txt and put the same digests in the release notes, so a
+  # download can be checked against something the project published rather than
+  # taken on trust.
+  #
+  # It hashes what the release actually serves rather than a local build
+  # artifact: that is the file a user gets, so it is the file worth attesting
+  # to.
+  #
+  # It only needs flatpak-source. The installers were uploaded by the tag-push
+  # run and have been sitting on the draft since; the vendored tarball is the
+  # one asset that appears on publish, so it is the only one worth waiting for.
+  # Naming the build jobs here as well would not add a guarantee and would cost
+  # the job entirely: they are skipped on the release event, and a skipped
+  # dependency skips everything that needs it.
+  #
+  # pelton.app/thanks reads the digest out of the release notes, not out of the
+  # asset. Release downloads redirect to a host that sends no CORS headers, so a
+  # page cannot fetch SHA256SUMS.txt at all, while api.github.com serves the
+  # body happily. The file stays for humans and for `sha256sum -c`.
+  # ---------------------------------------------------------------------------
+  checksums:
+    needs: flatpak-source
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Hash every published asset
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --dir assets \
+            --clobber
+          # a re-run finds the previous SHA256SUMS.txt sitting there; hashing it
+          # would be meaningless and it must never list itself.
+          rm -f assets/SHA256SUMS.txt
+          (cd assets && sha256sum * | sort -k2 > ../SHA256SUMS.txt)
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS.txt
+        run: |
+          gh release upload "$TAG" SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Put the digests in the release notes
+        run: |
+          set -euo pipefail
+          # GitHub returns the body with CRLF. Left alone, every pattern below
+          # anchored to end-of-line silently fails to match, and the section is
+          # appended again on a re-run instead of replacing the old one.
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body \
+            | tr -d '\r' > body.md
+
+          # idempotent: a re-run replaces the section rather than adding a
+          # second one. Everything from the heading to the next top-level
+          # heading or horizontal rule goes.
+          if grep -q '^## Checksums$' body.md; then
+            awk '
+              /^## Checksums$/ { skip = 1; next }
+              skip && (/^## / || /^---$/) { skip = 0 }
+              !skip { print }
+            ' body.md > body.trimmed && mv body.trimmed body.md
+          fi
+
+          # the trailing blank line is not cosmetic: a table that runs straight
+          # into the disclaimer's `---` stops being a table.
+          {
+            echo "## Checksums"
+            echo
+            echo "SHA-256 of every file on this release, also published as [SHA256SUMS.txt](https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/SHA256SUMS.txt), which \`sha256sum -c\` reads directly."
+            echo
+            echo "| File | SHA-256 |"
+            echo "| --- | --- |"
+            while read -r digest file; do
+              echo "| \`$file\` | \`$digest\` |"
+            done < SHA256SUMS.txt
+            echo
+          } > section.md
+
+          # the disclaimer stays last, so the section goes in above it when
+          # there is one and at the end when there is not.
+          if grep -qn '^---$' body.md; then
+            line=$(grep -n '^---$' body.md | tail -n1 | cut -d: -f1)
+            head -n $((line - 1)) body.md > new-body.md
+            cat section.md >> new-body.md
+            tail -n +"$line" body.md >> new-body.md
+          else
+            cat body.md section.md > new-body.md
+          fi
+
+          # tag_name is not passed, and gh keeps it: this is a published
+          # release, not the draft whose tag an earlier notes update dropped.
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file new-body.md
