@@ -122,6 +122,8 @@
   import { t } from '../../lib/i18n'
   import type { ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, LogStatus, SelectAllScope, SearchKind, SearchSortPref } from '../../lib/types'
   import { searchSorts, automaticSort } from '../../lib/searchsort'
+  import Select from '../common/Select.svelte'
+  import type { SelectItem } from '../../lib/selectnav'
 
   // the three kinds of search that remember their own result order (#404).
   const searchSortRows: { kind: SearchKind; label: string }[] = [
@@ -434,16 +436,16 @@
     }
   })
 
-  function onCharsetFallback(event: Event): void {
-    charsetFallback = (event.currentTarget as HTMLSelectElement).value
+  function onCharsetFallback(event: CustomEvent<string>): void {
+    charsetFallback = event.detail
     void setSetting(charsetKey, charsetFallback)
   }
 
   // select handlers (the cast lives in script; inline ts casts break the parser).
   // the startup target is stored as an opaque string ('last', 'view:<key>' or
   // 'folder:<id>'), so the select works directly on it.
-  function onStartupSelection(event: Event): void {
-    setStartupSelection((event.currentTarget as HTMLSelectElement).value)
+  function onStartupSelection(event: CustomEvent<string>): void {
+    setStartupSelection(event.detail)
   }
 
   // unified view names are localized by key in the sidebar; reuse that here so
@@ -454,27 +456,65 @@
     return translated === lookup ? fallback : translated
   }
 
-  function onSelectAllScope(event: Event): void {
-    setSelectAllScope((event.currentTarget as HTMLSelectElement).value as SelectAllScope)
+  // the pickers hand over the chosen value itself rather than the event, so
+  // nothing here has to reach back into the dom for it.
+  function onSelectAllScope(event: CustomEvent<string>): void {
+    setSelectAllScope(event.detail as SelectAllScope)
   }
-  function onSearchSort(kind: SearchKind, event: Event): void {
-    setSearchSort(kind, (event.currentTarget as HTMLSelectElement).value as SearchSortPref)
+  function onSearchSort(kind: SearchKind, event: CustomEvent<string>): void {
+    setSearchSort(kind, event.detail as SearchSortPref)
   }
-  function onBodyFont(event: Event): void {
-    setBodyFont((event.currentTarget as HTMLSelectElement).value)
+  function onBodyFont(event: CustomEvent<string>): void {
+    setBodyFont(event.detail)
   }
-  function onUIFont(event: Event): void {
-    setUIFont((event.currentTarget as HTMLSelectElement).value)
+  function onUIFont(event: CustomEvent<string>): void {
+    setUIFont(event.detail)
   }
-  function onMonoFont(event: Event): void {
-    setMonoFont((event.currentTarget as HTMLSelectElement).value)
+  function onMonoFont(event: CustomEvent<string>): void {
+    setMonoFont(event.detail)
   }
-  function onSwipeLeft(event: Event): void {
-    setSwipeLeftAction((event.currentTarget as HTMLSelectElement).value)
+  function onSwipeLeft(event: CustomEvent<string>): void {
+    setSwipeLeftAction(event.detail)
   }
-  function onSwipeRight(event: Event): void {
-    setSwipeRightAction((event.currentTarget as HTMLSelectElement).value)
+  function onSwipeRight(event: CustomEvent<string>): void {
+    setSwipeRightAction(event.detail)
   }
+
+  // the three font pickers share a shape: a curated list, then whatever the
+  // system has, prefixed so the backend can tell the two apart.
+  function fontItems(curated: { key: string; label: string }[]): SelectItem[] {
+    const items: SelectItem[] = [{ label: $t('settingsPanel.bodyFont.groupCurated'), options: curated.map((o) => ({ value: o.key, label: o.label })) }]
+    if (systemFonts.length > 0) {
+      items.push({
+        label: $t('settingsPanel.bodyFont.groupSystem'),
+        options: systemFonts.map((family) => ({ value: `sys:${family}`, label: family })),
+      })
+    }
+    return items
+  }
+
+  // "last used", then every unified view and every folder grouped by account.
+  $: startupItems = [
+    { value: 'last', label: $t('settingsPanel.startup.lastUsed') },
+    ...($sidebar.data
+      ? [
+          {
+            label: $t('sidebar.unifiedViews.heading'),
+            options: $sidebar.data.views.map((view) => ({
+              value: `view:${view.key}`,
+              label: unifiedViewName(view.key, view.label),
+            })),
+          },
+          ...$sidebar.data.accounts.map((account) => ({
+            label: account.email,
+            options: ($sidebar.data?.foldersByAccount[account.id] ?? []).map((folder) => ({
+              value: `folder:${folder.id}`,
+              label: folder.imapPath,
+            })),
+          })),
+        ]
+      : []),
+  ] satisfies SelectItem[]
   // initialCategory deep-links the panel to a section (e.g. opened from the
   // "Manage Mailboxes" menu item); null opens the default section.
   export let initialCategory: string | null = null
@@ -1070,16 +1110,17 @@
 
           <div class="row" class:disabled={!$prefs.multiSelectEnabled}>
             <span class="row-label">{$t('settingsPanel.label.selectAllScope')}</span>
-            <select
-              class="select"
+            <Select
               value={$prefs.selectAllScope}
               disabled={!$prefs.multiSelectEnabled}
+              ariaLabel={$t('settingsPanel.label.selectAllScope')}
+              items={[
+                { value: 'offer', label: $t('settingsPanel.selectAllScope.offer') },
+                { value: 'all', label: $t('settingsPanel.selectAllScope.all') },
+                { value: 'loaded', label: $t('settingsPanel.selectAllScope.loaded') },
+              ]}
               on:change={onSelectAllScope}
-            >
-              <option value="offer">{$t('settingsPanel.selectAllScope.offer')}</option>
-              <option value="all">{$t('settingsPanel.selectAllScope.all')}</option>
-              <option value="loaded">{$t('settingsPanel.selectAllScope.loaded')}</option>
-            </select>
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.selectAllScope')}</p>
           <div class="toggle" class:disabled={!$prefs.multiSelectEnabled} title={$t('settingsPanel.hint.selectAllUnified')}>
@@ -1098,18 +1139,21 @@
           {#each searchSortRows as row (row.kind)}
             <div class="row">
               <span class="row-label">{$t(row.label)}</span>
-              <select
-                class="select"
+              <Select
                 value={searchSortPref($prefs, row.kind)}
+                ariaLabel={$t(row.label)}
+                items={[
+                  {
+                    value: 'auto',
+                    label: `${$t('settingsPanel.searchSort.auto')} (${$t(`messageList.search.sort.${automaticSort(row.kind)}`)})`,
+                  },
+                  ...searchSorts.map((option) => ({
+                    value: option,
+                    label: $t(`messageList.search.sort.${option}`),
+                  })),
+                ]}
                 on:change={(e) => onSearchSort(row.kind, e)}
-              >
-                <option value="auto">
-                  {$t('settingsPanel.searchSort.auto')} ({$t(`messageList.search.sort.${automaticSort(row.kind)}`)})
-                </option>
-                {#each searchSorts as option (option)}
-                  <option value={option}>{$t(`messageList.search.sort.${option}`)}</option>
-                {/each}
-              </select>
+              />
             </div>
           {/each}
 
@@ -1140,23 +1184,12 @@
           </div>
           <div class="row">
             <span class="row-label">{$t('settingsPanel.label.startupSelection')}</span>
-            <select class="select" value={$prefs.startupSelection} on:change={onStartupSelection}>
-              <option value="last">{$t('settingsPanel.startup.lastUsed')}</option>
-              {#if $sidebar.data}
-                <optgroup label={$t('sidebar.unifiedViews.heading')}>
-                  {#each $sidebar.data.views as view (view.key)}
-                    <option value={`view:${view.key}`}>{unifiedViewName(view.key, view.label)}</option>
-                  {/each}
-                </optgroup>
-                {#each $sidebar.data.accounts as account (account.id)}
-                  <optgroup label={account.email}>
-                    {#each $sidebar.data.foldersByAccount[account.id] ?? [] as folder (folder.id)}
-                      <option value={`folder:${folder.id}`}>{folder.imapPath}</option>
-                    {/each}
-                  </optgroup>
-                {/each}
-              {/if}
-            </select>
+            <Select
+              value={$prefs.startupSelection}
+              ariaLabel={$t('settingsPanel.label.startupSelection')}
+              items={startupItems}
+              on:change={onStartupSelection}
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.startupSelection')}</p>
           <SegmentedSetting
@@ -1385,20 +1418,12 @@
           <p class="hint">{$t('settingsPanel.hint.timeFormat')}</p>
           <div class="row">
             <span class="row-label">{$t('settingsPanel.label.bodyFont')}</span>
-            <select class="select" value={$prefs.bodyFont} on:change={onBodyFont}>
-              <optgroup label={$t('settingsPanel.bodyFont.groupCurated')}>
-                {#each bodyFontOptions as opt}
-                  <option value={opt.key}>{opt.label}</option>
-                {/each}
-              </optgroup>
-              {#if systemFonts.length > 0}
-                <optgroup label={$t('settingsPanel.bodyFont.groupSystem')}>
-                  {#each systemFonts as family}
-                    <option value={`sys:${family}`}>{family}</option>
-                  {/each}
-                </optgroup>
-              {/if}
-            </select>
+            <Select
+              value={$prefs.bodyFont}
+              ariaLabel={$t('settingsPanel.label.bodyFont')}
+              items={fontItems(bodyFontOptions)}
+              on:change={onBodyFont}
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.bodyFont')}</p>
           <div class="toggle" title={$t('settingsPanel.hint.senderFonts')}>
@@ -1412,48 +1437,35 @@
           <p class="hint">{$t('settingsPanel.hint.senderFonts')}</p>
           <div class="row">
             <span class="row-label">{$t('settingsPanel.label.uiFont')}</span>
-            <select class="select" value={$prefs.uiFont} on:change={onUIFont}>
-              <optgroup label={$t('settingsPanel.bodyFont.groupCurated')}>
-                {#each uiFontOptions as opt}
-                  <option value={opt.key}>{opt.label}</option>
-                {/each}
-              </optgroup>
-              {#if systemFonts.length > 0}
-                <optgroup label={$t('settingsPanel.bodyFont.groupSystem')}>
-                  {#each systemFonts as family}
-                    <option value={`sys:${family}`}>{family}</option>
-                  {/each}
-                </optgroup>
-              {/if}
-            </select>
+            <Select
+              value={$prefs.uiFont}
+              ariaLabel={$t('settingsPanel.label.uiFont')}
+              items={fontItems(uiFontOptions)}
+              on:change={onUIFont}
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.uiFont')}</p>
           <div class="row">
             <span class="row-label">{$t('settingsPanel.label.monoFont')}</span>
-            <select class="select" value={$prefs.monoFont} on:change={onMonoFont}>
-              <optgroup label={$t('settingsPanel.bodyFont.groupCurated')}>
-                {#each monoFontOptions as opt}
-                  <option value={opt.key}>{opt.label}</option>
-                {/each}
-              </optgroup>
-              {#if systemFonts.length > 0}
-                <optgroup label={$t('settingsPanel.bodyFont.groupSystem')}>
-                  {#each systemFonts as family}
-                    <option value={`sys:${family}`}>{family}</option>
-                  {/each}
-                </optgroup>
-              {/if}
-            </select>
+            <Select
+              value={$prefs.monoFont}
+              ariaLabel={$t('settingsPanel.label.monoFont')}
+              items={fontItems(monoFontOptions)}
+              on:change={onMonoFont}
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.monoFont')}</p>
           <div class="row">
             <span class="row-label">{$t('settingsPanel.label.charsetFallback')}</span>
-            <select class="select" value={charsetFallback} on:change={onCharsetFallback}>
-              <option value="auto">{$t('settingsPanel.charset.auto')}</option>
-              {#each charsetOptions as name}
-                <option value={name}>{name}</option>
-              {/each}
-            </select>
+            <Select
+              value={charsetFallback}
+              ariaLabel={$t('settingsPanel.label.charsetFallback')}
+              items={[
+                { value: 'auto', label: $t('settingsPanel.charset.auto') },
+                ...charsetOptions.map((name) => ({ value: name, label: name })),
+              ]}
+              on:change={onCharsetFallback}
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.charsetFallback')}</p>
           <TechToggles />
@@ -1481,29 +1493,23 @@
           </div>
           <div class="row" class:disabled={!$prefs.swipeEnabled}>
             <span class="row-label">{$t('settingsPanel.label.swipeLeft')}</span>
-            <select
-              class="select"
+            <Select
               disabled={!$prefs.swipeEnabled}
               value={$prefs.swipeLeftAction}
+              ariaLabel={$t('settingsPanel.label.swipeLeft')}
+              items={swipeActionOptions.map((opt) => ({ value: opt.key, label: opt.label }))}
               on:change={onSwipeLeft}
-            >
-              {#each swipeActionOptions as opt}
-                <option value={opt.key}>{opt.label}</option>
-              {/each}
-            </select>
+            />
           </div>
           <div class="row" class:disabled={!$prefs.swipeEnabled}>
             <span class="row-label">{$t('settingsPanel.label.swipeRight')}</span>
-            <select
-              class="select"
+            <Select
               disabled={!$prefs.swipeEnabled}
               value={$prefs.swipeRightAction}
+              ariaLabel={$t('settingsPanel.label.swipeRight')}
+              items={swipeActionOptions.map((opt) => ({ value: opt.key, label: opt.label }))}
               on:change={onSwipeRight}
-            >
-              {#each swipeActionOptions as opt}
-                <option value={opt.key}>{opt.label}</option>
-              {/each}
-            </select>
+            />
           </div>
           <p class="hint">{$t('settingsPanel.hint.swipeWork')}</p>
         </section>
@@ -2246,14 +2252,10 @@
     opacity: 0.45;
   }
 
-  .select {
-    padding: var(--space-2) var(--space-3);
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    font: inherit;
-    cursor: var(--cursor-action);
+  /* the picker carries its own look now. The settings rows only cap how wide
+     it gets, so a long font or folder name cannot push the row apart. */
+  .row :global(.select) {
+    max-width: 60%;
   }
 
   .download-row {

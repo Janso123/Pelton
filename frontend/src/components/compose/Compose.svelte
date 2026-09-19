@@ -23,6 +23,7 @@
   } from '@tabler/icons-svelte'
   import AddressFields from './AddressFields.svelte'
   import EditorModeSwitch from './EditorModeSwitch.svelte'
+  import Select from '../common/Select.svelte'
   import EditorToolbar from './EditorToolbar.svelte'
   import AttachmentPicker from './AttachmentPicker.svelte'
   import DateTimePicker from '../common/DateTimePicker.svelte'
@@ -238,11 +239,14 @@
 
   // insertSignature lets the user drop a different block into the body from the
   // compose footer menu (the "change in compose" path).
-  function insertSignature(event: Event): void {
-    const select = event.currentTarget as HTMLSelectElement
-    const id = Number(select.value)
-    select.value = ''
-    const sig = signatureById(id)
+  // the signature picker runs an action rather than holding a setting, so it
+  // snaps back to its placeholder after each use instead of showing whichever
+  // block was inserted last.
+  let sigChoice = ''
+
+  function insertSignature(event: CustomEvent<string>): void {
+    const sig = signatureById(Number(event.detail))
+    sigChoice = ''
     if (!sig) {
       return
     }
@@ -492,15 +496,12 @@
     {#if accounts.length > 1}
       <div class="from">
         <label for={`from-${session.id}`}>{$t('compose.field.from')}</label>
-        <select
+        <Select
           id={`from-${session.id}`}
-          value={session.accountId}
-          on:change={(e) => updateCompose(session.id, { accountId: Number(e.currentTarget.value) })}
-        >
-          {#each accounts as acc (acc.id)}
-            <option value={acc.id}>{acc.email}</option>
-          {/each}
-        </select>
+          value={String(session.accountId)}
+          items={accounts.map((acc) => ({ value: String(acc.id), label: acc.email }))}
+          on:change={(e) => updateCompose(session.id, { accountId: Number(e.detail) })}
+        />
       </div>
     {/if}
 
@@ -583,12 +584,16 @@
       </button>
       <span class="spacer"></span>
       {#if $signatures.length > 0}
-        <select class="sig-select" aria-label={$t('compose.signature.ariaLabel')} on:change={insertSignature}>
-          <option value="" disabled selected>{$t('compose.signature.placeholder')}</option>
-          {#each $signatures as sig (sig.id)}
-            <option value={sig.id}>{sig.name}</option>
-          {/each}
-        </select>
+        <Select
+          class="sig-select"
+          bind:value={sigChoice}
+          ariaLabel={$t('compose.signature.ariaLabel')}
+          items={[
+            { value: '', label: $t('compose.signature.placeholder'), disabled: true },
+            ...$signatures.map((sig) => ({ value: String(sig.id), label: sig.name })),
+          ]}
+          on:change={insertSignature}
+        />
       {/if}
       <EditorModeSwitch mode={session.mode} on:change={setMode} />
     </footer>
@@ -726,11 +731,8 @@
     color: var(--text-tertiary);
   }
 
-  .from select {
+  .from :global(.select) {
     flex: 1;
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
     padding: var(--space-1) var(--space-2);
   }
 
@@ -812,14 +814,11 @@
     flex: 1;
   }
 
-  .sig-select {
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
+  /* the class reaches a child component, so it needs :global to land. */
+  footer :global(.sig-select) {
     color: var(--text-secondary);
     font-size: var(--fz-label);
     padding: var(--space-1) var(--space-2);
-    cursor: var(--cursor-action);
   }
 
   .send,
