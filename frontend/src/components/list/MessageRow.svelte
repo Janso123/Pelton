@@ -229,9 +229,13 @@
         {#if isVip}
           <IconStarFilled size={12} class="vip-star" aria-label={$t('vip.star')} />
         {/if}
-        <span class="sender">{displayName(message.fromName, message.fromAddress)}</span>
+        <!-- sender, subject and snippet are the message's words, not the
+             interface's, so each reads in its own direction (#356). The row
+             around them keeps the interface direction, so the layout stays put
+             while an Arabic subject reads right to left inside it. -->
+        <span dir="auto" class="sender">{displayName(message.fromName, message.fromAddress)}</span>
         {#if template === 'single'}
-          <span class="subject inline">{message.subject || $t('messageList.noSubject')}</span>
+          <span dir="auto" class="subject inline">{message.subject || $t('messageList.noSubject')}</span>
         {/if}
         <span class="meta">
           {#if message.flagColor > 0}
@@ -256,10 +260,10 @@
       </div>
 
       {#if template !== 'single'}
-        <div class="subject">{message.subject || $t('messageList.noSubject')}</div>
+        <div dir="auto" class="subject">{message.subject || $t('messageList.noSubject')}</div>
       {/if}
       {#if showSnippet}
-        <div class="snippet" style={`--preview-lines:${previewLines}`}>{message.snippet}</div>
+        <div dir="auto" class="snippet" style={`--preview-lines:${previewLines}`}>{message.snippet}</div>
       {/if}
     </div>
   </div>
@@ -395,7 +399,7 @@
     align-items: center;
     gap: var(--space-2);
     flex-shrink: 0;
-    margin-left: auto;
+    margin-inline-start: auto;
     color: var(--text-tertiary);
   }
 
@@ -405,7 +409,7 @@
 
   .top :global(.vip-star) {
     flex-shrink: 0;
-    margin-right: 2px;
+    margin-inline-end: 2px;
     color: var(--warning);
   }
 

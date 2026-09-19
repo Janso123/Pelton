@@ -131,7 +131,10 @@
     </button>
   </div>
 
-  <div class="surface selectable" bind:this={element}></div>
+  <!-- dir="auto" turns the editor round once the first strong character typed
+       is right-to-left (#356), and the direction it settles on is what goes out
+       with the message: see writingDirection in mailcompose.ts. -->
+  <div dir="auto" class="surface selectable" bind:this={element}></div>
 </div>
 
 <style>
@@ -224,8 +227,8 @@
 
   .surface :global(.ProseMirror blockquote) {
     margin: 0 0 var(--space-2);
-    padding-left: var(--space-3);
-    border-left: 2px solid var(--border-strong);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 2px solid var(--border-strong);
     color: var(--text-secondary);
   }
 

@@ -24,10 +24,24 @@
 import { writable, derived } from 'svelte/store'
 import en from './locales/en'
 import { getUserLocale } from './api'
+import { applyDirection } from '../theme/theme'
 
-export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt'
+export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar'
 
-export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt']
+export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar']
+
+/** Text direction of the interface. */
+export type Direction = 'ltr' | 'rtl'
+
+// which languages read right to left (#356). Only the exceptions are listed,
+// since every other locale is left to right and a missing entry is the common
+// case rather than an oversight.
+const rtlLocales = new Set<Locale>(['ar'])
+
+/** The direction a language is written in. */
+export function directionOf(l: Locale): Direction {
+  return rtlLocales.has(l) ? 'rtl' : 'ltr'
+}
 
 // each language is shown in its own spelling, not translated into the
 // currently active one, so it stays recognizable no matter what is selected.
@@ -42,6 +56,7 @@ export const localeNames: Record<Locale, string> = {
   // qualified because the catalog is European Portuguese, not pt-BR:
   // ficheiro/gerir/ecrã rather than arquivo/gerenciar/tela.
   pt: 'Português (Portugal)',
+  ar: 'العربية',
 }
 
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
@@ -52,6 +67,7 @@ const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<str
   pl: () => import('./locales/pl'),
   tr: () => import('./locales/tr'),
   pt: () => import('./locales/pt'),
+  ar: () => import('./locales/ar'),
 }
 
 // catalogs holds every locale's strings that have been loaded so far. english
@@ -84,6 +100,18 @@ export function detectOSLocale(): Locale {
 // that first load resolves. while a custom language is active, this holds its
 // base language so the fallback chain stays a plain catalog lookup.
 export const locale = writable<Locale>('en')
+
+// the interface follows the active language's direction, wherever that language
+// came from: a built-in, or a custom file whose base is right-to-left. Hooking
+// the store rather than each setter means no path can set a language and forget
+// to turn the layout round with it.
+locale.subscribe((l) => {
+  const dir = directionOf(l)
+  // lang matters beyond direction: it is what the webview uses to pick a face
+  // for characters shared between scripts, and what a screen reader reads with.
+  document.documentElement.lang = l
+  void applyDirection(dir)
+})
 
 // the active custom language's strings, or null when a built-in is active.
 const userCatalog = writable<Record<string, string> | null>(null)

@@ -157,3 +157,39 @@ func TestSnippetFallsBackToHTML(t *testing.T) {
 		t.Errorf("Snippet() = %q, want %q", got, "hello world")
 	}
 }
+
+// Mail that says which way it reads keeps saying it (#356). Stripping these
+// was why right-to-left mail arrived left-aligned with its numbers and
+// punctuation out of order: the sender had answered the question and the
+// sanitizer removed the answer.
+func TestSanitizeKeepsDirection(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		html string
+		want string
+	}{
+		{"dir on a block", `<div dir="rtl">שלום</div>`, `dir="rtl"`},
+		{"dir auto", `<p dir="auto">مرحبا</p>`, `dir="auto"`},
+		{"direction style", `<p style="direction: rtl">مرحبا</p>`, "direction"},
+		{"unicode-bidi style", `<p style="unicode-bidi: embed">مرحبا</p>`, "unicode-bidi"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Sanitize(tt.html, false, false); !strings.Contains(got, tt.want) {
+				t.Errorf("Sanitize(%q) = %q, want it to contain %q", tt.html, got, tt.want)
+			}
+		})
+	}
+}
+
+// The direction attribute carries no behaviour, but the elements it is allowed
+// on still have to obey every other rule: allowing it globally must not let an
+// otherwise-stripped element through with it.
+func TestSanitizeDirectionDoesNotRescueBlockedElements(t *testing.T) {
+	got := Sanitize(`<script dir="rtl">alert(1)</script><p dir="rtl">ok</p>`, false, false)
+	if strings.Contains(got, "script") || strings.Contains(got, "alert") {
+		t.Errorf("Sanitize() kept a script: %q", got)
+	}
+	if !strings.Contains(got, `dir="rtl"`) {
+		t.Errorf("Sanitize() dropped the direction of the surviving paragraph: %q", got)
+	}
+}

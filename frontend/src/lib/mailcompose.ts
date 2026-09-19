@@ -4,6 +4,7 @@
 // the markdown source is kept as the plain text part.
 
 import { marked } from 'marked'
+import { writingDirection, markDirection } from './textdirection'
 import type { Address, ComposeRequest, EditorMode } from './types'
 import type { ComposeSession } from '../stores/compose'
 
@@ -38,12 +39,17 @@ export interface RenderedBody {
 //    fallback derived from it. wysiwyg is the stubbed editor (basic
 //    contenteditable); a richer editor can replace it without changing this
 //    contract.
+// The html part carries the direction the message was written in (#356), so it
+// reads the same way in the recipient's client as it did in the composer. A
+// plaintext-only message cannot say anything about direction, since plain text
+// has no markup to say it in; that one is left to the reader's own client.
 export function renderBody(mode: EditorMode, body: string): RenderedBody {
+  const direction = writingDirection(body)
   if (mode === 'markdown') {
-    return { text: body, html: marked.parse(body) as string }
+    return { text: body, html: markDirection(marked.parse(body) as string, direction) }
   }
   if (mode === 'wysiwyg') {
-    return { text: htmlToText(body), html: body }
+    return { text: htmlToText(body), html: markDirection(body, direction) }
   }
   return { text: body, html: '' }
 }

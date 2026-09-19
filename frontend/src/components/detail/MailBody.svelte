@@ -99,15 +99,15 @@
   a{color:#1a56db;}
   img{max-width:100%;height:auto;}
   video{max-width:100%;height:auto;}
-  blockquote{margin:0 0 0 8px;padding-left:10px;border-left:2px solid #94a3b8;color:#55606c;}
+  blockquote{margin:0;margin-inline-start:8px;padding-inline-start:10px;border-inline-start:2px solid #94a3b8;color:#55606c;}
   table{max-width:100%;}
   pre{white-space:pre-wrap;}
-  .pelton-vt{display:inline-block;margin-left:3px;font-family:${readVar('--font-mono') || 'monospace'};font-weight:700;font-size:0.85em;cursor:default;}
+  .pelton-vt{display:inline-block;margin-inline-start:3px;font-family:${readVar('--font-mono') || 'monospace'};font-weight:700;font-size:0.85em;cursor:default;}
   .pelton-vt-clean{color:#1a7f4b;}
   .pelton-vt-flagged{color:#c0392b;}
   .pelton-vt-unknown{color:#6b7280;}
   .pelton-vt-error{color:#9a6700;}
-  .pelton-phish{display:inline-block;margin-left:3px;font-weight:700;font-size:0.85em;color:#c0392b;cursor:default;}`
+  .pelton-phish{display:inline-block;margin-inline-start:3px;font-weight:700;font-size:0.85em;color:#c0392b;cursor:default;}`
     const imgSrc = allowRemote ? 'data: https: http:' : 'data:'
     // media rides on the same choice as images: a message that embeds a video
     // can only reach out once the reader has allowed remote content for it.
@@ -142,7 +142,16 @@
     // has an empty <body> before any srcdoc has loaded, so a readiness check
     // that only looks for "a body" would resolve instantly against that
     // placeholder instead of waiting for the real content.
-    return `<!doctype html><html><head><meta charset="utf-8">${cspMeta}${open}${css}${close}</head><body data-pelton-ready="1">${html}${script}</body></html>`
+    // dir="auto" reads the direction off the message's own first strong
+    // character (#356), so Hebrew and Arabic mail lays out right to left with
+    // its numbers and punctuation in the right order. It is only a default: a
+    // message that states its own direction, which the sanitizer now keeps,
+    // overrides this on the element that says so.
+    //
+    // It goes on the document rather than on the reader's side of the pane
+    // because the direction belongs to the mail, not to the interface: an
+    // Arabic interface must not turn an English message round.
+    return `<!doctype html><html dir="auto"><head><meta charset="utf-8">${cspMeta}${open}${css}${close}</head><body dir="auto" data-pelton-ready="1">${html}${script}</body></html>`
   }
 
   // nonce is regenerated per message so a stale nonce from a previous render
@@ -581,7 +590,10 @@
     {srcdoc}
   ></iframe>
 {:else}
-  <pre class="body-plain mono selectable" style={`font-size:${$prefs.messageFontSize}px`}>{#each plainSegments as segment}{#if segment.href}<a
+  <!-- dir="auto" for the same reason as the html document above: a plain-text
+       message written right to left reads that way, whatever the interface is
+       set to. -->
+  <pre dir="auto" class="body-plain mono selectable" style={`font-size:${$prefs.messageFontSize}px`}>{#each plainSegments as segment}{#if segment.href}<a
         class="plain-link"
         href={segment.href}
         on:click|preventDefault={() => BrowserOpenURL(segment.href ?? '')}
@@ -658,7 +670,7 @@
   .remote-btn.has-caret {
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
-    border-right: none;
+    border-inline-end: none;
   }
 
   .remote-caret {
@@ -681,7 +693,9 @@
   .pixel-menu {
     position: absolute;
     top: calc(100% + var(--space-1));
-    right: 0;
+    /* anchored to the end of its button, so it opens on the other side in a
+       right-to-left interface rather than off the edge of it. */
+    inset-inline-end: 0;
     z-index: 30;
     border: var(--hairline) solid var(--border-default);
     border-radius: var(--radius-control);
@@ -698,7 +712,7 @@
     background: transparent;
     color: var(--text-primary);
     font-size: var(--fz-label);
-    text-align: left;
+    text-align: start;
     cursor: pointer;
   }
 
@@ -736,7 +750,7 @@
     padding: 0;
     color: var(--text-secondary);
     font-size: var(--fz-meta);
-    text-align: left;
+    text-align: start;
   }
 
   .pixel-summary {

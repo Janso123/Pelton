@@ -13,6 +13,29 @@ export const defaultSelection: Selection = { kind: 'view', view: 'inbox', label:
 
 export const selection = writable<Selection>(defaultSelection)
 
+// A selection carries its label rather than looking it up, which means the
+// label is a snapshot of whatever language was active when it was made. The
+// window title and the list header read it, so switching language used to leave
+// both reading in the old one until the user clicked something else.
+//
+// Only the built-in views are re-resolved. A folder's label is its name on the
+// server and a saved View's is what the user called it; neither is translated,
+// and rewriting them from a catalog would replace what the user named with
+// something they never chose.
+// t rather than locale: the catalog is fetched after the locale changes, so
+// locale alone would re-resolve against the strings that are about to be
+// replaced. Writing only on a real difference keeps this from handing out a new
+// selection object every time the store settles.
+t.subscribe(() => {
+  selection.update((sel) => {
+    if (sel.kind !== 'view') {
+      return sel
+    }
+    const label = unifiedViewLabel(sel.view)
+    return label === sel.label ? sel : { ...sel, label }
+  })
+})
+
 // the "remember what I had open" value of the startup setting. anything else is
 // a fixed target, stored as "view:<key>" or "folder:<id>".
 const startupLast = 'last'
