@@ -5,6 +5,7 @@
   import { createEventDispatcher } from 'svelte'
   import { IconPlus, IconMinus } from '@tabler/icons-svelte'
   import Modal from '../common/Modal.svelte'
+  import Select from '../common/Select.svelte'
   import { addressBooks, saveContact } from '../../stores/contacts'
   import { t } from '../../lib/i18n'
   import type { ContactDraft } from '../../lib/types'
@@ -63,12 +64,19 @@
   <div class="form">
     <label class="field">
       <span>{$t('contacts.field.book')}</span>
-      <select bind:value={draft.bookId} disabled={draft.id !== 0}>
-        <option value={0} disabled>{$t('contacts.field.bookPlaceholder')}</option>
-        {#each writable as book (book.id)}
-          <option value={book.id}>{book.name || $t('contacts.book.untitled')}</option>
-        {/each}
-      </select>
+      <Select
+        value={String(draft.bookId)}
+        disabled={draft.id !== 0}
+        ariaLabel={$t('contacts.field.book')}
+        items={[
+          { value: '0', label: $t('contacts.field.bookPlaceholder'), disabled: true },
+          ...writable.map((book) => ({
+            value: String(book.id),
+            label: book.name || $t('contacts.book.untitled'),
+          })),
+        ]}
+        on:change={(e) => (draft.bookId = Number(e.detail))}
+      />
     </label>
 
     <label class="field">
@@ -167,7 +175,6 @@
   }
 
   input,
-  select,
   textarea {
     padding: 0 var(--space-2);
     border: var(--hairline) solid var(--border-default);
@@ -178,9 +185,14 @@
     font-size: var(--fz-body);
   }
 
-  input,
-  select {
+  input {
     height: var(--control-height);
+  }
+
+  /* sized to match the inputs above and below it; the look is the control's. */
+  .field :global(.select) {
+    height: var(--control-height);
+    font-size: var(--fz-body);
   }
 
   textarea {

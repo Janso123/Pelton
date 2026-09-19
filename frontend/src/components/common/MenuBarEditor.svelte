@@ -24,6 +24,7 @@
     IconCheck,
   } from '@tabler/icons-svelte'
   import ThemedIcon from './ThemedIcon.svelte'
+  import Select from './Select.svelte'
   import MenuGlyph from './MenuGlyph.svelte'
   import IconPicker from '../settings/IconPicker.svelte'
   import { t, isMac } from '../../lib/i18n'
@@ -59,6 +60,7 @@
 
   $: flipMs = $prefs.reduceMotion ? 0 : 150
   $: actionOptions = menuActionCatalog.filter((d) => !(d.macOnly && !isMac))
+  $: actionItems = actionOptions.map((opt) => ({ value: opt.action as string, label: $t(opt.labelKey) }))
 
   let openMenu: string | null = menuList[0]?.id ?? null
   $: if (openMenu !== null && !menuList.some((m) => m.id === openMenu)) {
@@ -293,16 +295,13 @@
                       on:input={(e) => updateItem(menu.id, null, item.id, { label: e.currentTarget.value })}
                     />
                     {#if item.kind === 'custom'}
-                      <select
-                        class="select"
-                        value={item.action}
-                        aria-label={$t('menuBar.entryAction')}
-                        on:change={(e) => updateItem(menu.id, null, item.id, { action: e.currentTarget.value as MenuActionId })}
-                      >
-                        {#each actionOptions as opt (opt.action)}
-                          <option value={opt.action}>{$t(opt.labelKey)}</option>
-                        {/each}
-                      </select>
+                      <Select
+                        class="action-select"
+                        value={item.action ?? ''}
+                        ariaLabel={$t('menuBar.entryAction')}
+                        items={actionItems}
+                        on:change={(e) => updateItem(menu.id, null, item.id, { action: e.detail as MenuActionId })}
+                      />
                     {/if}
                     <button type="button" class="icon-choose" on:click={() => (pickingIcon = !pickingIcon)}>
                       {#if item.iconName || item.iconNodes}
@@ -378,16 +377,13 @@
                                 aria-label={$t('menuBar.entryLabel')}
                                 on:input={(e) => updateItem(menu.id, item.id, child.id, { label: e.currentTarget.value })}
                               />
-                              <select
-                                class="select"
-                                value={child.action}
-                                aria-label={$t('menuBar.entryAction')}
-                                on:change={(e) => updateItem(menu.id, item.id, child.id, { action: e.currentTarget.value as MenuActionId })}
-                              >
-                                {#each actionOptions as opt (opt.action)}
-                                  <option value={opt.action}>{$t(opt.labelKey)}</option>
-                                {/each}
-                              </select>
+                              <Select
+                                class="action-select"
+                                value={child.action ?? ''}
+                                ariaLabel={$t('menuBar.entryAction')}
+                                items={actionItems}
+                                on:change={(e) => updateItem(menu.id, item.id, child.id, { action: e.detail as MenuActionId })}
+                              />
                               <button type="button" class="icon-choose" on:click={() => (pickingIcon = !pickingIcon)}>
                                 {#if child.iconName || child.iconNodes}
                                   <MenuGlyph iconName={child.iconName} iconNodes={child.iconNodes} size={16} />
@@ -564,12 +560,8 @@
 
   .name-input,
   .text-input,
-  .select {
+  .rows :global(.action-select) {
     padding: var(--space-1) var(--space-2);
-    border: var(--hairline) solid var(--border-default);
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
-    color: var(--text-primary);
     font-size: var(--fz-label);
   }
 

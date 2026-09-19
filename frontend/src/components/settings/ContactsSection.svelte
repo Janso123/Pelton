@@ -7,6 +7,7 @@
   import { IconPlus, IconTrash, IconPencil, IconRefresh, IconAlertTriangle } from '@tabler/icons-svelte'
   import Modal from '../common/Modal.svelte'
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
+  import Select from '../common/Select.svelte'
   import Spinner from '../common/Spinner.svelte'
   import {
     listAccounts,
@@ -231,12 +232,17 @@
       </label>
       <label class="field">
         <span>{$t('contacts.books.field.account')}</span>
-        <select bind:value={draft.accountId}>
-          <option value={0}>{$t('contacts.books.field.noAccount')}</option>
-          {#each accounts.filter((a) => !a.local) as account (account.id)}
-            <option value={account.id}>{accountLabel(account)}</option>
-          {/each}
-        </select>
+        <Select
+          value={String(draft.accountId)}
+          ariaLabel={$t('contacts.books.field.account')}
+          items={[
+            { value: '0', label: $t('contacts.books.field.noAccount') },
+            ...accounts
+              .filter((a) => !a.local)
+              .map((account) => ({ value: String(account.id), label: accountLabel(account) })),
+          ]}
+          on:change={(e) => draft && (draft.accountId = Number(e.detail))}
+        />
       </label>
       <p class="hint">{$t('contacts.books.accountHint')}</p>
 
@@ -398,8 +404,7 @@
     flex: 1;
   }
 
-  input,
-  select {
+  input {
     height: var(--control-height);
     padding: 0 var(--space-2);
     border: var(--hairline) solid var(--border-default);
@@ -407,6 +412,13 @@
     background: var(--surface-raised);
     color: var(--text-primary);
     font: inherit;
+    font-size: var(--fz-body);
+  }
+
+  /* the select brings its own look; the form only says how big it is, so it
+     lines up with the inputs beside it. */
+  .field :global(.select) {
+    height: var(--control-height);
     font-size: var(--fz-body);
   }
 
