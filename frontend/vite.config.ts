@@ -10,9 +10,31 @@ const tablerNodesOutline = fileURLToPath(
   new URL('./node_modules/@tabler/icons/tabler-nodes-outline.json', import.meta.url),
 )
 
+// @fontsource ships every face twice, as woff2 and as woff, and its css names
+// both: `src: url(...woff2) format('woff2'), url(...woff) format('woff')`. A
+// browser takes the first format it supports, so the woff copy is only ever
+// read by one that cannot do woff2. The three webviews Pelton runs in
+// (WKWebView, WebView2, WebKitGTK) have all supported woff2 for years, so every
+// woff file here is weight nobody downloads.
+//
+// It is worth removing rather than ignoring: the Han face alone is 1.1 MB a
+// weight, and shipping the dead copy of it costs more than the whole Arabic
+// face does. Dropping them leaves the css pointing at a url that is not there,
+// which is harmless because nothing ever requests it.
+const dropLegacyWoff = {
+  name: 'drop-legacy-woff',
+  generateBundle(_options: unknown, bundle: Record<string, unknown>) {
+    for (const file of Object.keys(bundle)) {
+      if (file.endsWith('.woff')) {
+        delete bundle[file]
+      }
+    }
+  },
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte(), dropLegacyWoff],
   resolve: {
     alias: {
       'tabler-nodes-outline': tablerNodesOutline,
