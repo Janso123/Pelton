@@ -35,6 +35,9 @@ const defaultCountry: Record<string, string> = {
   pt: 'pt',
   // ar has no entry: it is spoken across many regions, so flagFor falls back to
   // the reader's own.
+  // keyed by the full tag: a bare "zh" would also claim zh-TW, which uses a
+  // different flag.
+  'zh-cn': 'cn',
 }
 
 /**
@@ -43,10 +46,16 @@ const defaultCountry: Record<string, string> = {
  * own translation belongs to no country.
  */
 export function flagFor(language: string): string | undefined {
-  const code = language.toLowerCase().slice(0, 2)
+  const tag = language.toLowerCase()
+  // a locale that names its own region is read from that region alone: asking
+  // the operating system would answer for whatever region the machine is in.
+  if (tag.includes('-')) {
+    const pinned = defaultCountry[tag]
+    return pinned ? byCountry[pinned] : undefined
+  }
   // last resort is the reader's own region, for a language spoken across many
   // of them.
-  const country = osRegionFor(code) ?? defaultCountry[code] ?? osRegion()
+  const country = osRegionFor(tag) ?? defaultCountry[tag] ?? osRegion()
   return country ? byCountry[country] : undefined
 }
 

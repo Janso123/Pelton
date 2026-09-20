@@ -24,11 +24,11 @@
 import { writable, derived } from 'svelte/store'
 import en from './locales/en'
 import { getUserLocale } from './api'
-import { applyDirection } from '../theme/theme'
+import { applyCJK, applyDirection } from '../theme/theme'
 
-export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar'
+export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar' | 'zh-CN'
 
-export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar']
+export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar', 'zh-CN']
 
 /** Text direction of the interface. */
 export type Direction = 'ltr' | 'rtl'
@@ -42,6 +42,12 @@ const rtlLocales = new Set<Locale>(['ar'])
 export function directionOf(l: Locale): Direction {
   return rtlLocales.has(l) ? 'rtl' : 'ltr'
 }
+
+// which languages are written in Han characters, which the interface font has
+// no glyphs for. Listed separately from rtlLocales because the script a
+// language uses and the direction it runs in are different questions: Arabic
+// happens to answer both at once, Chinese only the first.
+const cjkLocales = new Set<Locale>(['zh-CN'])
 
 // each language is shown in its own spelling, not translated into the
 // currently active one, so it stays recognizable no matter what is selected.
@@ -57,6 +63,9 @@ export const localeNames: Record<Locale, string> = {
   // ficheiro/gerir/ecrã rather than arquivo/gerenciar/tela.
   pt: 'Português (Portugal)',
   ar: 'العربية',
+  // written in the simplified characters used in mainland China, not the
+  // traditional ones, so the code names the region rather than the language.
+  'zh-CN': '简体中文',
 }
 
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
@@ -68,6 +77,7 @@ const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<str
   tr: () => import('./locales/tr'),
   pt: () => import('./locales/pt'),
   ar: () => import('./locales/ar'),
+  'zh-CN': () => import('./locales/zh-CN'),
 }
 
 // catalogs holds every locale's strings that have been loaded so far. english
@@ -91,8 +101,35 @@ async function ensureLoaded(l: Locale): Promise<void> {
 // active language: first run always defaults to English, and after that the
 // user's own choice (persisted via settings) always wins.
 export function detectOSLocale(): Locale {
-  const lang = (navigator.language || 'en').slice(0, 2).toLowerCase()
-  return (locales as string[]).includes(lang) ? (lang as Locale) : 'en'
+  const tag = (navigator.language || 'en').toLowerCase()
+  if (writesSimplifiedChinese(tag)) {
+    return 'zh-CN'
+  }
+  // the whole tag is tried before its bare language, so a region-qualified
+  // locale (zh-CN, simplified) can be recommended without also recommending it
+  // to every other region the language is written in.
+  const exact = locales.find((l) => l.toLowerCase() === tag)
+  if (exact) return exact
+  const base = tag.slice(0, 2)
+  return locales.find((l) => l.toLowerCase() === base) ?? 'en'
+}
+
+// whether an operating system language tag names Chinese in simplified
+// characters.
+//
+// Chinese needs its own answer because the tag alone does not give one. The
+// three webviews do not agree on how they spell it: "zh-CN" from one,
+// "zh-Hans-CN" from another, sometimes a bare "zh", and matching on the whole
+// tag or its first two letters catches the first of those and misses the rest.
+//
+// Traditional is excluded rather than mapped. Simplified and traditional are
+// not the same text to read, so a reader of traditional Chinese is better
+// recommended English than a catalogue they would have to work through.
+function writesSimplifiedChinese(tag: string): boolean {
+  if (tag !== 'zh' && !tag.startsWith('zh-')) {
+    return false
+  }
+  return !/(^|-)(hant|tw|hk|mo)(-|$)/.test(tag)
 }
 
 // the active locale. initPrefs (stores/prefs.ts) sets this from the persisted
@@ -111,6 +148,7 @@ locale.subscribe((l) => {
   // for characters shared between scripts, and what a screen reader reads with.
   document.documentElement.lang = l
   void applyDirection(dir)
+  void applyCJK(cjkLocales.has(l))
 })
 
 // the active custom language's strings, or null when a built-in is active.

@@ -39,6 +39,7 @@
     "@codemirror/view": "^6.43.11",
     "@fontsource/familjen-grotesk": "^5.3.0",
     "@fontsource/noto-sans-arabic": "^5.3.0",
+    "@fontsource/noto-sans-sc": "^5.3.0",
     "@fontsource/spline-sans-mono": "^5.3.0",
     "@replit/codemirror-vim": "^6.4.0",
     "@tabler/icons": "^3.46.0",

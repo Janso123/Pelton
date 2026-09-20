@@ -30,9 +30,21 @@
 */
 
 :root {
-  /* fonts. bundled locally via @fontsource, no runtime cdn. */
-  --font-ui: "Familjen Grotesk", system-ui, -apple-system, sans-serif;
-  --font-mono: "Spline Sans Mono", ui-monospace, "SFMono-Regular", monospace;
+  /* fonts. bundled locally via @fontsource, no runtime cdn.
+
+     The two Noto faces sit after the system stack and before the generic, and
+     cover the scripts Familjen Grotesk and Spline Sans Mono do not: Arabic and
+     Han. Naming a face that has not been loaded costs nothing, since css skips
+     a family it cannot resolve, so they can be listed unconditionally here and
+     are only ever fetched by the language that needs them (theme/rtlfont.ts,
+     theme/cjkfont.ts). Listing them after the system stack keeps the platform's
+     own face first, which is what a reader expects to see.
+
+     They have to be named in the default stacks and not only appended to a
+     stack the user picked, or a reader on the default font would download the
+     face and never render a glyph with it. */
+  --font-ui: "Familjen Grotesk", system-ui, -apple-system, "Noto Sans Arabic", "Noto Sans SC", sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, "SFMono-Regular", "Noto Sans Arabic", "Noto Sans SC", monospace;
 
   /* type sizes. message list 13px, body 13-14, labels/meta 11-12. */
   --fz-meta: 11px;
