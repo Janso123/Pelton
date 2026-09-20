@@ -52,6 +52,25 @@ describe('detectOSLocale', () => {
     expect(detectOSLocale()).toBe('de')
   })
 
+  // the three webviews do not spell Chinese the same way, and only the first of
+  // these is the exact locale id. Matching on the whole tag or its first two
+  // letters recognizes that one and leaves the rest on English.
+  it('recognizes simplified chinese however the system spells it', () => {
+    for (const tag of ['zh-CN', 'zh-Hans-CN', 'zh-Hans', 'zh', 'zh-SG']) {
+      withSystemLanguage(tag)
+      expect(detectOSLocale(), tag).toBe('zh-CN')
+    }
+  })
+
+  // traditional is a different script to read, so it is left on English rather
+  // than pointed at a catalogue written in simplified characters.
+  it('does not recommend simplified chinese to traditional systems', () => {
+    for (const tag of ['zh-TW', 'zh-HK', 'zh-MO', 'zh-Hant', 'zh-Hant-TW']) {
+      withSystemLanguage(tag)
+      expect(detectOSLocale(), tag).toBe('en')
+    }
+  })
+
   it('falls back to english for an unsupported language', () => {
     withSystemLanguage('ja-JP')
     expect(detectOSLocale()).toBe('en')

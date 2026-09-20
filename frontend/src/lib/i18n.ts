@@ -102,6 +102,9 @@ async function ensureLoaded(l: Locale): Promise<void> {
 // user's own choice (persisted via settings) always wins.
 export function detectOSLocale(): Locale {
   const tag = (navigator.language || 'en').toLowerCase()
+  if (writesSimplifiedChinese(tag)) {
+    return 'zh-CN'
+  }
   // the whole tag is tried before its bare language, so a region-qualified
   // locale (zh-CN, simplified) can be recommended without also recommending it
   // to every other region the language is written in.
@@ -109,6 +112,24 @@ export function detectOSLocale(): Locale {
   if (exact) return exact
   const base = tag.slice(0, 2)
   return locales.find((l) => l.toLowerCase() === base) ?? 'en'
+}
+
+// whether an operating system language tag names Chinese in simplified
+// characters.
+//
+// Chinese needs its own answer because the tag alone does not give one. The
+// three webviews do not agree on how they spell it: "zh-CN" from one,
+// "zh-Hans-CN" from another, sometimes a bare "zh", and matching on the whole
+// tag or its first two letters catches the first of those and misses the rest.
+//
+// Traditional is excluded rather than mapped. Simplified and traditional are
+// not the same text to read, so a reader of traditional Chinese is better
+// recommended English than a catalogue they would have to work through.
+function writesSimplifiedChinese(tag: string): boolean {
+  if (tag !== 'zh' && !tag.startsWith('zh-')) {
+    return false
+  }
+  return !/(^|-)(hant|tw|hk|mo)(-|$)/.test(tag)
 }
 
 // the active locale. initPrefs (stores/prefs.ts) sets this from the persisted
