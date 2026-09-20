@@ -6,6 +6,7 @@
 import type { ThemePref, DensityPref } from '../lib/types'
 import { applyAccent } from './accent'
 import { ensureArabicFont, arabicFallback } from './rtlfont'
+import { ensureChineseFont, chineseFallback } from './cjkfont'
 
 export { applyAccent }
 
@@ -111,24 +112,32 @@ export function applyMonoFont(stack: string | null): void {
   setFontToken('--font-mono', stack)
 }
 
-// the stacks last handed to applyUIFont/applyMonoFont, so a change of reading
-// direction can re-apply them with or without the Arabic fallback rather than
-// waiting for the user to pick a font again.
+// the stacks last handed to applyUIFont/applyMonoFont, so a change of language
+// can re-apply them with or without a script fallback rather than waiting for
+// the user to pick a font again.
 const chosenFonts: Record<string, string | null> = { '--font-ui': null, '--font-mono': null }
-let rtl = false
+
+// the bundled faces for scripts no offered font covers. The default stacks in
+// tokens.css name them already; a stack the user chose replaces that default
+// outright, so it has to be told about them too.
+const scriptFallbacks = new Set<string>()
 
 function setFontToken(name: string, stack: string | null): void {
   chosenFonts[name] = stack
   const root = document.documentElement
-  // a right-to-left interface appends the Arabic face to whatever stack is in
-  // force, including one the user chose, since none of the offered faces covers
-  // Arabic either.
-  const applied = stack && rtl ? `${stack}, ${arabicFallback}` : stack
+  const applied = stack && scriptFallbacks.size > 0 ? [stack, ...scriptFallbacks].join(', ') : stack
   if (applied) {
     root.style.setProperty(name, applied)
   } else {
     root.style.removeProperty(name)
   }
+}
+
+// re-applies both tokens, so a change to the script fallbacks reaches whatever
+// stacks are in force.
+function refreshFontTokens(): void {
+  setFontToken('--font-ui', chosenFonts['--font-ui'])
+  setFontToken('--font-mono', chosenFonts['--font-mono'])
 }
 
 /**
@@ -143,12 +152,32 @@ function setFontToken(name: string, stack: string | null): void {
 export async function applyDirection(direction: 'ltr' | 'rtl'): Promise<void> {
   if (direction === 'rtl') {
     await ensureArabicFont()
+    scriptFallbacks.add(arabicFallback)
+  } else {
+    scriptFallbacks.delete(arabicFallback)
   }
-  rtl = direction === 'rtl'
   document.documentElement.dir = direction
   // re-apply so the fallback is added or dropped to match.
-  setFontToken('--font-ui', chosenFonts['--font-ui'])
-  setFontToken('--font-mono', chosenFonts['--font-mono'])
+  refreshFontTokens()
+}
+
+/**
+ * Loads or drops the Han face for the active language.
+ *
+ * Separate from applyDirection because Simplified Chinese reads left to right:
+ * the script a language is written in and the direction it runs in are two
+ * different questions, and only Arabic happens to answer both at once. Like
+ * the Arabic face, it is loaded before the language takes effect so the
+ * interface never shows a frame of empty boxes.
+ */
+export async function applyCJK(needed: boolean): Promise<void> {
+  if (needed) {
+    await ensureChineseFont()
+    scriptFallbacks.add(chineseFallback)
+  } else {
+    scriptFallbacks.delete(chineseFallback)
+  }
+  refreshFontTokens()
 }
 
 // applyReduceMotion marks the root so css can disable transitions and

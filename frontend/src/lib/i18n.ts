@@ -24,7 +24,7 @@
 import { writable, derived } from 'svelte/store'
 import en from './locales/en'
 import { getUserLocale } from './api'
-import { applyDirection } from '../theme/theme'
+import { applyCJK, applyDirection } from '../theme/theme'
 
 export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar' | 'zh-CN'
 
@@ -42,6 +42,12 @@ const rtlLocales = new Set<Locale>(['ar'])
 export function directionOf(l: Locale): Direction {
   return rtlLocales.has(l) ? 'rtl' : 'ltr'
 }
+
+// which languages are written in Han characters, which the interface font has
+// no glyphs for. Listed separately from rtlLocales because the script a
+// language uses and the direction it runs in are different questions: Arabic
+// happens to answer both at once, Chinese only the first.
+const cjkLocales = new Set<Locale>(['zh-CN'])
 
 // each language is shown in its own spelling, not translated into the
 // currently active one, so it stays recognizable no matter what is selected.
@@ -121,6 +127,7 @@ locale.subscribe((l) => {
   // for characters shared between scripts, and what a screen reader reads with.
   document.documentElement.lang = l
   void applyDirection(dir)
+  void applyCJK(cjkLocales.has(l))
 })
 
 // the active custom language's strings, or null when a built-in is active.
