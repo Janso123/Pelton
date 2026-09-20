@@ -29,14 +29,24 @@
 </p>
 
 <p align="center">
-  <a href="https://alternativeto.net/software/pelton/about/?utm_source=badge&utm_medium=referral" target="_blank">
+  <a href="https://alternativeto.net/software/pelton/about/?utm_source=badge&utm_medium=referral" target="_blank" rel="noopener noreferrer">
     <img src="https://alternativeto.net/static/badges/badge-compact-color.svg"
          alt="Pelton | AlternativeTo"
-         width="171" height="55"
-         style="width: 171px; height: 55px;" />
+         width="171" height="55" />
   </a>
   <a href="https://www.producthunt.com/products/pelton/launches/pelton?embed=true&utm_source=badge-featured&utm_medium=badge&utm_campaign=badge-pelton" target="_blank" rel="noopener noreferrer">
-    <img alt="Pelton - An open-source/foss email client that respects your privacy | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1208738&theme=light&t=1789329951747">
+    <img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1208738&theme=light&t=1789329951747"
+         alt="Pelton - An open-source/foss email client that respects your privacy | Product Hunt"
+         width="250" height="55" />
+  </a>
+  <a href="https://www.star-history.com/peltonapp/pelton" target="_blank" rel="noopener noreferrer">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=peltonapp/Pelton&type=rank&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=peltonapp/Pelton&type=rank" />
+      <img src="https://api.star-history.com/badge?repo=peltonapp/Pelton&type=rank"
+           alt="Star History Rank"
+           width="164" height="55" />
+    </picture>
   </a>
 </p>
 
