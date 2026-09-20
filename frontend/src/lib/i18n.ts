@@ -26,9 +26,9 @@ import en from './locales/en'
 import { getUserLocale } from './api'
 import { applyDirection } from '../theme/theme'
 
-export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar'
+export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar' | 'zh-CN'
 
-export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar']
+export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar', 'zh-CN']
 
 /** Text direction of the interface. */
 export type Direction = 'ltr' | 'rtl'
@@ -57,6 +57,9 @@ export const localeNames: Record<Locale, string> = {
   // ficheiro/gerir/ecrã rather than arquivo/gerenciar/tela.
   pt: 'Português (Portugal)',
   ar: 'العربية',
+  // written in the simplified characters used in mainland China, not the
+  // traditional ones, so the code names the region rather than the language.
+  'zh-CN': '简体中文',
 }
 
 const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<string, string> }>> = {
@@ -68,6 +71,7 @@ const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<str
   tr: () => import('./locales/tr'),
   pt: () => import('./locales/pt'),
   ar: () => import('./locales/ar'),
+  'zh-CN': () => import('./locales/zh-CN'),
 }
 
 // catalogs holds every locale's strings that have been loaded so far. english
@@ -91,8 +95,14 @@ async function ensureLoaded(l: Locale): Promise<void> {
 // active language: first run always defaults to English, and after that the
 // user's own choice (persisted via settings) always wins.
 export function detectOSLocale(): Locale {
-  const lang = (navigator.language || 'en').slice(0, 2).toLowerCase()
-  return (locales as string[]).includes(lang) ? (lang as Locale) : 'en'
+  const tag = (navigator.language || 'en').toLowerCase()
+  // the whole tag is tried before its bare language, so a region-qualified
+  // locale (zh-CN, simplified) can be recommended without also recommending it
+  // to every other region the language is written in.
+  const exact = locales.find((l) => l.toLowerCase() === tag)
+  if (exact) return exact
+  const base = tag.slice(0, 2)
+  return locales.find((l) => l.toLowerCase() === base) ?? 'en'
 }
 
 // the active locale. initPrefs (stores/prefs.ts) sets this from the persisted

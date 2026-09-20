@@ -29,8 +29,9 @@ const localeStringsCap = 20000
 // fallback base.
 var builtinLocales = map[string]bool{
 	"en": true, "de": true, "fr": true, "nl": true, "es": true, "pl": true, "tr": true,
-	"pt": true,
-	"ar": true,
+	"pt":    true,
+	"ar":    true,
+	"zh-CN": true,
 }
 
 // localeIDPattern is the shape of a user locale id (its file name without
