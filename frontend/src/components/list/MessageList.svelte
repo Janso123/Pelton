@@ -253,10 +253,10 @@
   // however it got opened (click, Enter, or the in-app vim motions), so a
   // stale arrow-key position never leaves two rows looking selected at once.
   $: if ($openMessageId !== null) {
-    const openIdx = items.findIndex((m) => m.id === $openMessageId)
-    if (openIdx !== -1) {
-      activeIndex = openIdx
-    }
+    // -1 is a real result: changing from search results back to the mailbox can
+    // leave the open message outside the new list, so its old numeric position
+    // must not highlight whichever row replaced it.
+    activeIndex = items.findIndex((m) => m.id === $openMessageId)
   }
 
   // search handling. the list shows ranked results when there is a query or an
