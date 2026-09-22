@@ -178,7 +178,7 @@ const (
 	defaultListWidth     = 380
 	// flag highlight styles: flag (icon only), left, both, off.
 	defaultFlagHighlight = "flag"
-	// avatar source preference (fallback chain): bimi_gravatar, gravatar_bimi, or
+	// avatar source preference (fallback chain): bimi_gravatar, gravatar_bimi, bimi, or
 	// pfp (generated only, no network).
 	defaultAvatarSource = "bimi_gravatar"
 	// generated placeholder style: initials, mono, pixel, geometric.

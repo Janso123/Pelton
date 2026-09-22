@@ -1273,6 +1273,7 @@ const de: Record<string, string> = {
   'settingsPanel.scale.150': '150 %',
   'settingsPanel.avatarSource.bimiGravatar': 'Logo → Gravatar',
   'settingsPanel.avatarSource.gravatarBimi': 'Gravatar → Logo',
+  'settingsPanel.avatarSource.bimiOnly': 'Nur Logo',
   'settingsPanel.avatarSource.generated': 'Generiert',
   'settingsPanel.previewLines.1': '1 Zeile',
   'settingsPanel.previewLines.2': '2 Zeilen',

@@ -1267,6 +1267,7 @@ const pt: Record<string, string> = {
   'settingsPanel.scale.150': '150%',
   'settingsPanel.avatarSource.bimiGravatar': 'Logótipo → Gravatar',
   'settingsPanel.avatarSource.gravatarBimi': 'Gravatar → Logótipo',
+  'settingsPanel.avatarSource.bimiOnly': 'Apenas o Logótipo',
   'settingsPanel.avatarSource.generated': 'Gerado',
   'settingsPanel.previewLines.1': '1 linha',
   'settingsPanel.previewLines.2': '2 linhas',

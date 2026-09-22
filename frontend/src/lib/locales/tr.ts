@@ -1273,6 +1273,7 @@ const tr: Record<string, string> = {
   'settingsPanel.scale.150': '%150',
   'settingsPanel.avatarSource.bimiGravatar': 'Logo → Gravatar',
   'settingsPanel.avatarSource.gravatarBimi': 'Gravatar → Logo',
+  'settingsPanel.avatarSource.bimiOnly': 'Yalnızca Logo',
   'settingsPanel.avatarSource.generated': 'Üretilmiş',
   'settingsPanel.previewLines.1': '1 satır',
   'settingsPanel.previewLines.2': '2 satır',
