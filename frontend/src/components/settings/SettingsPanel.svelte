@@ -716,6 +716,7 @@
   $: avatarSourceOptions = [
     { key: 'bimi_gravatar', label: $t('settingsPanel.avatarSource.bimiGravatar') },
     { key: 'gravatar_bimi', label: $t('settingsPanel.avatarSource.gravatarBimi') },
+    { key: 'bimi', label: $t('settingsPanel.avatarSource.bimiOnly') },
     { key: 'pfp', label: $t('settingsPanel.avatarSource.generated') },
   ]
 

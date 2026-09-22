@@ -1274,6 +1274,7 @@ const zhCN: Record<string, string> = {
   'settingsPanel.scale.150': '150%',
   'settingsPanel.avatarSource.bimiGravatar': 'Logo → Gravatar',
   'settingsPanel.avatarSource.gravatarBimi': 'Gravatar → Logo',
+  'settingsPanel.avatarSource.bimiOnly': '仅Logo',
   'settingsPanel.avatarSource.generated': '生成头像',
   'settingsPanel.previewLines.1': '1 行',
   'settingsPanel.previewLines.2': '2 行',

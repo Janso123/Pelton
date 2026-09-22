@@ -410,7 +410,7 @@ export interface UIPrefs {
   // private preset in onboarding turns it on.
   blockTrackingPixels: boolean
   // avatarSource selects the sender-photo fallback chain: bimi_gravatar,
-  // gravatar_bimi, or pfp (generated only). avatarStyle picks the generated
+  // gravatar_bimi, bimi, or pfp (generated only). avatarStyle picks the generated
   // placeholder look: initials, mono, pixel, or geometric.
   avatarSource: string
   avatarStyle: string
