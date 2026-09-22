@@ -37,7 +37,7 @@ func (a *App) SenderPhotos(email string) ([]string, error) {
 	case "pfp":
 		return nil, nil
 	case "bimi":
-		return a.orderedPhotos(email, "bimi")
+		return a.orderedPhotos(email, "bimi"), nil
 	case "gravatar_bimi":
 		return a.orderedPhotos(email, "gravatar", "bimi"), nil
 	default: // bimi_gravatar
