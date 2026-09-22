@@ -1273,7 +1273,7 @@ const ar: Record<string, string> = {
   'settingsPanel.scale.150': '150%',
   'settingsPanel.avatarSource.bimiGravatar': 'الشعار ← Gravatar',
   'settingsPanel.avatarSource.gravatarBimi': 'Gravatar ← الشعار',
-  'settingsPanel.avatarSource.bimiOnly': 'الشعار',
+  'settingsPanel.avatarSource.bimiOnly': 'الشعار فقط',
   'settingsPanel.avatarSource.generated': 'مولَّد',
   'settingsPanel.previewLines.1': 'سطر واحد',
   'settingsPanel.previewLines.2': 'سطران',
