@@ -44,6 +44,10 @@ export interface Account {
   // the user told the missing-password prompt to stop asking about this
   // account. It still cannot sync; the ui marks it instead of interrupting.
   passwordPromptDismissed: boolean
+  // fingerprints of server certificates the user accepted for this mailbox,
+  // formatted for reading, and the subjects of the CA it trusts (#446).
+  trustedCerts: string[]
+  caSubjects: string[]
 }
 
 // ThunderbirdAccount is one account read out of a Thunderbird profile. There is
@@ -854,6 +858,10 @@ export interface AddAccountRequest {
   // optional oauth client secret for confidential-client app registrations
   // (some Microsoft Entra setups). empty keeps the default PKCE public flow.
   clientSecret: string
+  // what the mailbox trusts beyond the system roots: fingerprints accepted in
+  // the connection test, and a CA file's PEM text.
+  trustedCerts: string[]
+  caPem: string
 }
 
 export interface TestConnectionRequest {
@@ -865,11 +873,48 @@ export interface TestConnectionRequest {
   // tested with the same security the account will use, not a guess from the port.
   imapTls: TLSMode
   password: string
+  // the smtp server is only checked for the certificate it presents.
+  smtpHost: string
+  smtpPort: number
+  smtpTls: TLSMode
+  trustedCerts: string[]
+  caPem: string
 }
 
 // SyncFailureReason is the coarse class of a failed sync, which the ui turns
 // into a sentence. Anything unrecognized reads as 'other'.
-export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'other'
+export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'certificate' | 'other'
+
+// UntrustedCert is a server certificate that failed verification, laid out for
+// the user to review before trusting it. fingerprint is what trusting it sends
+// back; display is the same for reading. Dates are rfc3339.
+export interface UntrustedCert {
+  server: 'imap' | 'smtp'
+  host: string
+  port: number
+  fingerprint: string
+  display: string
+  subject: string
+  issuer: string
+  notBefore: string
+  notAfter: string
+  names: string[]
+  selfSigned: boolean
+  reason: string
+}
+
+// ConnectionTest is a connection test that reached the servers: untrusted is
+// empty when it logged in.
+export interface ConnectionTest {
+  untrusted: UntrustedCert[]
+}
+
+// CAFile is a picked CA certificate file. pem is empty when the picker was
+// cancelled.
+export interface CAFile {
+  pem: string
+  subjects: string[]
+}
 
 // AccountSyncState is how one account's last sync went. lastOk survives a later
 // failure, so "broken since" is answerable. Both times are rfc3339, empty for

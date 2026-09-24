@@ -16,6 +16,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/charsetguess"
 )
 
@@ -62,6 +63,10 @@ type Config struct {
 	// of a password. The caller obtains and refreshes it; this layer only uses it.
 	OAuth2Token string
 
+	// Trust is what this mailbox trusts beyond the system roots: certificates
+	// the user pinned and a CA they supplied. The zero value is the standard
+	// verification.
+	Trust certtrust.Trust
 	// InsecureSkipVerify disables TLS verification. Debugging only.
 	InsecureSkipVerify bool
 	// DebugWriter receives the raw protocol stream, including credentials.
@@ -136,16 +141,41 @@ func (c *Client) Addr() string {
 
 // Connect opens a TLS connection but does not authenticate; call Login next.
 func Connect(cfg Config) (*Client, error) {
-	if cfg.Host == "" {
-		return nil, fmt.Errorf("imap: host is required")
-	}
 	if cfg.Username == "" || (cfg.Password == "" && cfg.OAuth2Token == "") {
 		return nil, fmt.Errorf("imap: username and a password or oauth token are required")
+	}
+	return connect(cfg)
+}
+
+// CheckTLS connects far enough to complete the TLS handshake and hangs up,
+// without logging in. It needs no credentials, so the app can ask what
+// certificate a server presents before anything is stored (#446).
+func CheckTLS(cfg Config) error {
+	client, err := connect(cfg)
+	if err != nil {
+		return err
+	}
+	return client.Close()
+}
+
+// connect opens the connection Connect and CheckTLS share.
+func connect(cfg Config) (*Client, error) {
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("imap: host is required")
 	}
 
 	port := cfg.Port
 	if port == 0 {
 		port = DefaultPort
+	}
+
+	tlsConfig, err := cfg.Trust.TLSConfig(cfg.Host)
+	if err != nil {
+		return nil, fmt.Errorf("imap: %w", err)
+	}
+	if cfg.InsecureSkipVerify {
+		tlsConfig.InsecureSkipVerify = true
+		tlsConfig.VerifyConnection = nil
 	}
 
 	updates := make(chan MailboxUpdate, updateBuffer)
@@ -156,11 +186,7 @@ func Connect(cfg Config) (*Client, error) {
 		// the message list as its raw =?...?= source. Ours decodes the legacy
 		// tables and guesses at what is left.
 		WordDecoder: charsetguess.WordDecoder(),
-		TLSConfig: &tls.Config{
-			ServerName:         cfg.Host, // needed for hostname verification
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-			MinVersion:         tls.VersionTLS12,
-		},
+		TLSConfig:   tlsConfig,
 		DebugWriter: cfg.DebugWriter,
 		Dialer:      &net.Dialer{Timeout: dialTimeout},
 		// only way go-imap surfaces unsolicited EXISTS/EXPUNGE during IDLE

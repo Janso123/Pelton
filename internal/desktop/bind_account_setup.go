@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/autoconfig"
+	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/oauth"
+	psmtp "github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
 	goimap "github.com/emersion/go-imap/v2"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -73,31 +75,57 @@ type TestConnectionRequest struct {
 	// account will, instead of testing a different one.
 	IMAPTLS  string `json:"imapTls"`
 	Password string `json:"password"`
+	// SMTPHost, SMTPPort and SMTPTLS are only checked for the certificate the
+	// server presents, so one that needs trusting is caught here too.
+	SMTPHost string `json:"smtpHost"`
+	SMTPPort int    `json:"smtpPort"`
+	SMTPTLS  string `json:"smtpTls"`
+	// TrustedCerts and CAPEM are what the new mailbox will trust beyond the
+	// system roots: fingerprints accepted in an earlier test, and a CA file.
+	TrustedCerts []string `json:"trustedCerts"`
+	CAPEM        string   `json:"caPem"`
 }
 
 // TestConnection verifies imap credentials by connecting and logging in, so the
-// wizard can confirm before creating the account. It returns nil on success.
-func (a *App) TestConnection(req TestConnectionRequest) error {
+// wizard can confirm before creating the account. A server certificate that
+// does not verify is not an error: it comes back in the result, from both
+// servers at once, for the user to review and trust (#446).
+func (a *App) TestConnection(req TestConnectionRequest) (ConnectionTestDTO, error) {
+	if req.CAPEM != "" {
+		if _, err := certtrust.ParseCA(req.CAPEM); err != nil {
+			return ConnectionTestDTO{}, err
+		}
+	}
+	trust := certtrust.Trust{Pins: normalizePins(req.TrustedCerts), CAPEM: req.CAPEM}
+	untrusted := a.probeCertificates(
+		pimap.Config{Host: req.IMAPHost, Port: req.IMAPPort, TLS: imapTLSMode(req.IMAPTLS), Trust: trust, Dial: a.proxyDial()},
+		psmtp.Config{Host: req.SMTPHost, Port: req.SMTPPort, TLS: smtpTLSMode(req.SMTPTLS), Trust: trust, Dial: a.proxyDial()},
+	)
+	if len(untrusted) > 0 {
+		return ConnectionTestDTO{Untrusted: untrusted}, nil
+	}
+
 	username := req.Username
 	if username == "" {
 		username = req.Email
 	}
-	client, err := pimap.Connect(pimap.Config{
+	client, err := a.connectIMAP(pimap.Config{
 		Host:     req.IMAPHost,
 		Port:     req.IMAPPort,
 		Username: username,
 		Password: req.Password,
 		TLS:      imapTLSMode(req.IMAPTLS),
+		Trust:    trust,
 		Dial:     a.proxyDial(),
 	})
 	if err != nil {
-		return err
+		return ConnectionTestDTO{}, err
 	}
 	defer client.Close()
 	if err := client.Login(); err != nil {
-		return err
+		return ConnectionTestDTO{}, err
 	}
-	return client.Logout()
+	return ConnectionTestDTO{}, client.Logout()
 }
 
 // AddAccountRequest is the metadata the wizard collected. For password auth
@@ -129,6 +157,10 @@ type AddAccountRequest struct {
 	// confidential clients (some Microsoft Entra app registrations). Empty keeps
 	// the default public-client PKCE flow.
 	ClientSecret string `json:"clientSecret"`
+	// TrustedCerts and CAPEM are the certificates and CA the mailbox trusts
+	// beyond the system roots, as accepted in the connection test.
+	TrustedCerts []string `json:"trustedCerts"`
+	CAPEM        string   `json:"caPem"`
 }
 
 // AddPasswordAccount creates a password-authenticated account: it stores the
@@ -195,6 +227,13 @@ func (a *App) createAccount(req AddAccountRequest, secret credentials.Secret) (A
 		SMTPPort:      req.SMTPPort,
 		IMAPTLS:       req.IMAPTLS,
 		SMTPTLS:       req.SMTPTLS,
+		TrustedCerts:  normalizePins(req.TrustedCerts),
+		CAPEM:         req.CAPEM,
+	}
+	if req.CAPEM != "" {
+		if _, err := certtrust.ParseCA(req.CAPEM); err != nil {
+			return AccountDTO{}, err
+		}
 	}
 	id, err := a.store.CreateAccount(a.ctx, account)
 	if err != nil {

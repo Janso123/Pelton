@@ -53,6 +53,8 @@ const accounts: Account[] = [
     exportNameTemplate: '',
     pgpDefault: '',
     passwordPromptDismissed: false,
+    trustedCerts: [],
+    caSubjects: [],
   },
   {
     id: 2,
@@ -74,6 +76,8 @@ const accounts: Account[] = [
     exportNameTemplate: '',
     pgpDefault: '',
     passwordPromptDismissed: false,
+    trustedCerts: [],
+    caSubjects: [],
   },
 ]
 

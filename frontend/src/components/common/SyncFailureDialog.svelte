@@ -8,16 +8,57 @@
   // what went wrong, and how long it has been that way.
   import { IconCloudOff, IconRefresh } from '@tabler/icons-svelte'
   import Modal from './Modal.svelte'
+  import CertificateReview from './CertificateReview.svelte'
   import { failureDetail, closeSyncFailure, retrySync } from '../../stores/syncfailures'
+  import { probeAccountCertificates, trustAccountCertificate } from '../../lib/api'
+  import { errorMessage, toastError } from '../../stores/toast'
   import { formatRelative } from '../../lib/format'
+  import type { UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
   let busy = false
 
   // the reason is a coarse class from the backend; anything unrecognized reads
   // as the generic sentence rather than as a missing string.
-  const reasons = ['auth', 'network', 'credentials', 'other']
+  const reasons = ['auth', 'network', 'credentials', 'certificate', 'other']
   $: reasonKey = $failureDetail && reasons.includes($failureDetail.reason) ? $failureDetail.reason : 'other'
+
+  // a certificate failure is fixed by reviewing the certificate, so the dialog
+  // asks the servers what they present now and shows it (#446).
+  let certs: UntrustedCert[] = []
+  let certsFor = 0
+  $: if ($failureDetail?.reason === 'certificate' && $failureDetail.accountId !== certsFor) {
+    void loadCerts($failureDetail.accountId)
+  }
+
+  async function loadCerts(accountId: number): Promise<void> {
+    certsFor = accountId
+    certs = []
+    try {
+      certs = await probeAccountCertificates(accountId)
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  async function trust(event: CustomEvent<UntrustedCert[]>): Promise<void> {
+    if (!$failureDetail || busy) {
+      return
+    }
+    busy = true
+    try {
+      for (const fp of new Set(event.detail.map((c) => c.fingerprint))) {
+        await trustAccountCertificate($failureDetail.accountId, fp)
+      }
+    } catch (err) {
+      toastError(errorMessage(err))
+      busy = false
+      return
+    }
+    busy = false
+    certsFor = 0
+    await retry()
+  }
 
   // how long it has been broken. Never having synced at all is its own line:
   // "last synced never" reads like a bug.
@@ -48,6 +89,9 @@
     <p class="who">{$failureDetail.email}</p>
     <p class="reason">{$t(`syncFailure.reason.${reasonKey}`)}</p>
     <p class="when">{lastOkLabel}</p>
+    {#if reasonKey === 'certificate' && certs.length > 0}
+      <CertificateReview {certs} {busy} on:trust={trust} />
+    {/if}
     {#if $failureDetail.detail !== ''}
       <p class="detail-label">{$t('syncFailure.detailLabel')}</p>
       <pre class="detail">{$failureDetail.detail}</pre>

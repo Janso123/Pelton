@@ -44,6 +44,8 @@ export function CheckSMIMERevocation(arg1:number):Promise<desktop.SMIMERevocatio
 
 export function ChooseArchiveExportFolder():Promise<string>;
 
+export function ChooseCAFile():Promise<desktop.CAFileDTO>;
+
 export function ChooseMailFiles():Promise<Array<string>>;
 
 export function ChooseThunderbirdProfile():Promise<Array<desktop.ThunderbirdProfileDTO>>;
@@ -240,6 +242,8 @@ export function PreviewArchiveExportName(arg1:string,arg2:string):Promise<string
 
 export function PreviewThemeImport():Promise<desktop.ThemeImportPreviewDTO>;
 
+export function ProbeAccountCertificates(arg1:number):Promise<Array<desktop.UntrustedCertDTO>>;
+
 export function ProgramLicense():Promise<string>;
 
 export function ReadAttachment(arg1:number,arg2:number):Promise<desktop.AttachmentContentDTO>;
@@ -247,6 +251,8 @@ export function ReadAttachment(arg1:number,arg2:number):Promise<desktop.Attachme
 export function RebuildMenu():Promise<void>;
 
 export function RegenerateMCPToken():Promise<string>;
+
+export function RemoveAccountTrustedCertificate(arg1:number,arg2:string):Promise<void>;
 
 export function RemoveAddressBook(arg1:number):Promise<void>;
 
@@ -305,6 +311,8 @@ export function SearchMessageIDs(arg1:desktop.SearchRequestDTO):Promise<desktop.
 export function SendMessage(arg1:desktop.ComposeRequest):Promise<number>;
 
 export function SenderPhotos(arg1:string):Promise<Array<string>>;
+
+export function SetAccountCA(arg1:number,arg2:string):Promise<void>;
 
 export function SetAccountPGPKey(arg1:number,arg2:string):Promise<void>;
 
@@ -368,13 +376,15 @@ export function SyncContacts():Promise<void>;
 
 export function SystemColorScheme():Promise<string>;
 
-export function TestConnection(arg1:desktop.TestConnectionRequest):Promise<void>;
+export function TestConnection(arg1:desktop.TestConnectionRequest):Promise<desktop.ConnectionTestDTO>;
 
 export function TestProxy(arg1:desktop.ProxyConfigDTO):Promise<void>;
 
 export function TitleBarDoubleClick():Promise<void>;
 
 export function TriggerSync():Promise<void>;
+
+export function TrustAccountCertificate(arg1:number,arg2:string):Promise<void>;
 
 export function TrustSenderImages(arg1:number):Promise<void>;
 

@@ -66,14 +66,19 @@ type mailboxBackup struct {
 	// is in use. A backup is the user's own copy, so restoring it puts the
 	// mailboxes back under the names they had here. Older backups have neither
 	// and restore under the display name, which is what they meant.
-	LocalLabel    string         `json:"localLabel,omitempty"`
-	UseLocalLabel bool           `json:"useLocalLabel,omitempty"`
-	Username      string         `json:"username,omitempty"`
-	IMAPHost      string         `json:"imapHost"`
-	IMAPPort      int            `json:"imapPort"`
-	SMTPHost      string         `json:"smtpHost"`
-	SMTPPort      int            `json:"smtpPort"`
-	Secret        *encryptedBlob `json:"secret,omitempty"`
+	LocalLabel    string `json:"localLabel,omitempty"`
+	UseLocalLabel bool   `json:"useLocalLabel,omitempty"`
+	Username      string `json:"username,omitempty"`
+	IMAPHost      string `json:"imapHost"`
+	IMAPPort      int    `json:"imapPort"`
+	SMTPHost      string `json:"smtpHost"`
+	SMTPPort      int    `json:"smtpPort"`
+	// TrustedCerts and CAPEM are the certificates and CA the mailbox trusts
+	// beyond the system roots. They are not secrets, and without them a
+	// restored Proton Bridge or self-hosted mailbox could not connect.
+	TrustedCerts []string       `json:"trustedCerts,omitempty"`
+	CAPEM        string         `json:"caPem,omitempty"`
+	Secret       *encryptedBlob `json:"secret,omitempty"`
 }
 
 // signatureBackup is one reusable header/footer block as exported.
@@ -209,6 +214,8 @@ func (a *App) exportMailboxes(credentialPassword string) ([]mailboxBackup, error
 			IMAPPort:      acc.IMAPPort,
 			SMTPHost:      acc.SMTPHost,
 			SMTPPort:      acc.SMTPPort,
+			TrustedCerts:  acc.TrustedCerts,
+			CAPEM:         acc.CAPEM,
 		}
 		if credentialPassword != "" {
 			secret, err := credentials.Load(acc.ID)
@@ -443,6 +450,8 @@ func (a *App) importMailboxes(mailboxes []mailboxBackup, credentialPassword stri
 			IMAPPort:      m.IMAPPort,
 			SMTPHost:      m.SMTPHost,
 			SMTPPort:      m.SMTPPort,
+			TrustedCerts:  m.TrustedCerts,
+			CAPEM:         m.CAPEM,
 		}
 		id, err := a.store.CreateAccount(a.ctx, &account)
 		if err != nil {
