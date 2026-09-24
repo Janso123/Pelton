@@ -129,9 +129,9 @@ type AddAccountRequest struct {
 	Password string `json:"password"`
 	Provider string `json:"provider"`
 	ClientID string `json:"clientId"`
-	// ClientSecret is optional and only used for oauth providers registered as
-	// confidential clients (some Microsoft Entra app registrations). Empty keeps
-	// the default public-client PKCE flow.
+	// ClientSecret is required by Google Desktop app clients and optional for
+	// Microsoft Entra apps registered as confidential clients. Empty keeps the
+	// public-client PKCE flow.
 	ClientSecret string `json:"clientSecret"`
 }
 

@@ -294,7 +294,15 @@
   }
 
   $: canSubmitPassword = draft.email.includes('@') && draft.password !== '' && draft.imapHost !== ''
-  $: canSignIn = draft.email.includes('@') && draft.clientId !== ''
+  $: canSignIn = draft.email.includes('@') && draft.clientId !== '' && (!preset?.requireClientSecret || draft.clientSecret !== '')
+
+  // the Google Cloud Console pages the client setup steps link to, in order.
+  const googleSetup: { text: string; link: string; url: string }[] = [
+    { text: 'wizard.google.setup.project', link: 'wizard.google.setup.projectLink', url: 'https://console.cloud.google.com/projectcreate' },
+    { text: 'wizard.google.setup.api', link: 'wizard.google.setup.apiLink', url: 'https://console.cloud.google.com/apis/library/gmail.googleapis.com' },
+    { text: 'wizard.google.setup.consent', link: 'wizard.google.setup.consentLink', url: 'https://console.cloud.google.com/auth/overview' },
+    { text: 'wizard.google.setup.client', link: 'wizard.google.setup.clientLink', url: 'https://console.cloud.google.com/auth/clients/create' },
+  ]
 
   // a passing "test connection" is required before the account can actually be
   // added: nothing here validates that imapHost is a real, reachable server
@@ -476,6 +484,22 @@
         <p class="note">
           {$t('wizard.step.oauth.note')}
         </p>
+        {#if preset?.oauthProvider === 'google'}
+          <div class="provider-hint">
+            <span class="setup-title">{$t('wizard.google.setup.title')}</span>
+            <ol class="setup-steps">
+              {#each googleSetup as s}
+                <li>
+                  <span>{$t(s.text)}</span>
+                  <button type="button" class="app-password-link" on:click={() => BrowserOpenURL(s.url)}>
+                    {$t(s.link)}
+                  </button>
+                </li>
+              {/each}
+            </ol>
+            <span>{$t('wizard.google.setup.admin')}</span>
+          </div>
+        {/if}
 
         <label class="field">
           <span>{$t('wizard.field.email')}</span>
@@ -510,7 +534,12 @@
           <input type="text" bind:value={draft.clientId} placeholder="xxxxx.apps.googleusercontent.com" />
         </label>
 
-        {#if preset?.allowClientSecret}
+        {#if preset?.requireClientSecret}
+          <label class="field">
+            <span>{$t('wizard.field.oauthClientSecretRequired')}</span>
+            <input type="password" bind:value={draft.clientSecret} />
+          </label>
+        {:else if preset?.allowClientSecret}
           <button type="button" class="disclosure" on:click={() => (showAdvanced = !showAdvanced)}>
             {showAdvanced ? $t('wizard.advanced.hide') : $t('wizard.advanced.show')}
           </button>
@@ -799,6 +828,25 @@
 
   .provider-hint .app-password-link {
     color: var(--accent);
+  }
+
+  .setup-title {
+    font-weight: var(--fw-medium);
+  }
+
+  .setup-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding-left: var(--space-4);
+  }
+
+  .setup-steps li {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
   }
 
   .app-password-link {
