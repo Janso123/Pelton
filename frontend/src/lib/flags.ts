@@ -30,6 +30,7 @@ const defaultCountry: Record<string, string> = {
   fr: 'fr',
   nl: 'nl',
   es: 'es',
+  it: 'it',
   pl: 'pl',
   tr: 'tr',
   pt: 'pt',

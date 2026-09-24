@@ -90,6 +90,10 @@ export function ChooseArchiveExportFolder() {
   return window['go']['desktop']['App']['ChooseArchiveExportFolder']();
 }
 
+export function ChooseCAFile() {
+  return window['go']['desktop']['App']['ChooseCAFile']();
+}
+
 export function ChooseMailFiles() {
   return window['go']['desktop']['App']['ChooseMailFiles']();
 }
@@ -482,6 +486,10 @@ export function PreviewThemeImport() {
   return window['go']['desktop']['App']['PreviewThemeImport']();
 }
 
+export function ProbeAccountCertificates(arg1) {
+  return window['go']['desktop']['App']['ProbeAccountCertificates'](arg1);
+}
+
 export function ProgramLicense() {
   return window['go']['desktop']['App']['ProgramLicense']();
 }
@@ -500,6 +508,10 @@ export function RebuildMenu() {
 
 export function RegenerateMCPToken() {
   return window['go']['desktop']['App']['RegenerateMCPToken']();
+}
+
+export function RemoveAccountTrustedCertificate(arg1, arg2) {
+  return window['go']['desktop']['App']['RemoveAccountTrustedCertificate'](arg1, arg2);
 }
 
 export function RemoveAddressBook(arg1) {
@@ -616,6 +628,10 @@ export function SendMessage(arg1) {
 
 export function SenderPhotos(arg1) {
   return window['go']['desktop']['App']['SenderPhotos'](arg1);
+}
+
+export function SetAccountCA(arg1, arg2) {
+  return window['go']['desktop']['App']['SetAccountCA'](arg1, arg2);
 }
 
 export function SetAccountPGPKey(arg1, arg2) {
@@ -756,6 +772,10 @@ export function TitleBarDoubleClick() {
 
 export function TriggerSync() {
   return window['go']['desktop']['App']['TriggerSync']();
+}
+
+export function TrustAccountCertificate(arg1, arg2) {
+  return window['go']['desktop']['App']['TrustAccountCertificate'](arg1, arg2);
 }
 
 export function TrustSenderImages(arg1) {

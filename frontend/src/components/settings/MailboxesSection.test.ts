@@ -50,6 +50,8 @@ const account: Account = {
   exportNameTemplate: '',
   pgpDefault: '',
   passwordPromptDismissed: false,
+  trustedCerts: [],
+  caSubjects: [],
 }
 
 async function openEditor(): Promise<void> {

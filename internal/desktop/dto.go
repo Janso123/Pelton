@@ -52,6 +52,11 @@ type AccountDTO struct {
 	// prompt to stop asking for this account. The ui marks the mailbox instead
 	// of interrupting.
 	PasswordPromptDismissed bool `json:"passwordPromptDismissed"`
+	// TrustedCerts are the fingerprints of certificates the user accepted for
+	// this mailbox, formatted for reading. CASubjects name the certificates in
+	// the CA it trusts, empty when it has none.
+	TrustedCerts []string `json:"trustedCerts"`
+	CASubjects   []string `json:"caSubjects"`
 }
 
 // FolderDTO is one mailbox in an account's tree. ParentID is null at the root.
@@ -273,6 +278,9 @@ func toAccountDTO(a storage.Account) AccountDTO {
 		PGPDefault:         a.PGPDefault,
 
 		PasswordPromptDismissed: a.PasswordPromptDismissed,
+
+		TrustedCerts: displayPins(a.TrustedCerts),
+		CASubjects:   caSubjects(a.CAPEM),
 	}
 }
 

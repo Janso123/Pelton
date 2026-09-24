@@ -226,6 +226,7 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 		Username: loginName(*account),
 		Password: password,
 		TLS:      imapTLSMode(account.IMAPTLS),
+		Trust:    accountTrust(*account),
 		Dial:     a.proxyDial(),
 	})
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -62,6 +63,12 @@ type Account struct {
 	// no server behind it. Sync, idle and the mailbox backup all skip it, and
 	// its Email is LocalAccountEmail rather than a real address.
 	Local bool
+	// TrustedCerts are SHA-256 fingerprints of server certificates the user
+	// accepted for this mailbox, and CAPEM extra root certificates they
+	// supplied. Both widen verification for the mailbox's imap and smtp
+	// servers only; empty means the system roots alone.
+	TrustedCerts []string
+	CAPEM        string
 }
 
 // Label returns the name to show for this account in the app: the local label
@@ -93,7 +100,8 @@ const accountColumns = `a.id, a.email, a.display_name, a.username, a.imap_host, 
        a.smtp_host, a.smtp_port, a.imap_tls, a.smtp_tls, a.created_at,
        coalesce(o.position, 0), a.is_local,
        a.export_on_archive, a.export_dir, a.export_subfolders, a.export_name_template,
-       a.pgp_default, a.password_prompt_dismissed, a.local_label, a.use_local_label`
+       a.pgp_default, a.password_prompt_dismissed, a.local_label, a.use_local_label,
+       a.trusted_certs, a.ca_pem`
 
 // accountFrom joins an account to the active profile's section order. Every
 // query using accountColumns takes the layout profile id as its first argument.
@@ -114,12 +122,12 @@ func (d *DB) CreateAccount(ctx context.Context, a *Account) (int64, error) {
 	}
 
 	const query = `
-INSERT INTO accounts (email, display_name, username, imap_host, imap_port, smtp_host, smtp_port, imap_tls, smtp_tls, created_at, is_local, local_label, use_local_label)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+INSERT INTO accounts (email, display_name, username, imap_host, imap_port, smtp_host, smtp_port, imap_tls, smtp_tls, created_at, is_local, local_label, use_local_label, trusted_certs, ca_pem)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	res, err := d.sql.ExecContext(ctx, query,
 		a.Email, a.DisplayName, a.Username, a.IMAPHost, a.IMAPPort, a.SMTPHost, a.SMTPPort,
 		a.IMAPTLS, a.SMTPTLS, formatTime(created), boolToInt(a.Local),
-		a.LocalLabel, boolToInt(a.UseLocalLabel))
+		a.LocalLabel, boolToInt(a.UseLocalLabel), joinLines(a.TrustedCerts), a.CAPEM)
 	if err != nil {
 		return 0, fmt.Errorf("storage: insert account %q: %w", a.Email, err)
 	}
@@ -254,6 +262,33 @@ func (d *DB) SetAccountPasswordPromptDismissed(ctx context.Context, id int64, di
 	return requireOneRow(res, ErrAccountNotFound)
 }
 
+// SetAccountCertTrust stores the certificates and CA an account trusts beyond
+// the system roots, replacing what was there.
+func (d *DB) SetAccountCertTrust(ctx context.Context, id int64, trustedCerts []string, caPEM string) error {
+	res, err := d.sql.ExecContext(ctx, `UPDATE accounts SET trusted_certs = ?, ca_pem = ? WHERE id = ?`,
+		joinLines(trustedCerts), caPEM, id)
+	if err != nil {
+		return fmt.Errorf("storage: set account %d certificate trust: %w", id, err)
+	}
+	return requireOneRow(res, ErrAccountNotFound)
+}
+
+// joinLines and splitLines store a list as one text column, one entry per
+// line, empty entries dropped.
+func joinLines(items []string) string {
+	return strings.Join(items, "\n")
+}
+
+func splitLines(text string) []string {
+	var out []string
+	for _, line := range strings.Split(text, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
 // SetAccountPositions rewrites the sidebar order of the account sections in one
 // transaction. Accounts not listed keep their current position. Positions start
 // at 1, since 0 means "never reordered".
@@ -278,13 +313,16 @@ func scanAccount(row rowScanner) (*Account, error) {
 		exportOn  int
 		dismissed int
 		useLabel  int
+		trusted   string
 	)
 	if err := row.Scan(&a.ID, &a.Email, &a.DisplayName, &a.Username, &a.IMAPHost, &a.IMAPPort,
 		&a.SMTPHost, &a.SMTPPort, &a.IMAPTLS, &a.SMTPTLS, &created, &a.Position, &local,
 		&exportOn, &a.ExportDir, &a.ExportSubfolders, &a.ExportNameTemplate,
-		&a.PGPDefault, &dismissed, &a.LocalLabel, &useLabel); err != nil {
+		&a.PGPDefault, &dismissed, &a.LocalLabel, &useLabel,
+		&trusted, &a.CAPEM); err != nil {
 		return nil, err
 	}
+	a.TrustedCerts = splitLines(trusted)
 	a.ExportOnArchive = exportOn != 0
 	a.PasswordPromptDismissed = dismissed != 0
 	a.UseLocalLabel = useLabel != 0

@@ -43,6 +43,9 @@ import type {
   Discovered,
   AddAccountRequest,
   TestConnectionRequest,
+  ConnectionTest,
+  UntrustedCert,
+  CAFile,
   TLSMode,
   Signature,
   AccountSignatures,
@@ -927,9 +930,38 @@ export function listOAuthProviders(): Promise<Record<string, string>> {
   return App.ListOAuthProviders()
 }
 
-// testConnection verifies imap credentials by logging in. Resolves on success.
-export function testConnection(req: TestConnectionRequest): Promise<void> {
-  return App.TestConnection(new desktop.TestConnectionRequest(req))
+// testConnection verifies imap credentials by logging in. It resolves with the
+// server certificates that need reviewing when one did not verify, and with an
+// empty list once the login worked.
+export function testConnection(req: TestConnectionRequest): Promise<ConnectionTest> {
+  return App.TestConnection(new desktop.TestConnectionRequest(req)) as unknown as Promise<ConnectionTest>
+}
+
+// probeAccountCertificates lists the certificates an account's servers present
+// that it does not trust, so they can be shown before trusting them.
+export function probeAccountCertificates(accountId: number): Promise<UntrustedCert[]> {
+  return App.ProbeAccountCertificates(accountId) as unknown as Promise<UntrustedCert[]>
+}
+
+// trustAccountCertificate trusts a certificate the account's server presents.
+export function trustAccountCertificate(accountId: number, fingerprint: string): Promise<void> {
+  return App.TrustAccountCertificate(accountId, fingerprint)
+}
+
+// removeAccountTrustedCertificate stops trusting a pinned certificate.
+export function removeAccountTrustedCertificate(accountId: number, fingerprint: string): Promise<void> {
+  return App.RemoveAccountTrustedCertificate(accountId, fingerprint)
+}
+
+// chooseCAFile opens a picker for a CA certificate and returns it once it
+// parses; pem is empty when the picker was cancelled.
+export function chooseCAFile(): Promise<CAFile> {
+  return App.ChooseCAFile() as unknown as Promise<CAFile>
+}
+
+// setAccountCA stores the CA an account trusts, empty to remove it.
+export function setAccountCA(accountId: number, pem: string): Promise<void> {
+  return App.SetAccountCA(accountId, pem)
 }
 
 // addPasswordAccount creates a password-authenticated account (stores the

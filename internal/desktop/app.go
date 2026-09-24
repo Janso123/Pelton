@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/configsync"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/logging"
@@ -83,6 +84,10 @@ type App struct {
 	// bindings without either. nil means the real ones. See oauthseam.go.
 	secrets        secretStore
 	oauthAuthorize func(ctx context.Context, provider, clientID, clientSecret, loginHint string, open func(string)) (*oauth2.Token, error)
+	// checkTLS completes one server's TLS handshake with the given trust. It
+	// is a field only so a test can report certificates without a server. nil
+	// means the real imap and smtp handshakes. See bind_cert_trust.go.
+	checkTLS func(server, host string, port int, trust certtrust.Trust) error
 	// startedAt is when the process came up, for the process overlay's uptime.
 	startedAt time.Time
 	// runtimeReady is set once wails has handed us its context in startup.

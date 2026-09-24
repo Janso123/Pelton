@@ -20,6 +20,8 @@ import (
 
 	"github.com/emersion/go-sasl"
 	gosmtp "github.com/emersion/go-smtp"
+
+	"github.com/peltonapp/Pelton/internal/certtrust"
 )
 
 const (
@@ -77,6 +79,10 @@ type Config struct {
 	// LocalName is the EHLO name; defaults to localhost.
 	LocalName string
 
+	// Trust is what this mailbox trusts beyond the system roots: certificates
+	// the user pinned and a CA they supplied. The zero value is the standard
+	// verification.
+	Trust certtrust.Trust
 	// InsecureSkipVerify disables certificate verification. Debugging only.
 	InsecureSkipVerify bool
 
@@ -153,10 +159,13 @@ func Dial(cfg Config) (*Client, error) {
 
 func dial(cfg Config) (*gosmtp.Client, error) {
 	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.port()))
-	tlsCfg := &tls.Config{
-		ServerName:         cfg.Host,
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
-		MinVersion:         tls.VersionTLS12,
+	tlsCfg, err := cfg.Trust.TLSConfig(cfg.Host)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrConnect, err)
+	}
+	if cfg.InsecureSkipVerify {
+		tlsCfg.InsecureSkipVerify = true
+		tlsCfg.VerifyConnection = nil
 	}
 
 	if cfg.Dial != nil {
@@ -167,13 +176,13 @@ func dial(cfg Config) (*gosmtp.Client, error) {
 	case TLSStartTLS:
 		c, err := gosmtp.DialStartTLS(addr, tlsCfg)
 		if err != nil {
-			return nil, fmt.Errorf("%w: starttls %s: %v", ErrConnect, addr, err)
+			return nil, fmt.Errorf("%w: starttls %s: %w", ErrConnect, addr, err)
 		}
 		return c, nil
 	default:
 		c, err := gosmtp.DialTLS(addr, tlsCfg)
 		if err != nil {
-			return nil, fmt.Errorf("%w: tls dial %s: %v", ErrConnect, addr, err)
+			return nil, fmt.Errorf("%w: tls dial %s: %w", ErrConnect, addr, err)
 		}
 		return c, nil
 	}
@@ -192,14 +201,14 @@ func dialVia(cfg Config, addr string, tlsCfg *tls.Config) (*gosmtp.Client, error
 		c, err := gosmtp.NewClientStartTLS(conn, tlsCfg)
 		if err != nil {
 			_ = conn.Close()
-			return nil, fmt.Errorf("%w: starttls %s: %v", ErrConnect, addr, err)
+			return nil, fmt.Errorf("%w: starttls %s: %w", ErrConnect, addr, err)
 		}
 		return c, nil
 	}
 	tlsConn := tls.Client(conn, tlsCfg)
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		_ = conn.Close()
-		return nil, fmt.Errorf("%w: tls handshake %s: %v", ErrConnect, addr, err)
+		return nil, fmt.Errorf("%w: tls handshake %s: %w", ErrConnect, addr, err)
 	}
 	return gosmtp.NewClient(tlsConn), nil
 }

@@ -12,10 +12,11 @@
   import Spinner from '../common/Spinner.svelte'
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
-  import { discoverConfig, testConnection, addPasswordAccount, addOAuthAccount, listFolders, setFolderSyncExcluded, startAccountSync } from '../../lib/api'
+  import CertificateReview from '../common/CertificateReview.svelte'
+  import { discoverConfig, testConnection, addPasswordAccount, addOAuthAccount, listFolders, setFolderSyncExcluded, startAccountSync, chooseCAFile } from '../../lib/api'
   import { errorMessage, toastError } from '../../stores/toast'
   import { providerPresets, type ProviderPreset } from '../../lib/providers'
-  import type { AddAccountRequest, Account, Folder, TLSMode } from '../../lib/types'
+  import type { AddAccountRequest, Account, Folder, TLSMode, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
   const dispatch = createEventDispatcher<{ close: void; added: Account }>()
@@ -46,6 +47,11 @@
   // the oauth provider autodiscovery says a custom address signs in with, so
   // a Google Workspace domain typed under "Other" is steered to Google sign-in.
   let discoveredOAuth = ''
+  // server certificates the last test could not verify, shown for review. The
+  // test only logs in once every one of them is trusted or fixed (#446).
+  let untrusted: UntrustedCert[] = []
+  // the subjects of the CA file in draft.caPem, for showing what was picked.
+  let caSubjects: string[] = []
 
   // the account draft being assembled across steps.
   let draft: AddAccountRequest = blankDraft()
@@ -67,6 +73,8 @@
       provider: '',
       clientId: '',
       clientSecret: '',
+      trustedCerts: [],
+      caPem: '',
     }
   }
 
@@ -112,6 +120,8 @@
     error = ''
     showAdvanced = false
     discoveredOAuth = ''
+    untrusted = []
+    caSubjects = []
     step = p.kind === 'oauth' ? 'oauth' : 'config'
   }
 
@@ -167,23 +177,54 @@
   async function test(): Promise<void> {
     testing = true
     testOk = null
+    untrusted = []
     error = ''
     try {
-      await testConnection({
+      const result = await testConnection({
         email: draft.email,
         username: draft.username,
         imapHost: draft.imapHost,
         imapPort: draft.imapPort,
         imapTls: draft.imapTls,
         password: draft.password,
+        smtpHost: draft.smtpHost,
+        smtpPort: draft.smtpPort,
+        smtpTls: draft.smtpTls,
+        trustedCerts: draft.trustedCerts,
+        caPem: draft.caPem,
       })
-      testOk = true
+      untrusted = result.untrusted ?? []
+      testOk = untrusted.length === 0 ? true : null
     } catch (err) {
       testOk = false
       error = errorMessage(err)
     } finally {
       testing = false
     }
+  }
+
+  // trustAndRetest accepts the reviewed certificates for the new mailbox and
+  // runs the test again, which now gets past them and logs in.
+  async function trustAndRetest(event: CustomEvent<UntrustedCert[]>): Promise<void> {
+    draft.trustedCerts = [...new Set([...draft.trustedCerts, ...event.detail.map((c) => c.fingerprint)])]
+    await test()
+  }
+
+  async function pickCA(): Promise<void> {
+    try {
+      const ca = await chooseCAFile()
+      if (ca.pem !== '') {
+        draft.caPem = ca.pem
+        caSubjects = ca.subjects
+      }
+    } catch (err) {
+      error = errorMessage(err)
+    }
+  }
+
+  function removeCA(): void {
+    draft.caPem = ''
+    caSubjects = []
   }
 
   async function addPassword(): Promise<void> {
@@ -317,7 +358,12 @@
     draft.imapPort
     draft.imapTls
     draft.password
+    draft.smtpHost
+    draft.smtpPort
+    draft.smtpTls
+    draft.caPem
     testOk = null
+    untrusted = []
   }
   $: canAddAccount = canSubmitPassword && testOk === true
 </script>
@@ -459,7 +505,20 @@
             <p class="adv-hint">
               {$t('wizard.advanced.tlsHint')}
             </p>
+
+            <span class="adv-label">{$t('certs.ca.label')}</span>
+            {#if draft.caPem}
+              <p class="adv-hint">{caSubjects.join(', ')}</p>
+              <button type="button" class="ghost" on:click={removeCA}>{$t('certs.ca.remove')}</button>
+            {:else}
+              <button type="button" class="ghost" on:click={pickCA}>{$t('certs.ca.choose')}</button>
+            {/if}
+            <p class="adv-hint">{$t('certs.ca.hint')}</p>
           </div>
+        {/if}
+
+        {#if untrusted.length > 0}
+          <CertificateReview certs={untrusted} busy={testing} on:trust={trustAndRetest} />
         {/if}
 
         {#if testOk === true}<p class="ok"><IconCheck size={14} stroke={2} /> {$t('wizard.connectionWorks')}</p>{/if}
