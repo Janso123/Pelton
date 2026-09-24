@@ -96,7 +96,7 @@ func (a *App) TestConnection(req TestConnectionRequest) (ConnectionTestDTO, erro
 			return ConnectionTestDTO{}, err
 		}
 	}
-	trust := certtrust.Trust{Pins: req.TrustedCerts, CAPEM: req.CAPEM}
+	trust := certtrust.Trust{Pins: normalizePins(req.TrustedCerts), CAPEM: req.CAPEM}
 	untrusted := a.probeCertificates(
 		pimap.Config{Host: req.IMAPHost, Port: req.IMAPPort, TLS: imapTLSMode(req.IMAPTLS), Trust: trust, Dial: a.proxyDial()},
 		psmtp.Config{Host: req.SMTPHost, Port: req.SMTPPort, TLS: smtpTLSMode(req.SMTPTLS), Trust: trust, Dial: a.proxyDial()},
