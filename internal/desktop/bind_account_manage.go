@@ -146,7 +146,7 @@ func (a *App) AccountOAuthProvider(accountID int64) (string, error) {
 	if err := a.ready(); err != nil {
 		return "", err
 	}
-	secret, err := credentials.Load(accountID)
+	secret, err := a.secretStore().Load(accountID)
 	if errors.Is(err, credentials.ErrNotFound) {
 		return "", nil
 	}
@@ -172,7 +172,7 @@ func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
 	if err != nil {
 		return err
 	}
-	existing, err := credentials.Load(accountID)
+	existing, err := a.secretStore().Load(accountID)
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
 	if err != nil {
 		return err
 	}
-	if err := credentials.Store(accountID, secret); err != nil {
+	if err := a.secretStore().Store(accountID, secret); err != nil {
 		return err
 	}
 	a.clearRejectedLogin(accountID)

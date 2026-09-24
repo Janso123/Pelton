@@ -167,7 +167,7 @@ func (a *App) authorizeOAuth(provider, clientID, clientSecret, email string) (cr
 	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
 	defer cancel()
 
-	token, err := oauth.Authorize(ctx, provider, clientID, clientSecret, email, func(url string) {
+	token, err := a.authorize(ctx, provider, clientID, clientSecret, email, func(url string) {
 		wailsruntime.BrowserOpenURL(a.ctx, url)
 	})
 	if err != nil {
