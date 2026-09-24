@@ -17,12 +17,18 @@
     deleteLogs,
     chooseArchiveExportFolder,
     previewArchiveExportName,
+    probeAccountCertificates,
+    trustAccountCertificate,
+    removeAccountTrustedCertificate,
+    chooseCAFile,
+    setAccountCA,
   } from '../../lib/api'
+  import CertificateReview from '../common/CertificateReview.svelte'
   import { refreshSidebar } from '../../stores/accounts'
   import { missingPassword, askForPassword, refreshMissingPasswords } from '../../stores/passwordprompt'
-  import { errorMessage, toastError, pushAction } from '../../stores/toast'
+  import { errorMessage, toastError, toastSuccess, pushAction } from '../../stores/toast'
   import { accountLabel } from '../../lib/format'
-  import type { Account, TLSMode } from '../../lib/types'
+  import type { Account, TLSMode, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
   let accounts: Account[] = []
@@ -35,6 +41,10 @@
   // the password is not part of the account row (it lives in the keyring and is
   // never sent back), so it is drafted separately. Empty means "leave it".
   let passwordDraft = ''
+  // the certificate check in the editor (#446): what the servers present that
+  // the mailbox does not trust, null until the check has run.
+  let probed: UntrustedCert[] | null = null
+  let certBusy = false
   // the add-mailbox wizard is code-split like the other settings modals, so
   // it only loads once the user actually asks to add a mailbox.
   let wizardOpen = false
@@ -92,7 +102,72 @@
     opened = JSON.stringify(draft)
     showAdvanced = false
     passwordDraft = ''
+    probed = null
     void refreshPreview()
+  }
+
+  // certificate trust is applied straight away rather than on save, like the
+  // password check: it is about the server, not an edit to the form. The
+  // stored account is read back so the editor shows what was kept.
+  async function reloadTrust(id: number): Promise<void> {
+    accounts = await listAccounts()
+    const fresh = accounts.find((a) => a.id === id)
+    if (!fresh || !draft || draft.id !== id) {
+      return
+    }
+    draft.trustedCerts = fresh.trustedCerts
+    draft.caSubjects = fresh.caSubjects
+    const base = JSON.parse(opened) as Account
+    opened = JSON.stringify({ ...base, trustedCerts: fresh.trustedCerts, caSubjects: fresh.caSubjects })
+  }
+
+  async function withTrust(action: (id: number) => Promise<void>): Promise<void> {
+    if (!draft) {
+      return
+    }
+    const id = draft.id
+    certBusy = true
+    try {
+      await action(id)
+      await reloadTrust(id)
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      certBusy = false
+    }
+  }
+
+  function checkCerts(): Promise<void> {
+    return withTrust(async (id) => {
+      probed = await probeAccountCertificates(id)
+    })
+  }
+
+  function trustProbed(event: CustomEvent<UntrustedCert[]>): Promise<void> {
+    return withTrust(async (id) => {
+      for (const fp of new Set(event.detail.map((c) => c.fingerprint))) {
+        await trustAccountCertificate(id, fp)
+      }
+      probed = null
+      toastSuccess($t('certs.trusted'))
+    })
+  }
+
+  function removePin(fp: string): Promise<void> {
+    return withTrust((id) => removeAccountTrustedCertificate(id, fp))
+  }
+
+  function pickCA(): Promise<void> {
+    return withTrust(async (id) => {
+      const ca = await chooseCAFile()
+      if (ca.pem !== '') {
+        await setAccountCA(id, ca.pem)
+      }
+    })
+  }
+
+  function removeCA(): Promise<void> {
+    return withTrust((id) => setAccountCA(id, ''))
   }
 
   // refreshPreview renders the current template through the backend. A failure
@@ -369,6 +444,38 @@
       {#if $missingPassword.has(draft.id)}
         <p class="server-hint warn">{$t('mailboxes.passwordNeededHint')}</p>
       {/if}
+
+      <div class="field">
+        <span>{$t('certs.section.label')}</span>
+        {#if draft.trustedCerts.length > 0}
+          <ul class="pins">
+            {#each draft.trustedCerts as fp (fp)}
+              <li>
+                <code>{fp}</code>
+                <button type="button" class="ghost small" disabled={certBusy} on:click={() => removePin(fp)}>{$t('certs.pin.remove')}</button>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="server-hint">{$t('certs.pins.none')}</p>
+        {/if}
+        {#if draft.caSubjects.length > 0}
+          <p class="server-hint">{$t('certs.ca.current').replace('{subjects}', draft.caSubjects.join(', '))}</p>
+        {/if}
+        <div class="cert-actions">
+          <button type="button" class="ghost small" disabled={certBusy} on:click={checkCerts}>{$t('certs.check')}</button>
+          {#if draft.caSubjects.length > 0}
+            <button type="button" class="ghost small" disabled={certBusy} on:click={removeCA}>{$t('certs.ca.remove')}</button>
+          {:else}
+            <button type="button" class="ghost small" disabled={certBusy} on:click={pickCA}>{$t('certs.ca.choose')}</button>
+          {/if}
+        </div>
+        {#if probed && probed.length === 0}
+          <p class="server-hint">{$t('certs.allTrusted')}</p>
+        {:else if probed}
+          <CertificateReview certs={probed} busy={certBusy} on:trust={trustProbed} />
+        {/if}
+      </div>
 
     </div>
 
@@ -773,6 +880,34 @@
   .ghost {
     background: transparent;
     color: var(--text-secondary);
+  }
+  .ghost.small {
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--fz-meta);
+  }
+  .pins {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .pins li {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .pins code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+    font-size: var(--fz-meta);
+    color: var(--text-secondary);
+  }
+  .cert-actions {
+    display: flex;
+    gap: var(--space-2);
   }
   .ghost:hover {
     background: var(--surface-hover);
