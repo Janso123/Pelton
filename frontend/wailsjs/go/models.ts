@@ -20,6 +20,8 @@ export namespace desktop {
 	    exportNameTemplate: string;
 	    pgpDefault: string;
 	    passwordPromptDismissed: boolean;
+	    trustedCerts: string[];
+	    caSubjects: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new AccountDTO(source);
@@ -46,6 +48,8 @@ export namespace desktop {
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
+	        this.trustedCerts = source["trustedCerts"];
+	        this.caSubjects = source["caSubjects"];
 	    }
 	}
 	export class AccountSignaturesDTO {
@@ -100,6 +104,8 @@ export namespace desktop {
 	    provider: string;
 	    clientId: string;
 	    clientSecret: string;
+	    trustedCerts: string[];
+	    caPem: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddAccountRequest(source);
@@ -122,6 +128,8 @@ export namespace desktop {
 	        this.provider = source["provider"];
 	        this.clientId = source["clientId"];
 	        this.clientSecret = source["clientSecret"];
+	        this.trustedCerts = source["trustedCerts"];
+	        this.caPem = source["caPem"];
 	    }
 	}
 	export class AddressBookDTO {
@@ -408,6 +416,20 @@ export namespace desktop {
 	        this.signatureCount = source["signatureCount"];
 	    }
 	}
+	export class CAFileDTO {
+	    pem: string;
+	    subjects: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new CAFileDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pem = source["pem"];
+	        this.subjects = source["subjects"];
+	    }
+	}
 	export class ComposeAttachment {
 	    filename: string;
 	    contentType: string;
@@ -460,6 +482,70 @@ export namespace desktop {
 	        this.attachments = this.convertValues(source["attachments"], ComposeAttachment);
 	        this.sendAt = source["sendAt"];
 	        this.protection = source["protection"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class UntrustedCertDTO {
+	    server: string;
+	    host: string;
+	    port: number;
+	    fingerprint: string;
+	    display: string;
+	    subject: string;
+	    issuer: string;
+	    notBefore: string;
+	    notAfter: string;
+	    names: string[];
+	    selfSigned: boolean;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UntrustedCertDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.server = source["server"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.fingerprint = source["fingerprint"];
+	        this.display = source["display"];
+	        this.subject = source["subject"];
+	        this.issuer = source["issuer"];
+	        this.notBefore = source["notBefore"];
+	        this.notAfter = source["notAfter"];
+	        this.names = source["names"];
+	        this.selfSigned = source["selfSigned"];
+	        this.reason = source["reason"];
+	    }
+	}
+	export class ConnectionTestDTO {
+	    untrusted: UntrustedCertDTO[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConnectionTestDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.untrusted = this.convertValues(source["untrusted"], UntrustedCertDTO);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1769,6 +1855,11 @@ export namespace desktop {
 	    imapPort: number;
 	    imapTls: string;
 	    password: string;
+	    smtpHost: string;
+	    smtpPort: number;
+	    smtpTls: string;
+	    trustedCerts: string[];
+	    caPem: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TestConnectionRequest(source);
@@ -1782,6 +1873,11 @@ export namespace desktop {
 	        this.imapPort = source["imapPort"];
 	        this.imapTls = source["imapTls"];
 	        this.password = source["password"];
+	        this.smtpHost = source["smtpHost"];
+	        this.smtpPort = source["smtpPort"];
+	        this.smtpTls = source["smtpTls"];
+	        this.trustedCerts = source["trustedCerts"];
+	        this.caPem = source["caPem"];
 	    }
 	}
 	export class ThemeApplyDTO {
@@ -2176,6 +2272,7 @@ export namespace desktop {
 	        this.totalCount = source["totalCount"];
 	    }
 	}
+	
 	
 	export class UpdateAccountRequest {
 	    id: number;

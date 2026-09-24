@@ -551,6 +551,7 @@ const (
 	syncFailAuth        = "auth"
 	syncFailNetwork     = "network"
 	syncFailCredentials = "credentials"
+	syncFailCertificate = "certificate"
 	syncFailOther       = "other"
 )
 
@@ -577,6 +578,8 @@ func syncFailureReason(err error) string {
 		return syncFailCredentials
 	case errors.Is(err, pimap.ErrAuthFailed):
 		return syncFailAuth
+	case isUntrustedCert(err):
+		return syncFailCertificate
 	case isNetworkError(err):
 		return syncFailNetwork
 	default:

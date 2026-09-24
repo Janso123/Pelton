@@ -141,11 +141,27 @@ func (c *Client) Addr() string {
 
 // Connect opens a TLS connection but does not authenticate; call Login next.
 func Connect(cfg Config) (*Client, error) {
-	if cfg.Host == "" {
-		return nil, fmt.Errorf("imap: host is required")
-	}
 	if cfg.Username == "" || (cfg.Password == "" && cfg.OAuth2Token == "") {
 		return nil, fmt.Errorf("imap: username and a password or oauth token are required")
+	}
+	return connect(cfg)
+}
+
+// CheckTLS connects far enough to complete the TLS handshake and hangs up,
+// without logging in. It needs no credentials, so the app can ask what
+// certificate a server presents before anything is stored (#446).
+func CheckTLS(cfg Config) error {
+	client, err := connect(cfg)
+	if err != nil {
+		return err
+	}
+	return client.Close()
+}
+
+// connect opens the connection Connect and CheckTLS share.
+func connect(cfg Config) (*Client, error) {
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("imap: host is required")
 	}
 
 	port := cfg.Port
