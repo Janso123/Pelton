@@ -9,6 +9,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/oauth"
 	psmtp "github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
+	"golang.org/x/oauth2"
 )
 
 // errNoCredentials means an account has no usable secret in the keyring and no
@@ -91,14 +92,24 @@ func (a *App) resolveSMTP(account storage.Account) (psmtp.Config, error) {
 	return cfg, nil
 }
 
-// freshAccessToken returns a valid oauth access token for an account, refreshing
-// from the stored refresh token and persisting any rotated refresh token.
+// freshAccessToken returns a valid oauth access token for an account. The cached
+// access token is reused until it expires; a refresh persists the new access
+// token and any rotated refresh token.
 func (a *App) freshAccessToken(accountID int64, secret credentials.Secret) (string, error) {
-	token, err := oauth.FreshToken(a.ctx, secret.Provider, secret.ClientID, secret.ClientSecret, secret.RefreshToken)
+	cached := &oauth2.Token{
+		AccessToken:  secret.AccessToken,
+		RefreshToken: secret.RefreshToken,
+		Expiry:       secret.Expiry,
+	}
+	token, err := oauth.FreshToken(a.ctx, secret.Provider, secret.ClientID, secret.ClientSecret, cached)
 	if err != nil {
 		return "", err
 	}
-	// persist a rotated refresh token and the cached access token so the next
+	if token.AccessToken == secret.AccessToken {
+		// still the cached token, nothing new to persist.
+		return token.AccessToken, nil
+	}
+	// persist the new access token and any rotated refresh token so the next
 	// call can reuse it until expiry.
 	updated := secret
 	updated.AccessToken = token.AccessToken

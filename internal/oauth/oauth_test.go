@@ -1,11 +1,15 @@
 package oauth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // callback drives the loopback handler with the given query and reports what it
@@ -178,5 +182,57 @@ func TestConfigLeavesTheSecretEmptyForAPublicClient(t *testing.T) {
 	}
 	if conf.Endpoint.AuthURL != providers["google"].AuthURL {
 		t.Errorf("AuthURL = %q, want the provider's", conf.Endpoint.AuthURL)
+	}
+}
+
+// tokenServer stands in for a provider's token endpoint, counting the refresh
+// requests it answers, and registers it as a provider for the test.
+func tokenServer(t *testing.T) (key string, hits *int) {
+	t.Helper()
+	hits = new(int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*hits++
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"access_token":"refreshed","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(server.Close)
+
+	key = "test"
+	providers[key] = Provider{Label: "Test", AuthURL: server.URL + "/auth", TokenURL: server.URL + "/token", Scopes: []string{"mail"}}
+	t.Cleanup(func() { delete(providers, key) })
+	return key, hits
+}
+
+// An unexpired cached token must be handed back without a round trip, or every
+// imap and smtp connection costs a refresh.
+func TestFreshTokenReusesAnUnexpiredToken(t *testing.T) {
+	key, hits := tokenServer(t)
+	cached := &oauth2.Token{AccessToken: "cached", RefreshToken: "refresh", Expiry: time.Now().Add(time.Hour)}
+
+	token, err := FreshToken(context.Background(), key, "client-id", "", cached)
+	if err != nil {
+		t.Fatalf("FreshToken: %v", err)
+	}
+	if token.AccessToken != "cached" {
+		t.Errorf("AccessToken = %q, want the cached one", token.AccessToken)
+	}
+	if *hits != 0 {
+		t.Errorf("token endpoint hit %d times, want 0", *hits)
+	}
+}
+
+func TestFreshTokenRefreshesAnExpiredToken(t *testing.T) {
+	key, hits := tokenServer(t)
+	cached := &oauth2.Token{AccessToken: "cached", RefreshToken: "refresh", Expiry: time.Now().Add(-time.Minute)}
+
+	token, err := FreshToken(context.Background(), key, "client-id", "", cached)
+	if err != nil {
+		t.Fatalf("FreshToken: %v", err)
+	}
+	if token.AccessToken != "refreshed" {
+		t.Errorf("AccessToken = %q, want the refreshed one", token.AccessToken)
+	}
+	if *hits != 1 {
+		t.Errorf("token endpoint hit %d times, want 1", *hits)
 	}
 }

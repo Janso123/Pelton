@@ -115,16 +115,17 @@ func Authorize(ctx context.Context, providerKey, clientID, clientSecret, loginHi
 	}
 }
 
-// FreshToken returns a valid access token for an account, refreshing it from the
-// refresh token when needed. The returned token may carry a rotated refresh
-// token the caller should persist.
-func FreshToken(ctx context.Context, providerKey, clientID, clientSecret, refreshToken string) (*oauth2.Token, error) {
+// FreshToken returns a valid access token for an account. cached is the stored
+// token: its access token is returned as is while it is unexpired, and only
+// then is it refreshed from the refresh token. The returned token may carry a
+// rotated refresh token the caller should persist.
+func FreshToken(ctx context.Context, providerKey, clientID, clientSecret string, cached *oauth2.Token) (*oauth2.Token, error) {
 	p, ok := providers[providerKey]
 	if !ok {
 		return nil, fmt.Errorf("oauth: unknown provider %q", providerKey)
 	}
 	conf := config(p, clientID, clientSecret, "")
-	source := conf.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	source := conf.TokenSource(ctx, cached)
 	token, err := source.Token()
 	if err != nil {
 		return nil, fmt.Errorf("oauth: refresh token: %w", err)
