@@ -154,30 +154,37 @@ func (a *App) AddOAuthAccount(req AddAccountRequest) (AccountDTO, error) {
 	if err := a.ready(); err != nil {
 		return AccountDTO{}, err
 	}
-
-	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
-	defer cancel()
-
-	token, err := oauth.Authorize(ctx, req.Provider, req.ClientID, req.ClientSecret, req.Email, func(url string) {
-		wailsruntime.BrowserOpenURL(a.ctx, url)
-	})
+	secret, err := a.authorizeOAuth(req.Provider, req.ClientID, req.ClientSecret, req.Email)
 	if err != nil {
 		return AccountDTO{}, err
 	}
-	if token.RefreshToken == "" {
-		return AccountDTO{}, fmt.Errorf("pelton: provider returned no refresh token; re-consent may be required")
-	}
+	return a.createAccount(req, secret)
+}
 
-	secret := credentials.Secret{
+// authorizeOAuth runs the interactive consent flow in the system browser and
+// returns the keyring secret for the tokens it yields.
+func (a *App) authorizeOAuth(provider, clientID, clientSecret, email string) (credentials.Secret, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
+	defer cancel()
+
+	token, err := oauth.Authorize(ctx, provider, clientID, clientSecret, email, func(url string) {
+		wailsruntime.BrowserOpenURL(a.ctx, url)
+	})
+	if err != nil {
+		return credentials.Secret{}, err
+	}
+	if token.RefreshToken == "" {
+		return credentials.Secret{}, fmt.Errorf("pelton: provider returned no refresh token; re-consent may be required")
+	}
+	return credentials.Secret{
 		Method:       credentials.MethodOAuth,
-		Provider:     req.Provider,
-		ClientID:     req.ClientID,
-		ClientSecret: req.ClientSecret,
+		Provider:     provider,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		RefreshToken: token.RefreshToken,
 		AccessToken:  token.AccessToken,
 		Expiry:       token.Expiry,
-	}
-	return a.createAccount(req, secret)
+	}, nil
 }
 
 // createAccount is the shared path for both auth methods: persist metadata, store

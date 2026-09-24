@@ -134,6 +134,62 @@ func (a *App) SetAccountPassword(accountID int64, password string) error {
 	return nil
 }
 
+// errAccountUsesPassword means the account logs in with a password, so there
+// is no provider to sign in to again.
+var errAccountUsesPassword = errors.New("pelton: this mailbox signs in with a password, not a provider")
+
+// AccountOAuthProvider returns the oauth provider key an account signs in with
+// ("google", "microsoft"), or empty when it uses a password or has no stored
+// secret, so the mailbox editor can offer signing in again instead of a
+// password field.
+func (a *App) AccountOAuthProvider(accountID int64) (string, error) {
+	if err := a.ready(); err != nil {
+		return "", err
+	}
+	secret, err := credentials.Load(accountID)
+	if errors.Is(err, credentials.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if secret.Method != credentials.MethodOAuth {
+		return "", nil
+	}
+	return secret.Provider, nil
+}
+
+// ReauthorizeOAuthAccount runs the consent flow again for an oauth account with
+// the client it was set up with, and replaces its tokens. It is the way back
+// once the provider revoked or expired the refresh token, without deleting the
+// mailbox and its cached mail. The sync and idle loops resolve credentials on
+// every attempt, so they pick up the new token on their next try.
+func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
+	if err := a.ready(); err != nil {
+		return err
+	}
+	account, err := a.store.GetAccount(a.ctx, accountID)
+	if err != nil {
+		return err
+	}
+	existing, err := credentials.Load(accountID)
+	if err != nil {
+		return err
+	}
+	if existing.Method != credentials.MethodOAuth {
+		return errAccountUsesPassword
+	}
+	secret, err := a.authorizeOAuth(existing.Provider, existing.ClientID, existing.ClientSecret, account.Email)
+	if err != nil {
+		return err
+	}
+	if err := credentials.Store(accountID, secret); err != nil {
+		return err
+	}
+	a.clearRejectedLogin(accountID)
+	return nil
+}
+
 // PasswordCheckDTO reports how a password fared against the account's imap
 // server. Rejected separates "the server said no" from "nothing answered": the
 // first means the password is wrong, the second says nothing about it at all.
