@@ -43,6 +43,11 @@ type fakeIMAP struct {
 	// refusing the next login.
 	loggedOut bool
 
+	// appended is every message handed to AppendToSent, in order, and
+	// failAppend makes the append fail so a test can check a send still
+	// succeeds without one.
+	appended   [][]byte
+	failAppend error
 	// failMove makes MOVE fail, for the paths that have to leave the local cache
 	// alone when the server says no.
 	failMove error
@@ -51,6 +56,14 @@ type fakeIMAP struct {
 type movedMessage struct {
 	uid  imap.UID
 	dest string
+}
+
+func (f *fakeIMAP) AppendToSent(raw []byte) (string, error) {
+	if f.failAppend != nil {
+		return "", f.failAppend
+	}
+	f.appended = append(f.appended, raw)
+	return "Sent", nil
 }
 
 func (f *fakeIMAP) Login() error  { return nil }
