@@ -741,7 +741,7 @@ const it: Record<string, string> = {
     'folders.deleted': 'Eliminata {name}',
     'folders.emptyTrash': 'Svuota cestino',
     'folders.emptyTrashTitle': 'Svuota cestino',
-    'folders.emptyTrashWarning': 'Questa operazione elimina definitivamente tutti i {n} messaggi in {name}, sia sul server che su questo computer. L\'azione non può essere annullata.',
+    'folders.emptyTrashWarning': 'Questa operazione elimina definitivamente tutti i {count} messaggi in {name}, sia sul server che su questo computer. L\'azione non può essere annullata.',
     'folders.emptyTrashConfirm': 'Elimina tutti',
     'folders.roleAction': 'Usa come…',
     'folders.stopSync': 'Interrompi sincronizzazione di questa cartella',
