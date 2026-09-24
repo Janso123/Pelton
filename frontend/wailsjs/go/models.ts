@@ -480,22 +480,6 @@ export namespace desktop {
 		    return a;
 		}
 	}
-	export class CreateFolderRequest {
-	    accountId: number;
-	    parentId: number;
-	    name: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new CreateFolderRequest(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.accountId = source["accountId"];
-	        this.parentId = source["parentId"];
-	        this.name = source["name"];
-	    }
-	}
 	export class ContactValueDTO {
 	    value: string;
 	    label: string;
@@ -546,23 +530,23 @@ export namespace desktop {
 	        this.extra = source["extra"];
 	    }
 	
-	    convertValues(a: any, classs: any, asMap: boolean = false): any {
-	        if (!a) {
-	            return a;
-	        }
-	        if (a.slice && a.map) {
-	            return (a as any[]).map(elem => this.convertValues(elem, classs));
-	        } else if ("object" === typeof a) {
-	            if (asMap) {
-	                for (const key of Object.keys(a)) {
-	                    a[key] = new classs(a[key]);
-	                }
-	                return a;
-	            }
-	            return new classs(a);
-	        }
-	        return a;
-	    }
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ContactConflictDTO {
 	    conflict: boolean;
@@ -582,24 +566,25 @@ export namespace desktop {
 	        this.saved = this.convertValues(source["saved"], ContactDTO);
 	    }
 	
-	    convertValues(a: any, classs: any, asMap: boolean = false): any {
-	        if (!a) {
-	            return a;
-	        }
-	        if (a.slice && a.map) {
-	            return (a as any[]).map(elem => this.convertValues(elem, classs));
-	        } else if ("object" === typeof a) {
-	            if (asMap) {
-	                for (const key of Object.keys(a)) {
-	                    a[key] = new classs(a[key]);
-	                }
-	                return a;
-	            }
-	            return new classs(a);
-	        }
-	        return a;
-	    }
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class ContactRequest {
 	    id: number;
 	    bookId: number;
@@ -628,22 +613,39 @@ export namespace desktop {
 	        this.force = source["force"];
 	    }
 	
-	    convertValues(a: any, classs: any, asMap: boolean = false): any {
-	        if (!a) {
-	            return a;
-	        }
-	        if (a.slice && a.map) {
-	            return (a as any[]).map(elem => this.convertValues(elem, classs));
-	        } else if ("object" === typeof a) {
-	            if (asMap) {
-	                for (const key of Object.keys(a)) {
-	                    a[key] = new classs(a[key]);
-	                }
-	                return a;
-	            }
-	            return new classs(a);
-	        }
-	        return a;
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class CreateFolderRequest {
+	    accountId: number;
+	    parentId: number;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateFolderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accountId = source["accountId"];
+	        this.parentId = source["parentId"];
+	        this.name = source["name"];
 	    }
 	}
 	export class DefaultMailStatusDTO {
@@ -1674,7 +1676,7 @@ export namespace desktop {
 	    hasAttachment: boolean;
 	    unreadOnly: boolean;
 	    sort: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SearchRequestDTO(source);
 	    }
@@ -1997,6 +1999,7 @@ export namespace desktop {
 	    sendDelaySeconds: number;
 	    flagHighlight: string;
 	    showShortcutHints: boolean;
+	    harvestAddresses: boolean;
 	    showAccountEmail: boolean;
 	    alwaysLoadImages: boolean;
 	    blockTrackingPixels: boolean;
@@ -2085,6 +2088,7 @@ export namespace desktop {
 	        this.sendDelaySeconds = source["sendDelaySeconds"];
 	        this.flagHighlight = source["flagHighlight"];
 	        this.showShortcutHints = source["showShortcutHints"];
+	        this.harvestAddresses = source["harvestAddresses"];
 	        this.showAccountEmail = source["showAccountEmail"];
 	        this.alwaysLoadImages = source["alwaysLoadImages"];
 	        this.blockTrackingPixels = source["blockTrackingPixels"];
