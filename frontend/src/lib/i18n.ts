@@ -26,9 +26,9 @@ import en from './locales/en'
 import { getUserLocale } from './api'
 import { applyCJK, applyDirection } from '../theme/theme'
 
-export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'pl' | 'tr' | 'pt' | 'ar' | 'zh-CN'
+export type Locale = 'en' | 'de' | 'fr' | 'nl' | 'es' | 'it' | 'pl' | 'tr' | 'pt' | 'ar' | 'zh-CN'
 
-export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'pl', 'tr', 'pt', 'ar', 'zh-CN']
+export const locales: Locale[] = ['en', 'de', 'fr', 'nl', 'es', 'it', 'pl', 'tr', 'pt', 'ar', 'zh-CN']
 
 /** Text direction of the interface. */
 export type Direction = 'ltr' | 'rtl'
@@ -57,6 +57,7 @@ export const localeNames: Record<Locale, string> = {
   fr: 'Français',
   nl: 'Nederlands',
   es: 'Español',
+  it: 'Italiano',
   pl: 'Polski',
   tr: 'Türkçe',
   // qualified because the catalog is European Portuguese, not pt-BR:
@@ -73,6 +74,7 @@ const loaders: Record<Exclude<Locale, 'en'>, () => Promise<{ default: Record<str
   fr: () => import('./locales/fr'),
   nl: () => import('./locales/nl'),
   es: () => import('./locales/es'),
+  it: () => import('./locales/it'),
   pl: () => import('./locales/pl'),
   tr: () => import('./locales/tr'),
   pt: () => import('./locales/pt'),
