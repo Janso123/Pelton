@@ -7,7 +7,7 @@
   // files from the locales folder are listed after the built-ins; their value
   // is "user:<id>".
   import { onMount } from 'svelte'
-  import { IconCheck } from '@tabler/icons-svelte'
+  import { IconCheck, IconWorld } from '@tabler/icons-svelte'
   import { locales, localeNames, detectOSLocale, userLocalePrefix, t } from '../../lib/i18n'
   import { flagFor } from '../../lib/flags'
   import { listUserLocales } from '../../lib/api'
@@ -34,6 +34,10 @@
     <button type="button" class="lang-card" class:active={value === l} on:click={() => onSelect(l)} role="option" aria-selected={value === l}>
       {#if flagFor(l)}
         <img class="lang-flag" src={flagFor(l)} alt="" draggable="false" />
+      {:else}
+        <!-- a language no single country's flag stands for (#440). The mark
+             keeps the tiles aligned and reads as chosen rather than missing. -->
+        <IconWorld class="lang-flag lang-globe" size={16} stroke={1.8} />
       {/if}
       <span class="lang-name">{localeNames[l]}</span>
       {#if l === recommended}
@@ -96,6 +100,12 @@
     height: 15px;
     border-radius: 2px;
     object-fit: cover;
+  }
+
+  /* the neutral mark occupies the flag's column so the names stay in line, and
+     sits back a shade since it is standing in for a flag rather than being one. */
+  :global(.lang-globe) {
+    color: var(--text-tertiary);
   }
 
   .lang-card:hover {

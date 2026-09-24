@@ -37,6 +37,48 @@ describe('flagFor', () => {
     withSystemLanguage('zh-CN')
     expect(countryOf(flagFor('zh-CN'))).toBe('cn')
   })
+
+  // #440: Arabic used to borrow whatever region the reader's machine named,
+  // which showed Portugal's flag beside العربية on a machine set to Portuguese.
+  // No country's flag stands for the language, so it gets none.
+  it('gives arabic no flag from a region that is not its own', () => {
+    for (const tag of ['pt-PT', 'de-DE', 'en-US']) {
+      withSystemLanguage(tag)
+      expect(flagFor('ar'), tag).toBeUndefined()
+    }
+  })
+
+  // a reader whose own system is set to Arabic in a country is a different
+  // matter: that region is their own setting rather than a country picked for
+  // them, and it is the same rule that gives an en-US machine the US flag.
+  it('keeps a region the reader set themselves', () => {
+    withSystemLanguage('ar-EG')
+    expect(countryOf(flagFor('ar'))).toBe('eg')
+    withSystemLanguage('ar-MA')
+    expect(countryOf(flagFor('ar'))).toBe('ma')
+  })
+
+  // the same fallback would have done it to any language without an entry, so
+  // the rule is general rather than a special case for one language.
+  it('gives an unknown language no flag rather than the readers own', () => {
+    withSystemLanguage('pt-PT')
+    expect(flagFor('ja')).toBeUndefined()
+    expect(flagFor('user:mine')).toBeUndefined()
+  })
+
+  // the languages that do have a flag must keep it: this narrows what is shown,
+  // and it would be easy to narrow it too far.
+  it('still resolves every language that has one', () => {
+    withSystemLanguage('de-DE')
+    expect(countryOf(flagFor('de'))).toBe('de')
+    expect(countryOf(flagFor('fr'))).toBe('fr')
+    expect(countryOf(flagFor('it'))).toBe('it')
+    expect(countryOf(flagFor('pt'))).toBe('pt')
+    expect(countryOf(flagFor('nl'))).toBe('nl')
+    expect(countryOf(flagFor('es'))).toBe('es')
+    expect(countryOf(flagFor('pl'))).toBe('pl')
+    expect(countryOf(flagFor('tr'))).toBe('tr')
+  })
 })
 
 describe('detectOSLocale', () => {
