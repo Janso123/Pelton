@@ -314,7 +314,7 @@ type UIPrefsDTO struct {
 	// AppVimMode enables global vim-style navigation (h/j/k/l and friends) for
 	// moving around the app window itself, outside of compose.
 	AppVimMode bool `json:"appVimMode"`
-	// Language is the ui locale code (en, de, fr, nl, es). Defaults to English;
+	// Language is the ui locale code (en, de, fr, nl, es, etc). Defaults to English;
 	// the frontend only ever picks something else on an explicit user choice.
 	Language string `json:"language"`
 	// LowPowerMode pauses periodic auto-sync, blocks starting new bulk offline

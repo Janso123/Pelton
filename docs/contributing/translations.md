@@ -12,7 +12,7 @@ description: How Pelton's UI strings are localized and how to add or improve a t
 ## Where translations live
 
 UI strings live in `frontend/src/lib/locales/`, one TypeScript file per
-language: `en.ts`, `de.ts`, `fr.ts`, `nl.ts`, `es.ts`, `pl.ts`, `tr.ts`. Each file
+language: `en.ts`, `de.ts`, `fr.ts`, `nl.ts`, `es.ts`, `it.ts`, `pl.ts`, `tr.ts`, `pt.ts`, `ar.ts`, `zh-CN.ts`. Each file
 exports a flat `Record<string, string>` keyed by a dotted, feature-prefixed
 key, for example:
 

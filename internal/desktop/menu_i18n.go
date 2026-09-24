@@ -35,7 +35,7 @@ type menuStrings struct {
 }
 
 // menuLocales mirrors the frontend's supported languages
-// (en/de/fr/nl/es/pl/tr/pt/ar).
+// (en/de/fr/nl/es/it/pl/tr/pt/ar/zh-CN).
 // Keeping this as a Go-side table, separate from the frontend's TypeScript
 // locale files, is unavoidable: the native menu is built by the Go process
 // before any frontend code runs, and wails' menu API takes plain strings, not
@@ -191,6 +191,36 @@ var menuLocales = map[string]menuStrings{
 		switchProfile:    "Cambiar de perfil…",
 		closeTab:         "Cerrar pestaña",
 	},
+	"it": {
+        appMenu:          "Pelton",
+        about:            "Informazioni su Pelton",
+        preferences:      "Preferenze…",
+        hide:             "Nascondi Pelton",
+        quit:             "Esci da Pelton",
+        fileMenu:         "File",
+        compose:          "Nuovo messaggio",
+        exportPDF:        "Esporta messaggio come PDF…",
+        closeWindow:      "Chiudi finestra",
+        mailboxMenu:      "Casella postale",
+        syncNow:          "Sincronizza ora",
+        openWindow:       "Apri Pelton",
+        addMailbox:       "Aggiungi casella postale…",
+        manageMailboxes:  "Gestisci caselle postali…",
+        contacts:         "Contatti…",
+        mailMenu:         "Messaggio",
+        undo:             "Annulla",
+        markRead:         "Segna come letto",
+        markUnread:       "Segna come da leggere",
+        flagUnflag:       "Contrassegna / Rimuovi contrassegno",
+        archive:          "Archivia",
+        deleteMessage:    "Elimina messaggio",
+        viewMenu:         "Vista",
+        toggleFullscreen: "Attiva/Disattiva schermo intero",
+        lowPowerMode:     "Modalità risparmio energetico",
+        openInTab:        "Apri in una nuova scheda",
+        switchProfile:    "Cambia profilo…",
+        closeTab:         "Chiudi scheda",
+    },
 	"pl": {
 		appMenu:          "Pelton",
 		about:            "O programie Pelton",

@@ -7,11 +7,17 @@ body:
     attributes:
       label: Language
       options:
-        - German (de)
         - English (en)
-        - Spanish (es)
+        - German (de)
         - French (fr)
         - Dutch (nl)
+        - Spanish (es)
+        - Italian (it)
+        - Polish (pl)
+        - Turkish (tr)
+        - Portuguese (pt)
+        - Arabic (ar)
+        - Simplified Chinese (zh-CN)
         - Other / not listed
     validations:
       required: true
