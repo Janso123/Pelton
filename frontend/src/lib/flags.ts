@@ -7,6 +7,12 @@
 // gets the US flag and an en-GB one the union flag without asking anybody or
 // touching the network.
 //
+// A language with no entry here gets no flag, and the picker shows a neutral
+// mark in its place. It used to borrow whatever region the reader's machine
+// named, which put Portugal's flag next to العربية for a reader in Portugal
+// (#440): a flag nobody chose, attached to a language it has nothing to do
+// with. Showing none says what is true.
+//
 // The svgs come from flag-icons (MIT) and are bundled, never fetched.
 
 /** Every flag in the set, keyed by lowercase ISO 3166-1 alpha-2 code. */
@@ -23,7 +29,8 @@ for (const [path, url] of Object.entries(files)) {
 }
 
 // the flag a language falls back to when the operating system names no region,
-// or names one the language is not spoken in.
+// or names one the language is not spoken in. A language missing from here
+// shows no flag at all.
 const defaultCountry: Record<string, string> = {
   en: 'gb',
   de: 'de',
@@ -34,8 +41,8 @@ const defaultCountry: Record<string, string> = {
   pl: 'pl',
   tr: 'tr',
   pt: 'pt',
-  // ar has no entry: it is spoken across many regions, so flagFor falls back to
-  // the reader's own.
+  // ar has no entry and is given none: no single country's flag stands for the
+  // language, so the picker shows the neutral mark.
   // keyed by the full tag: a bare "zh" would also claim zh-TW, which uses a
   // different flag.
   'zh-cn': 'cn',
@@ -54,37 +61,8 @@ export function flagFor(language: string): string | undefined {
     const pinned = defaultCountry[tag]
     return pinned ? byCountry[pinned] : undefined
   }
-  // last resort is the reader's own region, for a language spoken across many
-  // of them.
-  const country = osRegionFor(tag) ?? defaultCountry[tag] ?? osRegion()
+  const country = osRegionFor(tag) ?? defaultCountry[tag]
   return country ? byCountry[country] : undefined
-}
-
-/**
- * The reader's own region, whatever language it belongs to.
- *
- * Every tag is read, not just the first. navigator.language is the interface
- * language's conventional tag, and the webview rewrites one it does not
- * recognize: an "en-DE" machine (English interface, German region) reports
- * "en-GB" there, which is a country the reader has nothing to do with. The rest
- * of the list keeps the real one, so the first tag carrying a region we have a
- * flag for wins.
- *
- * It is best effort. A machine that names no region anywhere gets no flag,
- * which is the honest answer rather than a guess.
- */
-function osRegion(): string | undefined {
-  if (typeof navigator === 'undefined') {
-    return undefined
-  }
-  const tags = navigator.languages?.length ? navigator.languages : [navigator.language || '']
-  for (const tag of tags) {
-    const region = tag.toLowerCase().split('-')[1]
-    if (region && region.length === 2 && byCountry[region]) {
-      return region
-    }
-  }
-  return undefined
 }
 
 /**
