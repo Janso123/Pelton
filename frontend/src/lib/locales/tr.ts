@@ -401,6 +401,8 @@ const tr: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Bunun yerine bir uygulama parolası kullan (Google Cloud Console gerekmez)',
   'wizard.appPassword.warning': 'Normal parolanızı kullanmayın. Bunun yerine uygulamaya özel bir parola kullanın.',
   'wizard.appPassword.link': 'Uygulamaya özel bir parola oluştur',
+  'wizard.workspace.detected': 'Bu adres Google\'da barındırılıyor. Çoğu okul ve iş adresi gibi Google Workspace hesapları da parola yerine Google ile oturum açmayı gerektirir.',
+  'wizard.workspace.useGoogle': 'Google ile oturum açarak kur',
   'wizard.field.imapHost': 'IMAP ana makinesi',
   'wizard.field.smtpHost': 'SMTP ana makinesi',
   'wizard.field.port': 'Bağlantı noktası',

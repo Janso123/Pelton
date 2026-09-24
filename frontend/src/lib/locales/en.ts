@@ -401,6 +401,8 @@ const en: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Use an app password instead (no Google Cloud Console needed)',
   'wizard.appPassword.warning': "Don't use your normal password. Use an app-specific password instead.",
   'wizard.appPassword.link': 'Create an app-specific password',
+  'wizard.workspace.detected': 'This address is hosted by Google. Google Workspace accounts, like most school and work addresses, need Google sign-in instead of a password.',
+  'wizard.workspace.useGoogle': 'Set up with Google sign-in',
   'wizard.field.imapHost': 'IMAP host',
   'wizard.field.smtpHost': 'SMTP host',
   'wizard.field.port': 'Port',

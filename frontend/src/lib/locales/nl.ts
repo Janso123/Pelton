@@ -401,6 +401,8 @@ const nl: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'In plaats daarvan een app-wachtwoord gebruiken (geen Google Cloud Console nodig)',
   'wizard.appPassword.warning': 'Gebruik niet je gewone wachtwoord. Gebruik in plaats daarvan een app-specifiek wachtwoord.',
   'wizard.appPassword.link': 'App-specifiek wachtwoord aanmaken',
+  'wizard.workspace.detected': 'Dit adres wordt gehost door Google. Google Workspace-accounts, zoals de meeste school- en werkadressen, hebben Google-aanmelding nodig in plaats van een wachtwoord.',
+  'wizard.workspace.useGoogle': 'Instellen met Google-aanmelding',
   'wizard.field.imapHost': 'IMAP-host',
   'wizard.field.smtpHost': 'SMTP-host',
   'wizard.field.port': 'Poort',

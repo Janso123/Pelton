@@ -401,6 +401,8 @@ const pl: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Użyj hasła aplikacji (bez Google Cloud Console)',
   'wizard.appPassword.warning': 'Nie używaj zwykłego hasła. Zamiast tego użyj hasła dla aplikacji.',
   'wizard.appPassword.link': 'Utwórz hasło dla aplikacji',
+  'wizard.workspace.detected': 'Ten adres jest hostowany przez Google. Konta Google Workspace, jak większość adresów szkolnych i służbowych, wymagają logowania przez Google zamiast hasła.',
+  'wizard.workspace.useGoogle': 'Skonfiguruj z logowaniem Google',
   'wizard.field.imapHost': 'Host IMAP',
   'wizard.field.smtpHost': 'Host SMTP',
   'wizard.field.port': 'Port',

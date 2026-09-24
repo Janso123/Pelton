@@ -43,7 +43,7 @@ export const providerPresets: ProviderPreset[] = [
     // no Google Cloud Console involved. oauth stays reachable behind
     // oauthOptional for users who registered their own client (#56).
     id: 'gmail',
-    label: 'Gmail',
+    label: 'Gmail / Google Workspace',
     kind: 'password',
     oauthProvider: 'google',
     imapHost: 'imap.gmail.com',

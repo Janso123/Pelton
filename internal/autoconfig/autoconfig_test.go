@@ -175,3 +175,56 @@ func TestFetchAndParseRejectsANonOKResponse(t *testing.T) {
 		t.Error("fetchAndParse of a 404 returned no error")
 	}
 }
+
+// A Google Workspace domain publishes no autoconfig of its own, so its MX is
+// the only signal that it signs in with Google rather than a password (#445).
+func TestMatchMXRecognizesGoogleWorkspace(t *testing.T) {
+	for _, host := range []string{"ASPMX.L.GOOGLE.COM.", "alt1.aspmx.l.google.com", "smtp.google.com.", "aspmx2.googlemail.com."} {
+		got, ok := matchMX([]string{host})
+		if !ok {
+			t.Errorf("matchMX(%q) matched nothing", host)
+			continue
+		}
+		if got.IMAPHost != "imap.gmail.com" || got.SMTPHost != "smtp.gmail.com" || !got.OAuth || got.OAuthProvider != "google" {
+			t.Errorf("matchMX(%q) = %+v, want gmail servers with google sign-in", host, got)
+		}
+	}
+}
+
+func TestMatchMXLeavesPasswordProvidersWithoutOAuth(t *testing.T) {
+	got, ok := matchMX([]string{"mx1.example.net.", "mx.purelymail.com."})
+	if !ok || got.IMAPHost != "imap.purelymail.com" {
+		t.Fatalf("matchMX() = %+v, %v, want purelymail", got, ok)
+	}
+	if got.OAuth || got.OAuthProvider != "" {
+		t.Errorf("matchMX() = %+v, want password auth", got)
+	}
+}
+
+// A lookalike host must not be taken for Google just by ending in the letters.
+func TestMatchMXRejectsASuffixLookalike(t *testing.T) {
+	if got, ok := matchMX([]string{"mail.notgoogle.com."}); ok {
+		t.Errorf("matchMX() = %+v, want no match", got)
+	}
+}
+
+// Only servers Pelton can sign in to get a provider key; an OAuth2 document
+// for anything else keeps it empty so the wizard does not offer a dead end.
+func TestParseNamesTheOAuthProviderForGmail(t *testing.T) {
+	doc := strings.ReplaceAll(oauthProviderXML, "imap.example.com", "imap.gmail.com")
+	got, err := parse([]byte(doc), "ispdb")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got.OAuthProvider != "google" {
+		t.Errorf("OAuthProvider = %q, want google", got.OAuthProvider)
+	}
+
+	other, err := parse([]byte(oauthProviderXML), "ispdb")
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if other.OAuthProvider != "" {
+		t.Errorf("OAuthProvider = %q for an unknown host, want empty", other.OAuthProvider)
+	}
+}

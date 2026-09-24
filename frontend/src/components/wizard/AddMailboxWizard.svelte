@@ -43,6 +43,9 @@
   let workingMessage = ''
   let testing = false
   let testOk: boolean | null = null
+  // the oauth provider autodiscovery says a custom address signs in with, so
+  // a Google Workspace domain typed under "Other" is steered to Google sign-in.
+  let discoveredOAuth = ''
 
   // the account draft being assembled across steps.
   let draft: AddAccountRequest = blankDraft()
@@ -108,7 +111,21 @@
     testOk = null
     error = ''
     showAdvanced = false
+    discoveredOAuth = ''
     step = p.kind === 'oauth' ? 'oauth' : 'config'
+  }
+
+  // switchToGoogle moves a Google-hosted address from the custom form to the
+  // Google sign-in form, keeping what the user already typed about themselves.
+  function switchToGoogle(): void {
+    const google = providerPresets.find((x) => x.id === 'gmail')
+    if (!google) {
+      return
+    }
+    const { email, displayName, localLabel, useLocalLabel } = draft
+    selectPreset(google)
+    draft = { ...draft, email, displayName, localLabel, useLocalLabel }
+    step = 'oauth'
   }
 
   function pick(event: CustomEvent<ProviderPreset>): void {
@@ -130,8 +147,10 @@
     if (!preset?.custom || !draft.email.includes('@')) {
       return
     }
+    discoveredOAuth = ''
     try {
       const d = await discoverConfig(draft.email)
+      discoveredOAuth = d.oauthProvider
       draft.imapHost = d.imapHost
       draft.imapPort = d.imapPort
       draft.smtpHost = d.smtpHost
@@ -347,6 +366,14 @@
           <span>{$t('wizard.field.email')}</span>
           <input type="email" bind:value={draft.email} on:blur={maybeDiscover} placeholder={$t('wizard.field.emailPlaceholder')} />
         </label>
+        {#if discoveredOAuth === 'google'}
+          <div class="provider-hint">
+            <span>{$t('wizard.workspace.detected')}</span>
+            <button type="button" class="app-password-link" on:click={switchToGoogle}>
+              {$t('wizard.workspace.useGoogle')}
+            </button>
+          </div>
+        {/if}
         <label class="field">
           <span>
             {$t('wizard.field.fromName')}
@@ -753,6 +780,25 @@
     color: var(--text-primary);
     font-size: var(--fz-label);
     line-height: 1.5;
+  }
+
+  .provider-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3);
+    border: var(--hairline) solid var(--border-default);
+    border-radius: var(--radius-control);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font-size: var(--fz-label);
+    line-height: 1.5;
+  }
+
+  .provider-hint .app-password-link {
+    color: var(--accent);
   }
 
   .app-password-link {

@@ -30,7 +30,10 @@ type DiscoveredDTO struct {
 	IMAPTLS string `json:"imapTls"`
 	SMTPTLS string `json:"smtpTls"`
 	OAuth   bool   `json:"oauth"`
-	Source  string `json:"source"`
+	// OAuthProvider is the provider key to sign in with when the servers belong
+	// to one Pelton supports ("google"), empty otherwise.
+	OAuthProvider string `json:"oauthProvider"`
+	Source        string `json:"source"`
 }
 
 // DiscoverConfig resolves likely imap/smtp settings for an email address using
@@ -42,14 +45,15 @@ func (a *App) DiscoverConfig(email string) (DiscoveredDTO, error) {
 		return DiscoveredDTO{}, err
 	}
 	return DiscoveredDTO{
-		IMAPHost: d.IMAPHost,
-		IMAPPort: d.IMAPPort,
-		SMTPHost: d.SMTPHost,
-		SMTPPort: d.SMTPPort,
-		IMAPTLS:  d.IMAPTLS,
-		SMTPTLS:  d.SMTPTLS,
-		OAuth:    d.OAuth,
-		Source:   d.Source,
+		IMAPHost:      d.IMAPHost,
+		IMAPPort:      d.IMAPPort,
+		SMTPHost:      d.SMTPHost,
+		SMTPPort:      d.SMTPPort,
+		IMAPTLS:       d.IMAPTLS,
+		SMTPTLS:       d.SMTPTLS,
+		OAuth:         d.OAuth,
+		OAuthProvider: d.OAuthProvider,
+		Source:        d.Source,
 	}, nil
 }
 

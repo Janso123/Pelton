@@ -401,6 +401,8 @@ const de: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Stattdessen ein App-Passwort verwenden (keine Google Cloud Console nötig)',
   'wizard.appPassword.warning': 'Verwende nicht dein normales Passwort. Nutze stattdessen ein App-spezifisches Passwort.',
   'wizard.appPassword.link': 'App-spezifisches Passwort erstellen',
+  'wizard.workspace.detected': 'Diese Adresse wird von Google gehostet. Google-Workspace-Konten, wie die meisten Schul- und Arbeitsadressen, brauchen die Google-Anmeldung statt eines Passworts.',
+  'wizard.workspace.useGoogle': 'Mit Google-Anmeldung einrichten',
   'wizard.field.imapHost': 'IMAP-Host',
   'wizard.field.smtpHost': 'SMTP-Host',
   'wizard.field.port': 'Port',

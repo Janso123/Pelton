@@ -401,6 +401,8 @@ const ar: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'استخدم كلمة مرور تطبيق بدلاً من ذلك (دون الحاجة إلى Google Cloud Console)',
   'wizard.appPassword.warning': 'لا تستخدم كلمة مرورك العادية. استخدم كلمة مرور خاصة بالتطبيق بدلاً منها.',
   'wizard.appPassword.link': 'إنشاء كلمة مرور خاصة بالتطبيق',
+  'wizard.workspace.detected': 'هذا العنوان مستضاف لدى Google. تحتاج حسابات Google Workspace، مثل معظم عناوين المدارس والعمل، إلى تسجيل الدخول عبر Google بدلاً من كلمة المرور.',
+  'wizard.workspace.useGoogle': 'الإعداد عبر تسجيل الدخول بـ Google',
   'wizard.field.imapHost': 'مضيف IMAP',
   'wizard.field.smtpHost': 'مضيف SMTP',
   'wizard.field.port': 'المنفذ',

@@ -408,6 +408,8 @@ const zhCN: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': '改用应用专用密码（无需 Google Cloud Console）',
   'wizard.appPassword.warning': '请勿使用你的常规密码，而应使用应用专用密码。',
   'wizard.appPassword.link': '创建应用专用密码',
+  'wizard.workspace.detected': '此地址由 Google 托管。Google Workspace 帐户（例如大多数学校和工作邮箱）需要使用 Google 登录，而不是密码。',
+  'wizard.workspace.useGoogle': '使用 Google 登录进行设置',
   'wizard.field.imapHost': 'IMAP 服务器',
   'wizard.field.smtpHost': 'SMTP 服务器',
   'wizard.field.port': '端口',

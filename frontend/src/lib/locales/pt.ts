@@ -401,6 +401,8 @@ const pt: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Usar uma palavra-passe de aplicação em vez disso (não é necessária a Google Cloud Console)',
   'wizard.appPassword.warning': 'Não use a sua palavra-passe normal. Use uma palavra-passe específica da aplicação em vez disso.',
   'wizard.appPassword.link': 'Criar uma palavra-passe específica da aplicação',
+  'wizard.workspace.detected': 'Este endereço está alojado na Google. As contas Google Workspace, como a maioria dos endereços escolares e profissionais, precisam de iniciar sessão com a Google em vez de uma palavra-passe.',
+  'wizard.workspace.useGoogle': 'Configurar com início de sessão Google',
   'wizard.field.imapHost': 'Anfitrião IMAP',
   'wizard.field.smtpHost': 'Anfitrião SMTP',
   'wizard.field.port': 'Porta',

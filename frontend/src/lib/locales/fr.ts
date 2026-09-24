@@ -401,6 +401,8 @@ const fr: Record<string, string> = {
   'wizard.gmail.useAppPasswordInstead': 'Utiliser un mot de passe d\'application à la place (sans Google Cloud Console)',
   'wizard.appPassword.warning': 'N\'utilisez pas votre mot de passe habituel. Utilisez plutôt un mot de passe d\'application.',
   'wizard.appPassword.link': 'Créer un mot de passe d\'application',
+  'wizard.workspace.detected': 'Cette adresse est hébergée par Google. Les comptes Google Workspace, comme la plupart des adresses scolaires et professionnelles, nécessitent la connexion Google au lieu d\'un mot de passe.',
+  'wizard.workspace.useGoogle': 'Configurer avec la connexion Google',
   'wizard.field.imapHost': 'Serveur IMAP',
   'wizard.field.smtpHost': 'Serveur SMTP',
   'wizard.field.port': 'Port',
