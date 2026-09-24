@@ -35,7 +35,7 @@ type menuStrings struct {
 }
 
 // menuLocales mirrors the frontend's supported languages
-// (en/de/fr/nl/es/pl/tr/pt/ar).
+// (en/de/fr/nl/es/it/pl/tr/pt/ar/zh-CN).
 // Keeping this as a Go-side table, separate from the frontend's TypeScript
 // locale files, is unavoidable: the native menu is built by the Go process
 // before any frontend code runs, and wails' menu API takes plain strings, not

@@ -472,7 +472,7 @@ export interface UIPrefs {
   // appVimMode enables global vim-style navigation (h/j/k/l) for moving around
   // the app window itself, outside of compose.
   appVimMode: boolean
-  // language is the ui locale code (en, de, fr, nl, es).
+  // language is the ui locale code (en, de, fr, nl, es, etc).
   language: string
   // lowPowerMode pauses periodic auto-sync, bulk downloads and address-book
   // rescans. autoSyncIntervalSeconds is how often a full sync pass runs on top
