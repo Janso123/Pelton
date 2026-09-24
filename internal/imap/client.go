@@ -16,6 +16,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 	"github.com/emersion/go-imap/v2/imapclient"
 
+	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/charsetguess"
 )
 
@@ -62,6 +63,10 @@ type Config struct {
 	// of a password. The caller obtains and refreshes it; this layer only uses it.
 	OAuth2Token string
 
+	// Trust is what this mailbox trusts beyond the system roots: certificates
+	// the user pinned and a CA they supplied. The zero value is the standard
+	// verification.
+	Trust certtrust.Trust
 	// InsecureSkipVerify disables TLS verification. Debugging only.
 	InsecureSkipVerify bool
 	// DebugWriter receives the raw protocol stream, including credentials.
@@ -148,6 +153,15 @@ func Connect(cfg Config) (*Client, error) {
 		port = DefaultPort
 	}
 
+	tlsConfig, err := cfg.Trust.TLSConfig(cfg.Host)
+	if err != nil {
+		return nil, fmt.Errorf("imap: %w", err)
+	}
+	if cfg.InsecureSkipVerify {
+		tlsConfig.InsecureSkipVerify = true
+		tlsConfig.VerifyConnection = nil
+	}
+
 	updates := make(chan MailboxUpdate, updateBuffer)
 
 	options := &imapclient.Options{
@@ -156,11 +170,7 @@ func Connect(cfg Config) (*Client, error) {
 		// the message list as its raw =?...?= source. Ours decodes the legacy
 		// tables and guesses at what is left.
 		WordDecoder: charsetguess.WordDecoder(),
-		TLSConfig: &tls.Config{
-			ServerName:         cfg.Host, // needed for hostname verification
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-			MinVersion:         tls.VersionTLS12,
-		},
+		TLSConfig:   tlsConfig,
 		DebugWriter: cfg.DebugWriter,
 		Dialer:      &net.Dialer{Timeout: dialTimeout},
 		// only way go-imap surfaces unsolicited EXISTS/EXPUNGE during IDLE
