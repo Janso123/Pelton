@@ -124,8 +124,46 @@ func (t *accountTransmitter) Transmit(ctx context.Context, m outbox.Message) err
 	if err != nil {
 		return err
 	}
-	sender := psmtp.NewSender(cfg, psmtp.WithLogger(t.app.log))
+	sender := psmtp.NewSender(cfg,
+		psmtp.WithLogger(t.app.log),
+		psmtp.WithSentAppender(func(raw []byte) (string, error) {
+			return t.app.appendToSent(*account, raw)
+		}),
+	)
 	return sender.Transmit(ctx, m)
+}
+
+// appendToSent puts a copy of a message that has just been sent in the
+// account's Sent folder, so it is there in webmail and in every other client,
+// not only in Pelton (#451).
+//
+// It opens its own imap session rather than borrowing the sync engine's. That
+// one is parked in IDLE almost all the time, and interrupting it to append
+// would cost more than a second connection does for something that happens
+// once per sent message.
+//
+// The copy is appended to the server and not written locally: the folder's next
+// sync pulls it down like any other message, which keeps one path for how mail
+// arrives in the store.
+func (a *App) appendToSent(account storage.Account, raw []byte) (string, error) {
+	cfg, err := a.resolveIMAP(account)
+	if err != nil {
+		return "", err
+	}
+	// every other imap session in the package takes this, so a send during a
+	// sync waits its turn rather than opening a second login for the account.
+	syncMu.Lock()
+	defer syncMu.Unlock()
+	client, err := a.connectIMAP(cfg)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = client.Close() }()
+	if err := client.Login(); err != nil {
+		return "", err
+	}
+	defer func() { _ = client.Logout() }()
+	return client.AppendToSent(raw)
 }
 
 // runInitialSyncAndIdle syncs every account once, then parks each on idle.

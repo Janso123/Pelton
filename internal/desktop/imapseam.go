@@ -31,6 +31,10 @@ type mailClient interface {
 	RenameFolder(path, newPath string) error
 	DeleteFolder(path string) error
 
+	// AppendToSent puts a copy of a message that has just been sent in the
+	// account's Sent folder, and reports which folder it used.
+	AppendToSent(raw []byte) (string, error)
+
 	FetchMessage(uid imap.UID) (*pimap.Message, error)
 	FetchMessages(uids []imap.UID, fn func(uid imap.UID, msg *pimap.Message, err error) error) error
 	FetchRawMessage(uid imap.UID) ([]byte, error)
