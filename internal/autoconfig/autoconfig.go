@@ -37,6 +37,10 @@ type Discovered struct {
 	// OAuth is true when the provider's autoconfig says to authenticate with
 	// OAuth2 (gmail, outlook). Otherwise password auth is expected.
 	OAuth bool `json:"oauth"`
+	// OAuthProvider is the oauth package's provider key when OAuth is set and
+	// the servers belong to a provider Pelton can sign in to ("google"), so the
+	// wizard can offer that sign-in. Empty otherwise.
+	OAuthProvider string `json:"oauthProvider"`
 	// Source records how the config was found: ispdb, wellknown, autoconfig, or
 	// guess. The ui can show it and treat guesses as lower confidence.
 	Source string `json:"source"`
@@ -58,9 +62,9 @@ func Discover(ctx context.Context, client *http.Client, email string) (Discovere
 	}
 
 	// providers that host many custom domains (Namecheap Private Email,
-	// Purelymail) rarely publish autoconfig for each domain, but their MX records
-	// point at a shared mail host we recognize. probing the live MX lets us fill
-	// in the right servers for a custom domain.
+	// Purelymail, Google Workspace) rarely publish autoconfig for each domain,
+	// but their MX records point at a shared mail host we recognize. probing the
+	// live MX lets us fill in the right servers for a custom domain.
 	if cfg, ok := discoverByMX(ctx, domain); ok {
 		return cfg, nil
 	}
@@ -78,6 +82,12 @@ func Discover(ctx context.Context, client *http.Client, email string) (Discovere
 	}, nil
 }
 
+// oauthProviders maps an imap host to the oauth provider key that signs in to
+// it, for autoconfig documents that ask for OAuth2.
+var oauthProviders = map[string]string{
+	"imap.gmail.com": "google",
+}
+
 // mxProvider maps a recognized MX hostname suffix to the imap/smtp servers that
 // provider uses for all the domains it hosts.
 type mxProvider struct {
@@ -91,6 +101,9 @@ type mxProvider struct {
 	// provider on a non-conventional port can be added here correctly.
 	imapTLS string
 	smtpTLS string
+	// oauthProvider is set for providers that require oauth sign-in rather than
+	// a password.
+	oauthProvider string
 }
 
 // knownMXProviders are mail hosts that serve many custom domains behind a shared
@@ -101,6 +114,10 @@ var knownMXProviders = []mxProvider{
 	{suffix: "privateemail.com", imapHost: "mail.privateemail.com", imapPort: 993, smtpHost: "mail.privateemail.com", smtpPort: 465, imapTLS: "ssl", smtpTLS: "ssl"},
 	// Purelymail.
 	{suffix: "purelymail.com", imapHost: "imap.purelymail.com", imapPort: 993, smtpHost: "smtp.purelymail.com", smtpPort: 465, imapTLS: "ssl", smtpTLS: "ssl"},
+	// Google Workspace (aspmx.l.google.com, smtp.google.com, and the older
+	// aspmx2.googlemail.com).
+	{suffix: "google.com", imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 465, imapTLS: "ssl", smtpTLS: "ssl", oauthProvider: "google"},
+	{suffix: "googlemail.com", imapHost: "imap.gmail.com", imapPort: 993, smtpHost: "smtp.gmail.com", smtpPort: 465, imapTLS: "ssl", smtpTLS: "ssl", oauthProvider: "google"},
 }
 
 // discoverByMX looks up the domain's MX records and, if one matches a known
@@ -111,21 +128,33 @@ func discoverByMX(ctx context.Context, domain string) (Discovered, bool) {
 	mxCtx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 	records, err := resolver.LookupMX(mxCtx, domain)
-	if err != nil || len(records) == 0 {
+	if err != nil {
 		return Discovered{}, false
 	}
-	for _, rec := range records {
-		host := strings.ToLower(strings.TrimSuffix(rec.Host, "."))
+	hosts := make([]string, len(records))
+	for i, rec := range records {
+		hosts[i] = rec.Host
+	}
+	return matchMX(hosts)
+}
+
+// matchMX returns the settings of the first known provider one of the MX hosts
+// belongs to. ok is false when none match.
+func matchMX(hosts []string) (Discovered, bool) {
+	for _, h := range hosts {
+		host := strings.ToLower(strings.TrimSuffix(h, "."))
 		for _, p := range knownMXProviders {
 			if host == p.suffix || strings.HasSuffix(host, "."+p.suffix) {
 				return Discovered{
-					IMAPHost: p.imapHost,
-					IMAPPort: p.imapPort,
-					SMTPHost: p.smtpHost,
-					SMTPPort: p.smtpPort,
-					IMAPTLS:  p.imapTLS,
-					SMTPTLS:  p.smtpTLS,
-					Source:   "mx",
+					IMAPHost:      p.imapHost,
+					IMAPPort:      p.imapPort,
+					SMTPHost:      p.smtpHost,
+					SMTPPort:      p.smtpPort,
+					IMAPTLS:       p.imapTLS,
+					SMTPTLS:       p.smtpTLS,
+					OAuth:         p.oauthProvider != "",
+					OAuthProvider: p.oauthProvider,
+					Source:        "mx",
 				}, true
 			}
 		}
@@ -201,6 +230,9 @@ func parse(body []byte, src string) (Discovered, error) {
 			out.IMAPPort = s.Port
 			out.IMAPTLS = socketTLS(s.SocketType)
 			out.OAuth = strings.EqualFold(s.Authentication, "OAuth2")
+			if out.OAuth {
+				out.OAuthProvider = oauthProviders[strings.ToLower(s.Hostname)]
+			}
 			break
 		}
 	}

@@ -25,6 +25,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/search"
 	"github.com/peltonapp/Pelton/internal/storage"
 	"github.com/wailsapp/wails/v2/pkg/menu"
+	"golang.org/x/oauth2"
 )
 
 // App is the bound application object. Its exported methods form the api the
@@ -78,6 +79,11 @@ type App struct {
 	// connection. nil means pimap.Connect, which is what the app always uses.
 	// See imapseam.go.
 	newIMAPClient func(cfg pimap.Config) (mailClient, error)
+	// secrets reaches the os keyring and oauthAuthorize runs the browser
+	// consent flow. They are fields only so a test can drive the oauth
+	// bindings without either. nil means the real ones. See oauthseam.go.
+	secrets        secretStore
+	oauthAuthorize func(ctx context.Context, provider, clientID, clientSecret, loginHint string, open func(string)) (*oauth2.Token, error)
 	// checkTLS completes one server's TLS handshake with the given trust. It
 	// is a field only so a test can report certificates without a server. nil
 	// means the real imap and smtp handshakes. See bind_cert_trust.go.

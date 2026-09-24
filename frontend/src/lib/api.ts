@@ -179,6 +179,18 @@ export function setAccountPassword(accountId: number, password: string): Promise
   return App.SetAccountPassword(accountId, password)
 }
 
+// accountOAuthProvider returns the oauth provider an account signs in with
+// ('google', 'microsoft'), or empty when it uses a password.
+export function accountOAuthProvider(accountId: number): Promise<string> {
+  return App.AccountOAuthProvider(accountId)
+}
+
+// reauthorizeOAuthAccount runs the provider sign-in again in the browser with
+// the account's stored client and replaces its tokens.
+export function reauthorizeOAuthAccount(accountId: number): Promise<void> {
+  return App.ReauthorizeOAuthAccount(accountId)
+}
+
 // accountsNeedingPassword lists accounts with no stored password, which is the
 // state an account imported from another mail client arrives in. Accounts whose
 // prompt was dismissed are still listed, so the ui can mark them.

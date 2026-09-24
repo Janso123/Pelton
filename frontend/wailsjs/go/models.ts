@@ -849,6 +849,7 @@ export namespace desktop {
 	    imapTls: string;
 	    smtpTls: string;
 	    oauth: boolean;
+	    oauthProvider: string;
 	    source: string;
 	
 	    static createFrom(source: any = {}) {
@@ -864,6 +865,7 @@ export namespace desktop {
 	        this.imapTls = source["imapTls"];
 	        this.smtpTls = source["smtpTls"];
 	        this.oauth = source["oauth"];
+	        this.oauthProvider = source["oauthProvider"];
 	        this.source = source["source"];
 	    }
 	}

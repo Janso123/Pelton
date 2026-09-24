@@ -32,7 +32,10 @@ type DiscoveredDTO struct {
 	IMAPTLS string `json:"imapTls"`
 	SMTPTLS string `json:"smtpTls"`
 	OAuth   bool   `json:"oauth"`
-	Source  string `json:"source"`
+	// OAuthProvider is the provider key to sign in with when the servers belong
+	// to one Pelton supports ("google"), empty otherwise.
+	OAuthProvider string `json:"oauthProvider"`
+	Source        string `json:"source"`
 }
 
 // DiscoverConfig resolves likely imap/smtp settings for an email address using
@@ -44,14 +47,15 @@ func (a *App) DiscoverConfig(email string) (DiscoveredDTO, error) {
 		return DiscoveredDTO{}, err
 	}
 	return DiscoveredDTO{
-		IMAPHost: d.IMAPHost,
-		IMAPPort: d.IMAPPort,
-		SMTPHost: d.SMTPHost,
-		SMTPPort: d.SMTPPort,
-		IMAPTLS:  d.IMAPTLS,
-		SMTPTLS:  d.SMTPTLS,
-		OAuth:    d.OAuth,
-		Source:   d.Source,
+		IMAPHost:      d.IMAPHost,
+		IMAPPort:      d.IMAPPort,
+		SMTPHost:      d.SMTPHost,
+		SMTPPort:      d.SMTPPort,
+		IMAPTLS:       d.IMAPTLS,
+		SMTPTLS:       d.SMTPTLS,
+		OAuth:         d.OAuth,
+		OAuthProvider: d.OAuthProvider,
+		Source:        d.Source,
 	}, nil
 }
 
@@ -153,9 +157,9 @@ type AddAccountRequest struct {
 	Password string `json:"password"`
 	Provider string `json:"provider"`
 	ClientID string `json:"clientId"`
-	// ClientSecret is optional and only used for oauth providers registered as
-	// confidential clients (some Microsoft Entra app registrations). Empty keeps
-	// the default public-client PKCE flow.
+	// ClientSecret is required by Google Desktop app clients and optional for
+	// Microsoft Entra apps registered as confidential clients. Empty keeps the
+	// public-client PKCE flow.
 	ClientSecret string `json:"clientSecret"`
 	// TrustedCerts and CAPEM are the certificates and CA the mailbox trusts
 	// beyond the system roots, as accepted in the connection test.
@@ -182,30 +186,37 @@ func (a *App) AddOAuthAccount(req AddAccountRequest) (AccountDTO, error) {
 	if err := a.ready(); err != nil {
 		return AccountDTO{}, err
 	}
-
-	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
-	defer cancel()
-
-	token, err := oauth.Authorize(ctx, req.Provider, req.ClientID, req.ClientSecret, req.Email, func(url string) {
-		wailsruntime.BrowserOpenURL(a.ctx, url)
-	})
+	secret, err := a.authorizeOAuth(req.Provider, req.ClientID, req.ClientSecret, req.Email)
 	if err != nil {
 		return AccountDTO{}, err
 	}
-	if token.RefreshToken == "" {
-		return AccountDTO{}, fmt.Errorf("pelton: provider returned no refresh token; re-consent may be required")
-	}
+	return a.createAccount(req, secret)
+}
 
-	secret := credentials.Secret{
+// authorizeOAuth runs the interactive consent flow in the system browser and
+// returns the keyring secret for the tokens it yields.
+func (a *App) authorizeOAuth(provider, clientID, clientSecret, email string) (credentials.Secret, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
+	defer cancel()
+
+	token, err := a.authorize(ctx, provider, clientID, clientSecret, email, func(url string) {
+		wailsruntime.BrowserOpenURL(a.ctx, url)
+	})
+	if err != nil {
+		return credentials.Secret{}, err
+	}
+	if token.RefreshToken == "" {
+		return credentials.Secret{}, fmt.Errorf("pelton: provider returned no refresh token; re-consent may be required")
+	}
+	return credentials.Secret{
 		Method:       credentials.MethodOAuth,
-		Provider:     req.Provider,
-		ClientID:     req.ClientID,
-		ClientSecret: req.ClientSecret,
+		Provider:     provider,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
 		RefreshToken: token.RefreshToken,
 		AccessToken:  token.AccessToken,
 		Expiry:       token.Expiry,
-	}
-	return a.createAccount(req, secret)
+	}, nil
 }
 
 // createAccount is the shared path for both auth methods: persist metadata, store

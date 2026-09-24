@@ -1,8 +1,10 @@
 // Package oauth runs the per-user PKCE OAuth2 flow for providers that require it
 // (gmail, outlook) and refreshes access tokens. It uses the loopback redirect
 // approach Thunderbird uses: a short-lived local http server catches the
-// callback. There is no client secret; the user supplies their own client id
-// (registered as a desktop/installed app), so PKCE is the security mechanism.
+// callback. The user supplies their own client (registered as a desktop or
+// installed app) and PKCE is the security mechanism. Google still issues such a
+// client a secret its token endpoint requires; in an installed app it is not
+// confidential, and it is kept in the keyring with the tokens.
 package oauth
 
 import (
@@ -115,16 +117,17 @@ func Authorize(ctx context.Context, providerKey, clientID, clientSecret, loginHi
 	}
 }
 
-// FreshToken returns a valid access token for an account, refreshing it from the
-// refresh token when needed. The returned token may carry a rotated refresh
-// token the caller should persist.
-func FreshToken(ctx context.Context, providerKey, clientID, clientSecret, refreshToken string) (*oauth2.Token, error) {
+// FreshToken returns a valid access token for an account. cached is the stored
+// token: its access token is returned as is while it is unexpired, and only
+// then is it refreshed from the refresh token. The returned token may carry a
+// rotated refresh token the caller should persist.
+func FreshToken(ctx context.Context, providerKey, clientID, clientSecret string, cached *oauth2.Token) (*oauth2.Token, error) {
 	p, ok := providers[providerKey]
 	if !ok {
 		return nil, fmt.Errorf("oauth: unknown provider %q", providerKey)
 	}
 	conf := config(p, clientID, clientSecret, "")
-	source := conf.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	source := conf.TokenSource(ctx, cached)
 	token, err := source.Token()
 	if err != nil {
 		return nil, fmt.Errorf("oauth: refresh token: %w", err)
@@ -133,8 +136,8 @@ func FreshToken(ctx context.Context, providerKey, clientID, clientSecret, refres
 }
 
 // config builds the oauth2 config for a provider and client id. clientSecret is
-// empty for the default public-client PKCE flow and set only for providers
-// registered as confidential clients (some Microsoft Entra app registrations).
+// empty for a public-client PKCE flow and set for Google Desktop app clients
+// and Microsoft Entra apps registered as confidential clients.
 func config(p Provider, clientID, clientSecret, redirect string) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID:     clientID,

@@ -17,6 +17,8 @@
     deleteLogs,
     chooseArchiveExportFolder,
     previewArchiveExportName,
+    accountOAuthProvider,
+    reauthorizeOAuthAccount,
     probeAccountCertificates,
     trustAccountCertificate,
     removeAccountTrustedCertificate,
@@ -41,6 +43,11 @@
   // the password is not part of the account row (it lives in the keyring and is
   // never sent back), so it is drafted separately. Empty means "leave it".
   let passwordDraft = ''
+  // the oauth provider the edited account signs in with, empty for a password
+  // account. Such an account gets "sign in again" instead of a password field.
+  let oauthProvider = ''
+  let reauthorizing = false
+  const providerLabels: Record<string, string> = { google: 'Google', microsoft: 'Microsoft' }
   // the certificate check in the editor (#446): what the servers present that
   // the mailbox does not trust, null until the check has run.
   let probed: UntrustedCert[] | null = null
@@ -102,8 +109,38 @@
     opened = JSON.stringify(draft)
     showAdvanced = false
     passwordDraft = ''
+    oauthProvider = ''
     probed = null
     void refreshPreview()
+    void loadOAuthProvider(account.id)
+  }
+
+  // loadOAuthProvider asks the keyring how the account signs in. A failure
+  // leaves the password field, which is what the editor showed before.
+  async function loadOAuthProvider(id: number): Promise<void> {
+    try {
+      const provider = await accountOAuthProvider(id)
+      if (editingId === id) {
+        oauthProvider = provider
+      }
+    } catch {
+      // keep the password field.
+    }
+  }
+
+  async function reauthorize(): Promise<void> {
+    if (!draft) {
+      return
+    }
+    reauthorizing = true
+    try {
+      await reauthorizeOAuthAccount(draft.id)
+      toastSuccess($t('mailboxes.oauth.reauthDone'))
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      reauthorizing = false
+    }
   }
 
   // certificate trust is applied straight away rather than on save, like the
@@ -428,21 +465,33 @@
           </div>
         </span>
       </div>
-      <label class="field">
-        <span>{$t('wizard.field.password')}</span>
-        <input
-          type="password"
-          bind:value={passwordDraft}
-          autocomplete="off"
-          placeholder={$t(
-            $missingPassword.has(draft.id)
-              ? 'mailboxes.passwordMissing'
-              : 'mailboxes.passwordUnchanged',
-          )}
-        />
-      </label>
-      {#if $missingPassword.has(draft.id)}
-        <p class="server-hint warn">{$t('mailboxes.passwordNeededHint')}</p>
+      {#if oauthProvider}
+        <div class="field">
+          <span>{$t('mailboxes.oauth.label')}</span>
+          <p class="server-hint">
+            {$t('mailboxes.oauth.hint').replace('{provider}', providerLabels[oauthProvider] ?? oauthProvider)}
+          </p>
+          <button type="button" class="ghost reauth" on:click={reauthorize} disabled={reauthorizing}>
+            {reauthorizing ? $t('mailboxes.oauth.reauthWorking') : $t('mailboxes.oauth.reauth')}
+          </button>
+        </div>
+      {:else}
+        <label class="field">
+          <span>{$t('wizard.field.password')}</span>
+          <input
+            type="password"
+            bind:value={passwordDraft}
+            autocomplete="off"
+            placeholder={$t(
+              $missingPassword.has(draft.id)
+                ? 'mailboxes.passwordMissing'
+                : 'mailboxes.passwordUnchanged',
+            )}
+          />
+        </label>
+        {#if $missingPassword.has(draft.id)}
+          <p class="server-hint warn">{$t('mailboxes.passwordNeededHint')}</p>
+        {/if}
       {/if}
 
       <div class="field">
@@ -917,5 +966,8 @@
     background: var(--danger);
     color: var(--accent-fg);
     border-color: transparent;
+  }
+  .reauth {
+    align-self: flex-start;
   }
 </style>

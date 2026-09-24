@@ -35,6 +35,9 @@ export interface ProviderPreset {
   // allowClientSecret reveals an optional oauth client-secret field, for
   // providers whose app registration may be a confidential client.
   allowClientSecret?: boolean
+  // requireClientSecret shows the client-secret field up front and requires
+  // it: Google's token endpoint rejects a Desktop app client that omits it.
+  requireClientSecret?: boolean
 }
 
 export const providerPresets: ProviderPreset[] = [
@@ -43,7 +46,7 @@ export const providerPresets: ProviderPreset[] = [
     // no Google Cloud Console involved. oauth stays reachable behind
     // oauthOptional for users who registered their own client (#56).
     id: 'gmail',
-    label: 'Gmail',
+    label: 'Gmail / Google Workspace',
     kind: 'password',
     oauthProvider: 'google',
     imapHost: 'imap.gmail.com',
@@ -54,6 +57,7 @@ export const providerPresets: ProviderPreset[] = [
     smtpTls: 'ssl',
     appPasswordUrl: 'https://myaccount.google.com/apppasswords',
     oauthOptional: true,
+    requireClientSecret: true,
   },
   {
     id: 'outlook',

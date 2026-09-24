@@ -429,6 +429,9 @@ const it: Record<string, string> = {
     'wizard.gmail.useAppPasswordInstead': 'Usa una password per l\'app (senza Google Cloud Console)',
     'wizard.appPassword.warning': 'Non utilizzare la tua password normale. Usa invece una password specifica per l\'app.',
     'wizard.appPassword.link': 'Crea una password specifica per l\'app',
+    'wizard.workspace.detected':
+        'Questo indirizzo è ospitato da Google. Gli account Google Workspace, come la maggior parte degli indirizzi scolastici e aziendali, richiedono l\'accesso con Google anziché una password.',
+    'wizard.workspace.useGoogle': 'Configura con l\'accesso Google',
     'wizard.field.imapHost': 'Host IMAP',
     'wizard.field.smtpHost': 'Host SMTP',
     'wizard.field.port': 'Porta',
@@ -449,6 +452,21 @@ const it: Record<string, string> = {
     'wizard.step.oauth.note': 'OAuth utilizza un client ID registrato autonomamente (un client OAuth desktop). Incollalo qui sotto; l\'accesso si aprirà nel browser e nessun client secret verrà salvato.',
     'wizard.field.oauthClientId': 'ID client OAuth',
     'wizard.field.oauthClientSecret': 'Client secret OAuth (facoltativo)',
+    'wizard.field.oauthClientSecretRequired': 'Client secret OAuth',
+    'wizard.google.setup.title': 'Crea il tuo client OAuth di Google',
+    'wizard.google.setup.project':
+        'Crea un progetto Google Cloud. Per un account scolastico o aziendale, crealo all\'interno della tua organizzazione se ne hai la possibilità.',
+    'wizard.google.setup.projectLink': 'Crea progetto',
+    'wizard.google.setup.api': 'Abilita l\'API Gmail per quel progetto.',
+    'wizard.google.setup.apiLink': 'Abilita l\'API Gmail',
+    'wizard.google.setup.consent':
+        'Configura la schermata di consenso. Scegli Interno se il progetto appartiene alla tua organizzazione Workspace. Altrimenti scegli Esterno e pubblica l\'app: finché resta in modalità Test, Google interrompe l\'accesso dopo 7 giorni.',
+    'wizard.google.setup.consentLink': 'Apri la schermata di consenso',
+    'wizard.google.setup.client':
+        'Crea un client OAuth di tipo App desktop, poi incolla qui sotto il suo ID client e il client secret.',
+    'wizard.google.setup.clientLink': 'Crea client',
+    'wizard.google.setup.admin':
+        'Se Google segnala che la tua organizzazione blocca l\'app, chiedi al tuo amministratore IT di considerare attendibile questo ID client (Console di amministrazione, Sicurezza, Controlli API, Controllo dell\'accesso alle app).',
     'wizard.field.oauthClientSecretPlaceholder': 'Solo per app client riservate',
     'wizard.advanced.clientSecretHint': 'Lascia vuoto per una normale registrazione di app desktop (pubblica). Impostalo solo se la tua app Microsoft Entra è registrata come client riservato che richiede un secret.',
     'wizard.signInWith': 'Accedi con',
@@ -1155,6 +1173,12 @@ const it: Record<string, string> = {
     'mailboxes.passwordUnchanged': 'Lascia vuoto per mantenere la password salvata',
     'mailboxes.passwordMissing': 'Inserisci una password',
     'mailboxes.passwordNeededHint': 'Pelton non riesce ad accedere a questa casella di posta, quindi non può sincronizzarla. Potrebbe non essere mai stata salvata alcuna password (come nel caso di caselle importate da un altro client di posta) oppure quella salvata non è più valida.',
+    'mailboxes.oauth.label': 'Accesso',
+    'mailboxes.oauth.hint':
+        'Questa casella di posta accede con {provider}. Se smette di sincronizzarsi perché l\'accesso è scaduto o è stato revocato, accedi di nuovo.',
+    'mailboxes.oauth.reauth': 'Accedi di nuovo',
+    'mailboxes.oauth.reauthWorking': 'In attesa del browser…',
+    'mailboxes.oauth.reauthDone': 'Accesso effettuato di nuovo.',
     'mailboxes.passwordPrompt.title': 'Password richiesta',
     'mailboxes.passwordPrompt.body': 'Pelton non riesce ad accedere a {email}, quindi non può sincronizzarla. Inserisci la password per continuare, oppure salta per sincronizzare le altre caselle.',
     'mailboxes.passwordPrompt.skip': 'Salta per ora',

@@ -44,6 +44,9 @@
   let workingMessage = ''
   let testing = false
   let testOk: boolean | null = null
+  // the oauth provider autodiscovery says a custom address signs in with, so
+  // a Google Workspace domain typed under "Other" is steered to Google sign-in.
+  let discoveredOAuth = ''
   // server certificates the last test could not verify, shown for review. The
   // test only logs in once every one of them is trusted or fixed (#446).
   let untrusted: UntrustedCert[] = []
@@ -116,9 +119,23 @@
     testOk = null
     error = ''
     showAdvanced = false
+    discoveredOAuth = ''
     untrusted = []
     caSubjects = []
     step = p.kind === 'oauth' ? 'oauth' : 'config'
+  }
+
+  // switchToGoogle moves a Google-hosted address from the custom form to the
+  // Google sign-in form, keeping what the user already typed about themselves.
+  function switchToGoogle(): void {
+    const google = providerPresets.find((x) => x.id === 'gmail')
+    if (!google) {
+      return
+    }
+    const { email, displayName, localLabel, useLocalLabel } = draft
+    selectPreset(google)
+    draft = { ...draft, email, displayName, localLabel, useLocalLabel }
+    step = 'oauth'
   }
 
   function pick(event: CustomEvent<ProviderPreset>): void {
@@ -140,8 +157,10 @@
     if (!preset?.custom || !draft.email.includes('@')) {
       return
     }
+    discoveredOAuth = ''
     try {
       const d = await discoverConfig(draft.email)
+      discoveredOAuth = d.oauthProvider
       draft.imapHost = d.imapHost
       draft.imapPort = d.imapPort
       draft.smtpHost = d.smtpHost
@@ -316,7 +335,15 @@
   }
 
   $: canSubmitPassword = draft.email.includes('@') && draft.password !== '' && draft.imapHost !== ''
-  $: canSignIn = draft.email.includes('@') && draft.clientId !== ''
+  $: canSignIn = draft.email.includes('@') && draft.clientId !== '' && (!preset?.requireClientSecret || draft.clientSecret !== '')
+
+  // the Google Cloud Console pages the client setup steps link to, in order.
+  const googleSetup: { text: string; link: string; url: string }[] = [
+    { text: 'wizard.google.setup.project', link: 'wizard.google.setup.projectLink', url: 'https://console.cloud.google.com/projectcreate' },
+    { text: 'wizard.google.setup.api', link: 'wizard.google.setup.apiLink', url: 'https://console.cloud.google.com/apis/library/gmail.googleapis.com' },
+    { text: 'wizard.google.setup.consent', link: 'wizard.google.setup.consentLink', url: 'https://console.cloud.google.com/auth/overview' },
+    { text: 'wizard.google.setup.client', link: 'wizard.google.setup.clientLink', url: 'https://console.cloud.google.com/auth/clients/create' },
+  ]
 
   // a passing "test connection" is required before the account can actually be
   // added: nothing here validates that imapHost is a real, reachable server
@@ -393,6 +420,14 @@
           <span>{$t('wizard.field.email')}</span>
           <input type="email" bind:value={draft.email} on:blur={maybeDiscover} placeholder={$t('wizard.field.emailPlaceholder')} />
         </label>
+        {#if discoveredOAuth === 'google'}
+          <div class="provider-hint">
+            <span>{$t('wizard.workspace.detected')}</span>
+            <button type="button" class="app-password-link" on:click={switchToGoogle}>
+              {$t('wizard.workspace.useGoogle')}
+            </button>
+          </div>
+        {/if}
         <label class="field">
           <span>
             {$t('wizard.field.fromName')}
@@ -508,6 +543,22 @@
         <p class="note">
           {$t('wizard.step.oauth.note')}
         </p>
+        {#if preset?.oauthProvider === 'google'}
+          <div class="provider-hint">
+            <span class="setup-title">{$t('wizard.google.setup.title')}</span>
+            <ol class="setup-steps">
+              {#each googleSetup as s}
+                <li>
+                  <span>{$t(s.text)}</span>
+                  <button type="button" class="app-password-link" on:click={() => BrowserOpenURL(s.url)}>
+                    {$t(s.link)}
+                  </button>
+                </li>
+              {/each}
+            </ol>
+            <span>{$t('wizard.google.setup.admin')}</span>
+          </div>
+        {/if}
 
         <label class="field">
           <span>{$t('wizard.field.email')}</span>
@@ -542,7 +593,12 @@
           <input type="text" bind:value={draft.clientId} placeholder="xxxxx.apps.googleusercontent.com" />
         </label>
 
-        {#if preset?.allowClientSecret}
+        {#if preset?.requireClientSecret}
+          <label class="field">
+            <span>{$t('wizard.field.oauthClientSecretRequired')}</span>
+            <input type="password" bind:value={draft.clientSecret} />
+          </label>
+        {:else if preset?.allowClientSecret}
           <button type="button" class="disclosure" on:click={() => (showAdvanced = !showAdvanced)}>
             {showAdvanced ? $t('wizard.advanced.hide') : $t('wizard.advanced.show')}
           </button>
@@ -812,6 +868,44 @@
     color: var(--text-primary);
     font-size: var(--fz-label);
     line-height: 1.5;
+  }
+
+  .provider-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3);
+    border: var(--hairline) solid var(--border-default);
+    border-radius: var(--radius-control);
+    background: var(--surface-sunken);
+    color: var(--text-primary);
+    font-size: var(--fz-label);
+    line-height: 1.5;
+  }
+
+  .provider-hint .app-password-link {
+    color: var(--accent);
+  }
+
+  .setup-title {
+    font-weight: var(--fw-medium);
+  }
+
+  .setup-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding-left: var(--space-4);
+  }
+
+  .setup-steps li {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
   }
 
   .app-password-link {

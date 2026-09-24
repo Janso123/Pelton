@@ -833,6 +833,9 @@ export interface Discovered {
   imapTls: string
   smtpTls: string
   oauth: boolean
+  // the oauth provider key to sign in with when the servers belong to one
+  // pelton supports ('google'), empty otherwise.
+  oauthProvider: string
   source: string
 }
 
