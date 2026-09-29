@@ -3,6 +3,7 @@ package desktop
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -218,6 +219,27 @@ func TestSetAccountCA(t *testing.T) {
 	account, _ = a.store.GetAccount(a.ctx, id)
 	if account.CAPEM != "" {
 		t.Error("CA still stored after clearing")
+	}
+}
+
+// A mailbox that trusts nothing extra, which is nearly every mailbox, has to
+// reach the ui with empty lists: the editor reads their length, and null
+// kept it from opening at all (#470).
+func TestAccountDTOSendsEmptyTrustAsEmptyLists(t *testing.T) {
+	for name, caPEM := range map[string]string{"no CA": "", "unreadable CA": "not a certificate"} {
+		raw, err := json.Marshal(toAccountDTO(storage.Account{CAPEM: caPEM}))
+		if err != nil {
+			t.Fatalf("%s: marshal: %v", name, err)
+		}
+		var got map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("%s: unmarshal: %v", name, err)
+		}
+		for _, key := range []string{"trustedCerts", "caSubjects"} {
+			if string(got[key]) != "[]" {
+				t.Errorf("%s: %s = %s, want []", name, key, got[key])
+			}
+		}
 	}
 }
 

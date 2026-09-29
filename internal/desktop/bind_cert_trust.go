@@ -269,13 +269,15 @@ func (a *App) SetAccountCA(accountID int64, pemText string) error {
 
 // caSubjects lists the subjects of an account's CA for the mailbox editor. A
 // CA that no longer parses shows as nothing rather than failing the listing.
+// Nothing is an empty list, never nil: nil reaches the ui as null, and the
+// editor cannot open on it.
 func caSubjects(pemText string) []string {
 	if pemText == "" {
-		return nil
+		return []string{}
 	}
 	ca, err := describeCA(pemText)
 	if err != nil {
-		return nil
+		return []string{}
 	}
 	return ca.Subjects
 }
