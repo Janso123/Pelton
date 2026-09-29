@@ -25,6 +25,7 @@ import {
 } from './demo'
 import type {
   Account,
+  AccountProxy,
   SMIMERevocation,
   MCPPermission,
   AgentAction,
@@ -151,8 +152,28 @@ export function updateAccount(req: {
   exportSubfolders: string
   exportNameTemplate: string
   pgpDefault: string
+  proxy: AccountProxy
 }): Promise<Account> {
   return App.UpdateAccount(new desktop.UpdateAccountRequest(req))
+}
+
+// accountProxyPasswordStored reports whether a mailbox's own proxy has a
+// password in the keyring, so the editor can show a placeholder for it.
+export function accountProxyPasswordStored(accountId: number): Promise<boolean> {
+  return App.AccountProxyPasswordStored(accountId)
+}
+
+// testAccountRoute connects to a mailbox's servers along a route, saved or
+// not, and hangs up. Resolves when both answered.
+export function testAccountRoute(req: {
+  accountId: number
+  proxy: AccountProxy
+  imapHost: string
+  imapPort: number
+  smtpHost: string
+  smtpPort: number
+}): Promise<void> {
+  return App.TestAccountRoute(new desktop.RouteTestRequest(req))
 }
 
 // chooseArchiveExportFolder opens a directory picker for the export-on-archive

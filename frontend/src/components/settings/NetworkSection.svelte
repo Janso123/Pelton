@@ -85,7 +85,7 @@
 </script>
 
 <h3>{$t('settingsPanel.category.network')}</h3>
-<p class="hint">{$t('network.proxy.hint')}</p>
+<p class="hint">{$t('network.proxy.hint')} {$t('network.proxy.perMailboxHint')}</p>
 
 {#if loading}
   <p class="hint">{$t('mailboxes.loading')}</p>

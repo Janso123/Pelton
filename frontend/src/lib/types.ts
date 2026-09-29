@@ -48,6 +48,28 @@ export interface Account {
   // formatted for reading, and the subjects of the CA it trusts (#446).
   trustedCerts: string[]
   caSubjects: string[]
+  // the route this mailbox's connections take (#457), password left out.
+  proxy: AccountProxy
+}
+
+// AccountProxyMode is where a mailbox's connections go: 'global' follows the
+// app-wide network setting, 'off' connects directly, 'system' follows the
+// proxy environment variables and 'manual' uses the mailbox's own proxy.
+export type AccountProxyMode = 'global' | 'off' | 'system' | 'manual'
+
+// AccountProxy is a mailbox's route. password is write-only, as in
+// ProxyConfig: empty with hasPassword keeps the stored one. The two useGlobal
+// switches send contacts sync and sign-in refresh the app-wide way instead.
+export interface AccountProxy {
+  mode: string
+  scheme: string
+  host: string
+  port: number
+  username: string
+  password: string
+  hasPassword: boolean
+  contactsUseGlobal: boolean
+  oauthUseGlobal: boolean
 }
 
 // ThunderbirdAccount is one account read out of a Thunderbird profile. There is
@@ -866,6 +888,7 @@ export interface AddAccountRequest {
   // the connection test, and a CA file's PEM text.
   trustedCerts: string[]
   caPem: string
+  proxy: AccountProxy
 }
 
 export interface TestConnectionRequest {
@@ -883,6 +906,9 @@ export interface TestConnectionRequest {
   smtpTls: TLSMode
   trustedCerts: string[]
   caPem: string
+  // the route the new mailbox will take, so one only reachable through its
+  // own proxy can pass the test.
+  proxy: AccountProxy
 }
 
 // SyncFailureReason is the coarse class of a failed sync, which the ui turns

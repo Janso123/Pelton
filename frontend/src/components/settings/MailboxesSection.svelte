@@ -24,13 +24,18 @@
     removeAccountTrustedCertificate,
     chooseCAFile,
     setAccountCA,
+    accountProxyPasswordStored,
+    testAccountRoute,
+    getProxyConfig,
   } from '../../lib/api'
   import CertificateReview from '../common/CertificateReview.svelte'
+  import AccountRouteFields from '../common/AccountRouteFields.svelte'
+  import { routeSummary } from '../../lib/proxyroute'
   import { refreshSidebar } from '../../stores/accounts'
   import { missingPassword, askForPassword, refreshMissingPasswords } from '../../stores/passwordprompt'
   import { errorMessage, toastError, toastSuccess, pushAction } from '../../stores/toast'
   import { accountLabel } from '../../lib/format'
-  import type { Account, TLSMode, UntrustedCert } from '../../lib/types'
+  import type { Account, ProxyConfig, TLSMode, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
   let accounts: Account[] = []
@@ -63,6 +68,9 @@
   let showAdvanced = false
   // the draft as it opened, so closing knows whether there is anything to lose.
   let opened = ''
+  // the app-wide proxy, so a mailbox following it can say where that goes.
+  let globalProxy: ProxyConfig | null = null
+  let testingRoute = false
 
   $: dirty = draft !== null && (JSON.stringify(draft) !== opened || passwordDraft !== '')
 
@@ -79,7 +87,18 @@
     }
   }
 
-  onMount(load)
+  onMount(() => {
+    void load()
+    void loadGlobalProxy()
+  })
+
+  async function loadGlobalProxy(): Promise<void> {
+    try {
+      globalProxy = await getProxyConfig()
+    } catch {
+      // the route line then reads the app-wide setting as direct.
+    }
+  }
 
   function onMailboxAdded(): void {
     wizardOpen = false
@@ -105,7 +124,7 @@
     // the backend already reports the security an account actually connects
     // with, resolving the empty value an older account carries, so the control
     // shows the truth and saving pins it.
-    draft = { ...account }
+    draft = { ...account, proxy: { ...account.proxy, password: '' } }
     opened = JSON.stringify(draft)
     showAdvanced = false
     passwordDraft = ''
@@ -113,6 +132,46 @@
     probed = null
     void refreshPreview()
     void loadOAuthProvider(account.id)
+    void loadProxyPasswordStored(account.id)
+  }
+
+  // loadProxyPasswordStored asks the keyring whether the mailbox's own proxy
+  // has a password, which is only a placeholder here: the secret stays behind.
+  // The answer is folded into what the draft opened with, so it is not an edit.
+  async function loadProxyPasswordStored(id: number): Promise<void> {
+    try {
+      const stored = await accountProxyPasswordStored(id)
+      if (editingId !== id || !draft) {
+        return
+      }
+      draft.proxy.hasPassword = stored
+      const base = JSON.parse(opened) as Account
+      opened = JSON.stringify({ ...base, proxy: { ...base.proxy, hasPassword: stored } })
+    } catch {
+      // no placeholder; an empty field still keeps whatever is stored.
+    }
+  }
+
+  async function testRoute(): Promise<void> {
+    if (!draft) {
+      return
+    }
+    testingRoute = true
+    try {
+      await testAccountRoute({
+        accountId: draft.id,
+        proxy: draft.proxy,
+        imapHost: draft.imapHost,
+        imapPort: draft.imapPort,
+        smtpHost: draft.smtpHost,
+        smtpPort: draft.smtpPort,
+      })
+      toastSuccess($t('mailboxes.route.testOk'))
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      testingRoute = false
+    }
   }
 
   // loadOAuthProvider asks the keyring how the account signs in. A failure
@@ -300,6 +359,7 @@
         exportSubfolders: draft.exportSubfolders,
         exportNameTemplate: draft.exportNameTemplate,
         pgpDefault: draft.pgpDefault,
+        proxy: draft.proxy,
       })
       accounts = accounts.map((a) => (a.id === updated.id ? updated : a))
       if (passwordDraft !== '') {
@@ -526,6 +586,13 @@
         {/if}
       </div>
 
+      <!-- the route is set under Advanced, but where the mail goes is stated
+           here, so a proxy is never in use without it being visible. -->
+      <div class="field">
+        <span>{$t('mailboxes.route.label')}</span>
+        <p class="server-hint route-line">{routeSummary(draft.proxy, globalProxy, $t)}</p>
+      </div>
+
     </div>
 
     <button type="button" class="more" on:click={() => (showAdvanced = true)}>
@@ -616,6 +683,18 @@
             </div>
           </span>
           <p class="server-hint">{$t('mailboxes.pgpDefaultHint')}</p>
+        </div>
+      </section>
+
+      <section class="group">
+        <h4>{$t('mailboxes.section.network')}</h4>
+        <div class="form">
+          <AccountRouteFields bind:route={draft.proxy} oauth={oauthProvider !== ''} />
+          <div class="cert-actions">
+            <button type="button" class="ghost small" disabled={testingRoute} on:click={testRoute}>
+              {testingRoute ? $t('wizard.testing') : $t('mailboxes.route.test')}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -862,6 +941,10 @@
     margin: 0;
     font-size: var(--fz-meta);
     color: var(--text-tertiary);
+  }
+
+  .route-line {
+    color: var(--text-secondary);
   }
 
   /* the export-on-archive block: a switch, the chosen folder, and a preview of

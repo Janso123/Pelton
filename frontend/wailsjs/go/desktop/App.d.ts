@@ -4,6 +4,8 @@ import {desktop} from '../models';
 
 export function AccountOAuthProvider(arg1:number):Promise<string>;
 
+export function AccountProxyPasswordStored(arg1:number):Promise<boolean>;
+
 export function AccountSyncStates():Promise<Array<desktop.AccountSyncStateDTO>>;
 
 export function AccountsNeedingPassword():Promise<Array<desktop.AccountDTO>>;
@@ -379,6 +381,8 @@ export function SyncAccountNow(arg1:number):Promise<void>;
 export function SyncContacts():Promise<void>;
 
 export function SystemColorScheme():Promise<string>;
+
+export function TestAccountRoute(arg1:desktop.RouteTestRequest):Promise<void>;
 
 export function TestConnection(arg1:desktop.TestConnectionRequest):Promise<desktop.ConnectionTestDTO>;
 

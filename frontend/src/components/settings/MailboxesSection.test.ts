@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import userEvent from '@testing-library/user-event'
 import type { Account } from '../../lib/types'
+import { blankAccountProxy } from '../../lib/proxyroute'
 
 const api = vi.hoisted(() => ({
   listAccounts: vi.fn(),
@@ -52,6 +53,7 @@ const account: Account = {
   passwordPromptDismissed: false,
   trustedCerts: [],
   caSubjects: [],
+  proxy: blankAccountProxy(),
 }
 
 async function openEditor(): Promise<void> {
