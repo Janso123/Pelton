@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import userEvent from '@testing-library/user-event'
 import type { Account, UntrustedCert } from '../../lib/types'
+import { blankAccountProxy } from '../../lib/proxyroute'
 
 const api = vi.hoisted(() => ({
   listAccounts: vi.fn(),
@@ -56,6 +57,7 @@ function account(over: Partial<Account>): Account {
     passwordPromptDismissed: false,
     trustedCerts: [],
     caSubjects: [],
+    proxy: blankAccountProxy(),
     ...over,
   }
 }

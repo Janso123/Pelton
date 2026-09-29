@@ -1,5 +1,33 @@
 export namespace desktop {
 	
+	export class AccountProxyDTO {
+	    mode: string;
+	    scheme: string;
+	    host: string;
+	    port: number;
+	    username: string;
+	    password: string;
+	    hasPassword: boolean;
+	    contactsUseGlobal: boolean;
+	    oauthUseGlobal: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AccountProxyDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.mode = source["mode"];
+	        this.scheme = source["scheme"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.hasPassword = source["hasPassword"];
+	        this.contactsUseGlobal = source["contactsUseGlobal"];
+	        this.oauthUseGlobal = source["oauthUseGlobal"];
+	    }
+	}
 	export class AccountDTO {
 	    id: number;
 	    email: string;
@@ -22,6 +50,7 @@ export namespace desktop {
 	    passwordPromptDismissed: boolean;
 	    trustedCerts: string[];
 	    caSubjects: string[];
+	    proxy: AccountProxyDTO;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccountDTO(source);
@@ -50,8 +79,28 @@ export namespace desktop {
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caSubjects = source["caSubjects"];
+	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class AccountSignaturesDTO {
 	    headerId: number;
 	    footerId: number;
@@ -106,6 +155,7 @@ export namespace desktop {
 	    clientSecret: string;
 	    trustedCerts: string[];
 	    caPem: string;
+	    proxy: AccountProxyDTO;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddAccountRequest(source);
@@ -130,7 +180,26 @@ export namespace desktop {
 	        this.clientSecret = source["clientSecret"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caPem = source["caPem"];
+	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class AddressBookDTO {
 	    id: number;
@@ -1709,6 +1778,46 @@ export namespace desktop {
 	    }
 	}
 	
+	export class RouteTestRequest {
+	    accountId: number;
+	    proxy: AccountProxyDTO;
+	    imapHost: string;
+	    imapPort: number;
+	    smtpHost: string;
+	    smtpPort: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RouteTestRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accountId = source["accountId"];
+	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
+	        this.imapHost = source["imapHost"];
+	        this.imapPort = source["imapPort"];
+	        this.smtpHost = source["smtpHost"];
+	        this.smtpPort = source["smtpPort"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	
 	export class SMIMERevocationDTO {
 	    status: string;
@@ -1862,6 +1971,7 @@ export namespace desktop {
 	    smtpTls: string;
 	    trustedCerts: string[];
 	    caPem: string;
+	    proxy: AccountProxyDTO;
 	
 	    static createFrom(source: any = {}) {
 	        return new TestConnectionRequest(source);
@@ -1880,7 +1990,26 @@ export namespace desktop {
 	        this.smtpTls = source["smtpTls"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caPem = source["caPem"];
+	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ThemeApplyDTO {
 	    id: string;
@@ -2294,6 +2423,7 @@ export namespace desktop {
 	    exportSubfolders: string;
 	    exportNameTemplate: string;
 	    pgpDefault: string;
+	    proxy: AccountProxyDTO;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateAccountRequest(source);
@@ -2318,7 +2448,26 @@ export namespace desktop {
 	        this.exportSubfolders = source["exportSubfolders"];
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
+	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class UpdateCheckResult {
 	    checked: boolean;

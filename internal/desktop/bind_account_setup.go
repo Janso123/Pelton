@@ -3,6 +3,7 @@ package desktop
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -88,6 +89,9 @@ type TestConnectionRequest struct {
 	// system roots: fingerprints accepted in an earlier test, and a CA file.
 	TrustedCerts []string `json:"trustedCerts"`
 	CAPEM        string   `json:"caPem"`
+	// Proxy is the route the new mailbox will take, so a mailbox only
+	// reachable through its own proxy can pass the test before it exists.
+	Proxy AccountProxyDTO `json:"proxy"`
 }
 
 // TestConnection verifies imap credentials by connecting and logging in, so the
@@ -100,10 +104,15 @@ func (a *App) TestConnection(req TestConnectionRequest) (ConnectionTestDTO, erro
 			return ConnectionTestDTO{}, err
 		}
 	}
+	_, route, err := a.routeFromDTO(req.Proxy, 0)
+	if err != nil {
+		return ConnectionTestDTO{}, err
+	}
+	dial := route.DialContext()
 	trust := certtrust.Trust{Pins: normalizePins(req.TrustedCerts), CAPEM: req.CAPEM}
 	untrusted := a.probeCertificates(
-		pimap.Config{Host: req.IMAPHost, Port: req.IMAPPort, TLS: imapTLSMode(req.IMAPTLS), Trust: trust, Dial: a.proxyDial()},
-		psmtp.Config{Host: req.SMTPHost, Port: req.SMTPPort, TLS: smtpTLSMode(req.SMTPTLS), Trust: trust, Dial: a.proxyDial()},
+		pimap.Config{Host: req.IMAPHost, Port: req.IMAPPort, TLS: imapTLSMode(req.IMAPTLS), Trust: trust, Dial: dial},
+		psmtp.Config{Host: req.SMTPHost, Port: req.SMTPPort, TLS: smtpTLSMode(req.SMTPTLS), Trust: trust, Dial: dial},
 	)
 	if len(untrusted) > 0 {
 		return ConnectionTestDTO{Untrusted: untrusted}, nil
@@ -120,7 +129,7 @@ func (a *App) TestConnection(req TestConnectionRequest) (ConnectionTestDTO, erro
 		Password: req.Password,
 		TLS:      imapTLSMode(req.IMAPTLS),
 		Trust:    trust,
-		Dial:     a.proxyDial(),
+		Dial:     dial,
 	})
 	if err != nil {
 		return ConnectionTestDTO{}, err
@@ -165,6 +174,8 @@ type AddAccountRequest struct {
 	// beyond the system roots, as accepted in the connection test.
 	TrustedCerts []string `json:"trustedCerts"`
 	CAPEM        string   `json:"caPem"`
+	// Proxy is the route the mailbox's connections take (#457).
+	Proxy AccountProxyDTO `json:"proxy"`
 }
 
 // AddPasswordAccount creates a password-authenticated account: it stores the
@@ -186,7 +197,19 @@ func (a *App) AddOAuthAccount(req AddAccountRequest) (AccountDTO, error) {
 	if err := a.ready(); err != nil {
 		return AccountDTO{}, err
 	}
-	secret, err := a.authorizeOAuth(req.Provider, req.ClientID, req.ClientSecret, req.Email)
+	route, err := accountProxyFromDTO(req.Proxy)
+	if err != nil {
+		return AccountDTO{}, err
+	}
+	client := a.httpClient(oauthTimeout)
+	if !route.OAuthUseGlobal {
+		_, cfg, err := a.routeFromDTO(req.Proxy, 0)
+		if err != nil {
+			return AccountDTO{}, err
+		}
+		client = cfg.HTTPClient(oauthTimeout)
+	}
+	secret, err := a.authorizeOAuth(client, req.Provider, req.ClientID, req.ClientSecret, req.Email)
 	if err != nil {
 		return AccountDTO{}, err
 	}
@@ -194,9 +217,10 @@ func (a *App) AddOAuthAccount(req AddAccountRequest) (AccountDTO, error) {
 }
 
 // authorizeOAuth runs the interactive consent flow in the system browser and
-// returns the keyring secret for the tokens it yields.
-func (a *App) authorizeOAuth(provider, clientID, clientSecret, email string) (credentials.Secret, error) {
-	ctx, cancel := context.WithTimeout(a.ctx, oauthFlowTimeout)
+// returns the keyring secret for the tokens it yields. client carries the code
+// exchange, which is the one part of the flow the app sends itself.
+func (a *App) authorizeOAuth(client *http.Client, provider, clientID, clientSecret, email string) (credentials.Secret, error) {
+	ctx, cancel := context.WithTimeout(oauthContext(a.ctx, client), oauthFlowTimeout)
 	defer cancel()
 
 	token, err := a.authorize(ctx, provider, clientID, clientSecret, email, func(url string) {
@@ -226,6 +250,10 @@ func (a *App) createAccount(req AddAccountRequest, secret credentials.Secret) (A
 	if !validTLSMode(req.IMAPTLS) || !validTLSMode(req.SMTPTLS) {
 		return AccountDTO{}, errUnknownTLSMode
 	}
+	route, err := accountProxyFromDTO(req.Proxy)
+	if err != nil {
+		return AccountDTO{}, err
+	}
 	account := &storage.Account{
 		Email:         req.Email,
 		DisplayName:   req.DisplayName,
@@ -240,6 +268,7 @@ func (a *App) createAccount(req AddAccountRequest, secret credentials.Secret) (A
 		SMTPTLS:       req.SMTPTLS,
 		TrustedCerts:  normalizePins(req.TrustedCerts),
 		CAPEM:         req.CAPEM,
+		Proxy:         route,
 	}
 	if req.CAPEM != "" {
 		if _, err := certtrust.ParseCA(req.CAPEM); err != nil {
@@ -252,6 +281,11 @@ func (a *App) createAccount(req AddAccountRequest, secret credentials.Secret) (A
 	}
 
 	if err := credentials.Store(id, secret); err != nil {
+		_ = a.store.DeleteAccount(a.ctx, id)
+		return AccountDTO{}, err
+	}
+	if err := saveAccountProxyPassword(id, route, req.Proxy); err != nil {
+		_ = credentials.Delete(id)
 		_ = a.store.DeleteAccount(a.ctx, id)
 		return AccountDTO{}, err
 	}

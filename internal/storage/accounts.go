@@ -69,6 +69,34 @@ type Account struct {
 	// servers only; empty means the system roots alone.
 	TrustedCerts []string
 	CAPEM        string
+	// Proxy is the route this mailbox's connections take. The zero value
+	// follows the app-wide setting.
+	Proxy AccountProxy
+}
+
+// Account proxy modes. The empty mode follows the app-wide setting, the
+// others match the proxy package's modes.
+const (
+	AccountProxyGlobal = ""
+	AccountProxyDirect = "off"
+	AccountProxySystem = "system"
+	AccountProxyManual = "manual"
+)
+
+// AccountProxy is a mailbox's own route. Scheme, Host, Port and Username only
+// apply to AccountProxyManual; the password lives in the keyring.
+//
+// The mailbox's contacts sync and its sign-in refresh take the same route as
+// its mail unless ContactsUseGlobal or OAuthUseGlobal sends them the app-wide
+// way instead, so the zero value keeps everything on one route.
+type AccountProxy struct {
+	Mode              string
+	Scheme            string
+	Host              string
+	Port              int
+	Username          string
+	ContactsUseGlobal bool
+	OAuthUseGlobal    bool
 }
 
 // Label returns the name to show for this account in the app: the local label
@@ -101,7 +129,9 @@ const accountColumns = `a.id, a.email, a.display_name, a.username, a.imap_host, 
        coalesce(o.position, 0), a.is_local,
        a.export_on_archive, a.export_dir, a.export_subfolders, a.export_name_template,
        a.pgp_default, a.password_prompt_dismissed, a.local_label, a.use_local_label,
-       a.trusted_certs, a.ca_pem`
+       a.trusted_certs, a.ca_pem,
+       a.proxy_mode, a.proxy_scheme, a.proxy_host, a.proxy_port, a.proxy_username,
+       a.proxy_contacts_global, a.proxy_oauth_global`
 
 // accountFrom joins an account to the active profile's section order. Every
 // query using accountColumns takes the layout profile id as its first argument.
@@ -122,12 +152,15 @@ func (d *DB) CreateAccount(ctx context.Context, a *Account) (int64, error) {
 	}
 
 	const query = `
-INSERT INTO accounts (email, display_name, username, imap_host, imap_port, smtp_host, smtp_port, imap_tls, smtp_tls, created_at, is_local, local_label, use_local_label, trusted_certs, ca_pem)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+INSERT INTO accounts (email, display_name, username, imap_host, imap_port, smtp_host, smtp_port, imap_tls, smtp_tls, created_at, is_local, local_label, use_local_label, trusted_certs, ca_pem,
+                      proxy_mode, proxy_scheme, proxy_host, proxy_port, proxy_username, proxy_contacts_global, proxy_oauth_global)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	p := a.Proxy
 	res, err := d.sql.ExecContext(ctx, query,
 		a.Email, a.DisplayName, a.Username, a.IMAPHost, a.IMAPPort, a.SMTPHost, a.SMTPPort,
 		a.IMAPTLS, a.SMTPTLS, formatTime(created), boolToInt(a.Local),
-		a.LocalLabel, boolToInt(a.UseLocalLabel), joinLines(a.TrustedCerts), a.CAPEM)
+		a.LocalLabel, boolToInt(a.UseLocalLabel), joinLines(a.TrustedCerts), a.CAPEM,
+		p.Mode, p.Scheme, p.Host, p.Port, p.Username, boolToInt(p.ContactsUseGlobal), boolToInt(p.OAuthUseGlobal))
 	if err != nil {
 		return 0, fmt.Errorf("storage: insert account %q: %w", a.Email, err)
 	}
@@ -273,6 +306,22 @@ func (d *DB) SetAccountCertTrust(ctx context.Context, id int64, trustedCerts []s
 	return requireOneRow(res, ErrAccountNotFound)
 }
 
+// SetAccountProxy stores the route an account's connections take, replacing
+// what was there. Validating it is the caller's job.
+func (d *DB) SetAccountProxy(ctx context.Context, id int64, p AccountProxy) error {
+	const query = `
+UPDATE accounts
+SET proxy_mode = ?, proxy_scheme = ?, proxy_host = ?, proxy_port = ?, proxy_username = ?,
+    proxy_contacts_global = ?, proxy_oauth_global = ?
+WHERE id = ?`
+	res, err := d.sql.ExecContext(ctx, query, p.Mode, p.Scheme, p.Host, p.Port, p.Username,
+		boolToInt(p.ContactsUseGlobal), boolToInt(p.OAuthUseGlobal), id)
+	if err != nil {
+		return fmt.Errorf("storage: set account %d proxy: %w", id, err)
+	}
+	return requireOneRow(res, ErrAccountNotFound)
+}
+
 // joinLines and splitLines store a list as one text column, one entry per
 // line, empty entries dropped.
 func joinLines(items []string) string {
@@ -314,14 +363,20 @@ func scanAccount(row rowScanner) (*Account, error) {
 		dismissed int
 		useLabel  int
 		trusted   string
+		contacts  int
+		oauth     int
 	)
 	if err := row.Scan(&a.ID, &a.Email, &a.DisplayName, &a.Username, &a.IMAPHost, &a.IMAPPort,
 		&a.SMTPHost, &a.SMTPPort, &a.IMAPTLS, &a.SMTPTLS, &created, &a.Position, &local,
 		&exportOn, &a.ExportDir, &a.ExportSubfolders, &a.ExportNameTemplate,
 		&a.PGPDefault, &dismissed, &a.LocalLabel, &useLabel,
-		&trusted, &a.CAPEM); err != nil {
+		&trusted, &a.CAPEM,
+		&a.Proxy.Mode, &a.Proxy.Scheme, &a.Proxy.Host, &a.Proxy.Port, &a.Proxy.Username,
+		&contacts, &oauth); err != nil {
 		return nil, err
 	}
+	a.Proxy.ContactsUseGlobal = contacts != 0
+	a.Proxy.OAuthUseGlobal = oauth != 0
 	a.TrustedCerts = splitLines(trusted)
 	a.ExportOnArchive = exportOn != 0
 	a.PasswordPromptDismissed = dismissed != 0

@@ -57,6 +57,8 @@ type AccountDTO struct {
 	// the CA it trusts, empty when it has none.
 	TrustedCerts []string `json:"trustedCerts"`
 	CASubjects   []string `json:"caSubjects"`
+	// Proxy is the route the mailbox's connections take, without the password.
+	Proxy AccountProxyDTO `json:"proxy"`
 }
 
 // FolderDTO is one mailbox in an account's tree. ParentID is null at the root.
@@ -281,6 +283,7 @@ func toAccountDTO(a storage.Account) AccountDTO {
 
 		TrustedCerts: displayPins(a.TrustedCerts),
 		CASubjects:   caSubjects(a.CAPEM),
+		Proxy:        toAccountProxyDTO(a.Proxy),
 	}
 }
 

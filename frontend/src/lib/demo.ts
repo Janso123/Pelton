@@ -13,6 +13,7 @@ import type {
   MessageDetail,
   OutboxRow,
 } from './types'
+import { blankAccountProxy } from './proxyroute'
 
 // demoActive is set once at startup from the backend IsDemoMode() flag.
 let demoActive = false
@@ -55,6 +56,7 @@ const accounts: Account[] = [
     passwordPromptDismissed: false,
     trustedCerts: [],
     caSubjects: [],
+    proxy: blankAccountProxy(),
   },
   {
     id: 2,
@@ -78,6 +80,7 @@ const accounts: Account[] = [
     passwordPromptDismissed: false,
     trustedCerts: [],
     caSubjects: [],
+    proxy: blankAccountProxy(),
   },
 ]
 

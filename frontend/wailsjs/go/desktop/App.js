@@ -6,6 +6,10 @@ export function AccountOAuthProvider(arg1) {
   return window['go']['desktop']['App']['AccountOAuthProvider'](arg1);
 }
 
+export function AccountProxyPasswordStored(arg1) {
+  return window['go']['desktop']['App']['AccountProxyPasswordStored'](arg1);
+}
+
 export function AccountSyncStates() {
   return window['go']['desktop']['App']['AccountSyncStates']();
 }
@@ -756,6 +760,10 @@ export function SyncContacts() {
 
 export function SystemColorScheme() {
   return window['go']['desktop']['App']['SystemColorScheme']();
+}
+
+export function TestAccountRoute(arg1) {
+  return window['go']['desktop']['App']['TestAccountRoute'](arg1);
 }
 
 export function TestConnection(arg1) {

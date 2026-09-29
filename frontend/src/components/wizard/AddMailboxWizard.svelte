@@ -13,6 +13,8 @@
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
   import CertificateReview from '../common/CertificateReview.svelte'
+  import AccountRouteFields from '../common/AccountRouteFields.svelte'
+  import { blankAccountProxy } from '../../lib/proxyroute'
   import { discoverConfig, testConnection, addPasswordAccount, addOAuthAccount, listFolders, setFolderSyncExcluded, startAccountSync, chooseCAFile } from '../../lib/api'
   import { errorMessage, toastError } from '../../stores/toast'
   import { providerPresets, type ProviderPreset } from '../../lib/providers'
@@ -75,6 +77,7 @@
       clientSecret: '',
       trustedCerts: [],
       caPem: '',
+      proxy: blankAccountProxy(),
     }
   }
 
@@ -192,6 +195,7 @@
         smtpTls: draft.smtpTls,
         trustedCerts: draft.trustedCerts,
         caPem: draft.caPem,
+        proxy: draft.proxy,
       })
       untrusted = result.untrusted ?? []
       testOk = untrusted.length === 0 ? true : null
@@ -362,6 +366,7 @@
     draft.smtpPort
     draft.smtpTls
     draft.caPem
+    draft.proxy
     testOk = null
     untrusted = []
   }
@@ -514,6 +519,8 @@
               <button type="button" class="ghost" on:click={pickCA}>{$t('certs.ca.choose')}</button>
             {/if}
             <p class="adv-hint">{$t('certs.ca.hint')}</p>
+
+            <AccountRouteFields bind:route={draft.proxy} />
           </div>
         {/if}
 
@@ -598,19 +605,25 @@
             <span>{$t('wizard.field.oauthClientSecretRequired')}</span>
             <input type="password" bind:value={draft.clientSecret} />
           </label>
-        {:else if preset?.allowClientSecret}
-          <button type="button" class="disclosure" on:click={() => (showAdvanced = !showAdvanced)}>
-            {showAdvanced ? $t('wizard.advanced.hide') : $t('wizard.advanced.show')}
-          </button>
-          {#if showAdvanced}
-            <label class="field">
-              <span>{$t('wizard.field.oauthClientSecret')}</span>
-              <input type="password" bind:value={draft.clientSecret} placeholder={$t('wizard.field.oauthClientSecretPlaceholder')} />
-            </label>
-            <p class="adv-hint">
-              {$t('wizard.advanced.clientSecretHint')}
-            </p>
-          {/if}
+        {/if}
+        <!-- the route is here too: a mailbox only reachable through its own
+             proxy needs it for the sign-in and for the first connection. -->
+        <button type="button" class="disclosure" on:click={() => (showAdvanced = !showAdvanced)}>
+          {showAdvanced ? $t('wizard.advanced.hide') : $t('wizard.advanced.show')}
+        </button>
+        {#if showAdvanced}
+          <div class="advanced">
+            {#if preset?.allowClientSecret && !preset?.requireClientSecret}
+              <label class="field">
+                <span>{$t('wizard.field.oauthClientSecret')}</span>
+                <input type="password" bind:value={draft.clientSecret} placeholder={$t('wizard.field.oauthClientSecretPlaceholder')} />
+              </label>
+              <p class="adv-hint">
+                {$t('wizard.advanced.clientSecretHint')}
+              </p>
+            {/if}
+            <AccountRouteFields bind:route={draft.proxy} oauth />
+          </div>
         {/if}
 
         {#if error}<p class="err">{error}</p>{/if}

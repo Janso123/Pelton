@@ -185,6 +185,50 @@ func DeleteProxyPassword() error {
 	return nil
 }
 
+// accountProxyPasswordKey is the keyring entry for the password of a mailbox's
+// own proxy. The prefix keeps it apart from the account secret, which is the
+// bare decimal id.
+func accountProxyPasswordKey(accountID int64) string {
+	return proxyPasswordKey + "-" + strconv.FormatInt(accountID, 10)
+}
+
+// StoreAccountProxyPassword saves the password of a mailbox's own proxy, or
+// clears it when empty.
+func StoreAccountProxyPassword(accountID int64, password string) error {
+	if password == "" {
+		return DeleteAccountProxyPassword(accountID)
+	}
+	remember(password)
+	if err := keyring.Set(service, accountProxyPasswordKey(accountID), password); err != nil {
+		return fmt.Errorf("credentials: store proxy password for account %d: %w", accountID, err)
+	}
+	return nil
+}
+
+// LoadAccountProxyPassword returns the password of a mailbox's own proxy, or
+// "" when none is set.
+func LoadAccountProxyPassword(accountID int64) (string, error) {
+	raw, err := keyring.Get(service, accountProxyPasswordKey(accountID))
+	if errors.Is(err, keyring.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("credentials: load proxy password for account %d: %w", accountID, err)
+	}
+	remember(raw)
+	return raw, nil
+}
+
+// DeleteAccountProxyPassword removes the password of a mailbox's own proxy. A
+// missing entry is not an error.
+func DeleteAccountProxyPassword(accountID int64) error {
+	err := keyring.Delete(service, accountProxyPasswordKey(accountID))
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		return fmt.Errorf("credentials: delete proxy password for account %d: %w", accountID, err)
+	}
+	return nil
+}
+
 // virusTotalKeyName is the keyring entry holding the VirusTotal API key.
 const virusTotalKeyName = "virustotal-api-key"
 

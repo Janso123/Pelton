@@ -179,3 +179,37 @@ func TestDeleteIsIdempotent(t *testing.T) {
 		t.Errorf("Load after delete returned %v, want ErrNotFound", err)
 	}
 }
+
+// A mailbox's proxy password is its own entry: it must not overwrite the
+// account's mail secret or the app-wide proxy password, and clearing it must
+// leave both alone.
+func TestAccountProxyPasswordIsSeparate(t *testing.T) {
+	const accountID = 12
+	if err := Store(accountID, Secret{Method: MethodPassword, Password: "mail"}); err != nil {
+		t.Fatalf("store account secret: %v", err)
+	}
+	if err := StoreProxyPassword("global"); err != nil {
+		t.Fatalf("store global proxy password: %v", err)
+	}
+	t.Cleanup(func() { _ = DeleteProxyPassword(); _ = Delete(accountID) })
+
+	if err := StoreAccountProxyPassword(accountID, "routed"); err != nil {
+		t.Fatalf("store account proxy password: %v", err)
+	}
+	if got, err := LoadAccountProxyPassword(accountID); err != nil || got != "routed" {
+		t.Errorf("LoadAccountProxyPassword = %q, %v, want routed", got, err)
+	}
+
+	if err := StoreAccountProxyPassword(accountID, ""); err != nil {
+		t.Fatalf("clear account proxy password: %v", err)
+	}
+	if got, err := LoadAccountProxyPassword(accountID); err != nil || got != "" {
+		t.Errorf("after clearing, LoadAccountProxyPassword = %q, %v, want empty", got, err)
+	}
+	if s, err := Load(accountID); err != nil || s.Password != "mail" {
+		t.Errorf("account secret = %+v, %v, want it untouched", s, err)
+	}
+	if got, err := LoadProxyPassword(); err != nil || got != "global" {
+		t.Errorf("global proxy password = %q, %v, want it untouched", got, err)
+	}
+}

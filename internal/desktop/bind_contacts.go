@@ -161,6 +161,10 @@ func (a *App) DiscoverAddressBooks(req AddressBookRequest) ([]DiscoveredBookDTO,
 	}
 	target := strings.TrimSpace(req.URL)
 	username := strings.TrimSpace(req.Username)
+	httpClient, err := a.contactsHTTPClient(req.AccountID)
+	if err != nil {
+		return nil, err
+	}
 	if req.AccountID != 0 {
 		account, err := a.store.GetAccount(a.ctx, req.AccountID)
 		if err != nil {
@@ -169,7 +173,7 @@ func (a *App) DiscoverAddressBooks(req AddressBookRequest) ([]DiscoveredBookDTO,
 		if target == "" {
 			ctx, cancel := context.WithTimeout(a.ctx, contactsTimeout)
 			defer cancel()
-			discovered, err := pcarddav.Discover(ctx, a.httpClient(contactsTimeout), account.Email)
+			discovered, err := pcarddav.Discover(ctx, httpClient, account.Email)
 			if err != nil {
 				return nil, err
 			}
@@ -189,7 +193,7 @@ func (a *App) DiscoverAddressBooks(req AddressBookRequest) ([]DiscoveredBookDTO,
 		URL:      target,
 		Username: username,
 		Password: req.Password,
-		HTTP:     a.httpClient(contactsTimeout),
+		HTTP:     httpClient,
 	})
 	if err != nil {
 		return nil, err
@@ -447,13 +451,17 @@ func (a *App) addressBookClient(ctx context.Context, book storage.AddressBook) (
 	if err != nil {
 		return nil, err
 	}
+	httpClient, err := a.contactsHTTPClient(book.AccountID)
+	if err != nil {
+		return nil, err
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, contactsTimeout)
 	defer cancel()
 	return pcarddav.Connect(connectCtx, pcarddav.Config{
 		URL:      book.URL,
 		Username: book.Username,
 		Password: password,
-		HTTP:     a.httpClient(contactsTimeout),
+		HTTP:     httpClient,
 	})
 }
 
