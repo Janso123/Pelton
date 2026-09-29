@@ -141,17 +141,21 @@ func (a *App) ProbeAccountCertificates(accountID int64) ([]UntrustedCertDTO, err
 	if err != nil {
 		return nil, err
 	}
-	return a.probeAccount(*account), nil
+	return a.probeAccount(*account)
 }
 
 // probeAccount builds the account's server configs, credentials left out since
 // the handshake does not need them.
-func (a *App) probeAccount(account storage.Account) []UntrustedCertDTO {
+func (a *App) probeAccount(account storage.Account) ([]UntrustedCertDTO, error) {
+	dial, err := a.accountDial(account)
+	if err != nil {
+		return nil, err
+	}
 	trust := accountTrust(account)
 	return a.probeCertificates(
-		pimap.Config{Host: account.IMAPHost, Port: account.IMAPPort, TLS: imapTLSMode(account.IMAPTLS), Trust: trust, Dial: a.proxyDial()},
-		psmtp.Config{Host: account.SMTPHost, Port: account.SMTPPort, TLS: smtpTLSMode(account.SMTPTLS), Trust: trust, Dial: a.proxyDial()},
-	)
+		pimap.Config{Host: account.IMAPHost, Port: account.IMAPPort, TLS: imapTLSMode(account.IMAPTLS), Trust: trust, Dial: dial},
+		psmtp.Config{Host: account.SMTPHost, Port: account.SMTPPort, TLS: smtpTLSMode(account.SMTPTLS), Trust: trust, Dial: dial},
+	), nil
 }
 
 // TrustAccountCertificate trusts one certificate for an account. It checks the
@@ -166,8 +170,12 @@ func (a *App) TrustAccountCertificate(accountID int64, fingerprint string) error
 		return err
 	}
 	fp := certtrust.NormalizeFingerprint(fingerprint)
+	untrusted, err := a.probeAccount(*account)
+	if err != nil {
+		return err
+	}
 	presented := false
-	for _, u := range a.probeAccount(*account) {
+	for _, u := range untrusted {
 		if u.Fingerprint == fp {
 			presented = true
 			break

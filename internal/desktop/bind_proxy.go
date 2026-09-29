@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"time"
 
@@ -63,12 +62,6 @@ func (a *App) currentProxy() proxy.Config {
 	a.proxyMu.RLock()
 	defer a.proxyMu.RUnlock()
 	return a.proxyCfg
-}
-
-// proxyDial returns the tcp dial hook for the mail clients, or nil when no proxy
-// is configured (nil leaves the clients on their direct-dial path).
-func (a *App) proxyDial() func(ctx context.Context, network, addr string) (net.Conn, error) {
-	return a.currentProxy().DialContext()
 }
 
 // httpClient returns an http client that honours the proxy preference, for the

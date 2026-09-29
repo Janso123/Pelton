@@ -31,13 +31,17 @@ func loginName(account storage.Account) string {
 // credentials for the legacy cli-created account (matched by email) so existing
 // setups keep working before they are re-added through the wizard.
 func (a *App) resolveIMAP(account storage.Account) (pimap.Config, error) {
+	dial, err := a.accountDial(account)
+	if err != nil {
+		return pimap.Config{}, err
+	}
 	cfg := pimap.Config{
 		Host:     account.IMAPHost,
 		Port:     account.IMAPPort,
 		Username: loginName(account),
 		TLS:      imapTLSMode(account.IMAPTLS),
 		Trust:    accountTrust(account),
-		Dial:     a.proxyDial(),
+		Dial:     dial,
 	}
 
 	secret, err := credentials.Load(account.ID)
@@ -50,7 +54,7 @@ func (a *App) resolveIMAP(account storage.Account) (pimap.Config, error) {
 
 	switch secret.Method {
 	case credentials.MethodOAuth:
-		token, err := a.freshAccessToken(account.ID, secret)
+		token, err := a.freshAccessToken(account, secret)
 		if err != nil {
 			return pimap.Config{}, err
 		}
@@ -64,13 +68,17 @@ func (a *App) resolveIMAP(account storage.Account) (pimap.Config, error) {
 // resolveSMTP builds an smtp config for an account, mirroring resolveIMAP. With
 // an oauth token set the smtp layer auto-selects XOAUTH2.
 func (a *App) resolveSMTP(account storage.Account) (psmtp.Config, error) {
+	dial, err := a.accountDial(account)
+	if err != nil {
+		return psmtp.Config{}, err
+	}
 	cfg := psmtp.Config{
 		Host:     account.SMTPHost,
 		Port:     account.SMTPPort,
 		Username: loginName(account),
 		TLS:      smtpTLSMode(account.SMTPTLS),
 		Trust:    accountTrust(account),
-		Dial:     a.proxyDial(),
+		Dial:     dial,
 	}
 
 	secret, err := credentials.Load(account.ID)
@@ -83,7 +91,7 @@ func (a *App) resolveSMTP(account storage.Account) (psmtp.Config, error) {
 
 	switch secret.Method {
 	case credentials.MethodOAuth:
-		token, err := a.freshAccessToken(account.ID, secret)
+		token, err := a.freshAccessToken(account, secret)
 		if err != nil {
 			return psmtp.Config{}, err
 		}
@@ -97,13 +105,18 @@ func (a *App) resolveSMTP(account storage.Account) (psmtp.Config, error) {
 // freshAccessToken returns a valid oauth access token for an account. The cached
 // access token is reused until it expires; a refresh persists the new access
 // token and any rotated refresh token.
-func (a *App) freshAccessToken(accountID int64, secret credentials.Secret) (string, error) {
+func (a *App) freshAccessToken(account storage.Account, secret credentials.Secret) (string, error) {
+	accountID := account.ID
 	cached := &oauth2.Token{
 		AccessToken:  secret.AccessToken,
 		RefreshToken: secret.RefreshToken,
 		Expiry:       secret.Expiry,
 	}
-	token, err := oauth.FreshToken(a.ctx, secret.Provider, secret.ClientID, secret.ClientSecret, cached)
+	client, err := a.accountOAuthClient(account)
+	if err != nil {
+		return "", err
+	}
+	token, err := oauth.FreshToken(oauthContext(a.ctx, client), secret.Provider, secret.ClientID, secret.ClientSecret, cached)
 	if err != nil {
 		return "", err
 	}

@@ -54,6 +54,8 @@ type UpdateAccountRequest struct {
 	// PGPDefault is the account's starting point for protecting outgoing mail:
 	// '' unprotected, 'sign', or 'auto'. An unknown value is treated as ''.
 	PGPDefault string `json:"pgpDefault"`
+	// Proxy is the route the mailbox's connections take (#457).
+	Proxy AccountProxyDTO `json:"proxy"`
 }
 
 // UpdateAccount persists edits to an account's display name and server settings.
@@ -66,6 +68,10 @@ func (a *App) UpdateAccount(req UpdateAccountRequest) (AccountDTO, error) {
 	}
 	if !validTLSMode(req.IMAPTLS) || !validTLSMode(req.SMTPTLS) {
 		return AccountDTO{}, errUnknownTLSMode
+	}
+	route, err := accountProxyFromDTO(req.Proxy)
+	if err != nil {
+		return AccountDTO{}, err
 	}
 	account, err := a.store.GetAccount(a.ctx, req.ID)
 	if err != nil {
@@ -94,6 +100,13 @@ func (a *App) UpdateAccount(req UpdateAccountRequest) (AccountDTO, error) {
 	}
 	account.PGPDefault = validPGPDefault(req.PGPDefault)
 	if err := a.store.SetAccountPGPDefault(a.ctx, account.ID, account.PGPDefault); err != nil {
+		return AccountDTO{}, err
+	}
+	if err := saveAccountProxyPassword(account.ID, route, req.Proxy); err != nil {
+		return AccountDTO{}, err
+	}
+	account.Proxy = route
+	if err := a.store.SetAccountProxy(a.ctx, account.ID, route); err != nil {
 		return AccountDTO{}, err
 	}
 	if req.Password != "" {
@@ -179,7 +192,11 @@ func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
 	if existing.Method != credentials.MethodOAuth {
 		return errAccountUsesPassword
 	}
-	secret, err := a.authorizeOAuth(existing.Provider, existing.ClientID, existing.ClientSecret, account.Email)
+	client, err := a.accountOAuthClient(*account)
+	if err != nil {
+		return err
+	}
+	secret, err := a.authorizeOAuth(client, existing.Provider, existing.ClientID, existing.ClientSecret, account.Email)
 	if err != nil {
 		return err
 	}
@@ -220,6 +237,10 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 	if existing, err := credentials.Load(accountID); err == nil && existing.Method == credentials.MethodOAuth {
 		return PasswordCheckDTO{}, errAccountUsesOAuth
 	}
+	dial, err := a.accountDial(*account)
+	if err != nil {
+		return PasswordCheckDTO{Error: err.Error()}, nil
+	}
 	client, err := pimap.Connect(pimap.Config{
 		Host:     account.IMAPHost,
 		Port:     account.IMAPPort,
@@ -227,7 +248,7 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 		Password: password,
 		TLS:      imapTLSMode(account.IMAPTLS),
 		Trust:    accountTrust(*account),
-		Dial:     a.proxyDial(),
+		Dial:     dial,
 	})
 	if err != nil {
 		return PasswordCheckDTO{Error: err.Error()}, nil
@@ -379,6 +400,9 @@ func (a *App) DeleteAccount(id int64) error {
 	// reconnect instead of retrying against a half-deleted account.
 	if err := credentials.Delete(id); err != nil {
 		a.log.Error("delete credentials", "account", id, "err", err)
+	}
+	if err := credentials.DeleteAccountProxyPassword(id); err != nil {
+		a.log.Error("delete proxy password", "account", id, "err", err)
 	}
 	if err := a.store.DeleteAccount(a.ctx, id); err != nil {
 		return err
