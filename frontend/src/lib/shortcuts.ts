@@ -15,6 +15,9 @@ import { isMac } from './i18n'
 // user to assign.
 export type ShortcutAction =
   | 'compose'
+  // sends the message being written. Only a compose pane answers to it, and
+  // only while focus is inside that pane (#480).
+  | 'send'
   | 'preferences'
   | 'sync'
   | 'search'
@@ -82,6 +85,8 @@ export interface Shortcut {
 // shortcuts list in settings.
 export const shortcuts: Shortcut[] = [
   { action: 'compose', combo: 'mod+n', labelKey: 'shortcut.compose' },
+  // the key every desktop mail client sends with, so it is bound by default.
+  { action: 'send', combo: 'mod+enter', labelKey: 'action.send' },
   { action: 'preferences', combo: 'mod+,', labelKey: 'shortcut.preferences' },
   { action: 'sync', combo: 'mod+r', labelKey: 'shortcut.sync' },
   { action: 'add-mailbox', combo: 'mod+m', labelKey: 'shortcut.addMailbox' },
