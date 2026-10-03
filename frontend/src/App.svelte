@@ -724,6 +724,10 @@
       case 'compose':
         startCompose()
         break
+      case 'send':
+        // the compose pane holding focus sends, and takes the key before it
+        // gets here. Outside one there is nothing to send.
+        break
       case 'export-pdf':
         exportPdf()
         break

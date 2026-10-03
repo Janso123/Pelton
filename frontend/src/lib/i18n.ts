@@ -213,6 +213,7 @@ export function shortcutLabel(combo: string): string {
       if (part === 'shift') return isMac ? '⇧' : 'Shift'
       if (part === 'alt') return isMac ? '⌥' : 'Alt'
       if (part === 'space') return 'Space'
+      if (part === 'enter') return isMac ? '↩' : 'Enter'
       // the two delete keys have glyphs on macOS and names everywhere else.
       if (part === 'backspace') return isMac ? '⌫' : 'Backspace'
       if (part === 'delete') return isMac ? '⌦' : 'Delete'

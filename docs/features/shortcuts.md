@@ -12,6 +12,7 @@ Pelton uses ++cmd++ on macOS and ++ctrl++ on Windows and Linux for the same bind
 | Shortcut | Action |
 | -------- | ------ |
 | ++cmd+n++ | Compose a new message |
+| ++cmd+enter++ | Send the message you are writing |
 | ++cmd+k++ | [Command palette](command-palette.md) |
 | ++cmd+f++ | Search |
 | ++cmd+r++ | Sync now |
@@ -23,6 +24,8 @@ Pelton uses ++cmd++ on macOS and ++ctrl++ on Windows and Linux for the same bind
 | ++cmd+h++ | Hide window (macOS) |
 | ++cmd+w++ | Close the front compose window, settings, or the window itself |
 | ++cmd+q++ | Quit |
+
+++cmd+enter++ works from anywhere in the compose window: the editor, the subject, or an address field. An address you are still typing is added as a recipient before the message goes. A plain ++enter++ is always just a new line.
 
 ## Menu bar access keys
 

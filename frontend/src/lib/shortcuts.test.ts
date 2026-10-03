@@ -89,6 +89,16 @@ describe('comboMatches', () => {
   it('matches the space key by name', () => {
     expect(comboMatches(key(' '), 'space')).toBe(true)
   })
+
+  // the send shortcut (#480): Cmd+Enter on macOS, Ctrl+Enter elsewhere, and a
+  // plain Enter is a new line, never a send.
+  it('sends on mod+enter and on nothing less', () => {
+    const send = shortcuts.find((s) => s.action === 'send')?.combo ?? ''
+    expect(comboMatches(key('Enter', { mod: true }), send)).toBe(true)
+    expect(comboMatches(key('Enter'), send)).toBe(false)
+    expect(comboMatches(key('Enter', { shift: true }), send)).toBe(false)
+    expect(comboMatches(key('Enter', { other: true }), send)).toBe(false)
+  })
 })
 
 describe('eventToCombo', () => {
