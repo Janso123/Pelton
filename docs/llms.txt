@@ -13,7 +13,8 @@ path with a `.md` extension, e.g. `/install/macos.md` next to the rendered
 
 - [Install](https://docs.pelton.app/install/index.md): install Pelton on Windows, macOS, or Linux, or build it from source.
 - [Updating](https://docs.pelton.app/updating.md): how to update Pelton on every platform.
-- [Setting up a mailbox](https://docs.pelton.app/mailbox/index.md): connect Gmail, iCloud, Outlook, Purelymail, Fastmail, Yahoo, or a generic IMAP/SMTP account.
+- [Setting up a mailbox](https://docs.pelton.app/mailbox/index.md): connect Gmail, iCloud, Outlook, Purelymail, Fastmail, Yahoo, a generic IMAP/SMTP account, or a JMAP mailbox.
+- [JMAP mailboxes](https://docs.pelton.app/mailbox/jmap.md): use JMAP instead of IMAP and SMTP, and the sync settings.
 - [Features](https://docs.pelton.app/features/shortcuts.md): shortcuts, the command palette, link/attachment scanning, and encryption keys.
 - [Themes](https://docs.pelton.app/themes/index.md): the theme format and how to create one.
 - [Support](https://docs.pelton.app/support.md): how to get help, report a bug, or reach the team.

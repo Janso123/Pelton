@@ -29,12 +29,20 @@ func TestParseAuth(t *testing.T) {
 			want:    Auth{DKIM: "pass", DKIMDomain: "mail.example.com"},
 		},
 		{
-			name: "a later hop only fills gaps",
+			name: "a lower header is ignored",
 			headers: []string{
 				"mine.example.org; spf=fail smtp.mailfrom=evil.example",
 				"relay.example.net; spf=pass smtp.mailfrom=evil.example; dmarc=pass",
 			},
-			want: Auth{SPF: "fail", SPFDomain: "evil.example", DMARC: "pass"},
+			want: Auth{SPF: "fail", SPFDomain: "evil.example"},
+		},
+		{
+			name: "a sender-written header cannot fill what the server left out",
+			headers: []string{
+				"mx.mine.example; spf=pass smtp.mailfrom=bank.example",
+				"mx.bank.example; dkim=pass header.d=bank.example; dmarc=pass",
+			},
+			want: Auth{SPF: "pass", SPFDomain: "bank.example"},
 		},
 		{
 			name:    "one passing signature among several wins",

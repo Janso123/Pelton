@@ -2,15 +2,21 @@ package desktop
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
 
+	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/credentials"
 	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/storage"
@@ -141,6 +147,148 @@ func (a *App) accountHTTPClient(account storage.Account, useGlobal bool, timeout
 	return route.HTTPClient(timeout), nil
 }
 
+// mailDialTimeout bounds opening a connection to a mailbox's server.
+const mailDialTimeout = 30 * time.Second
+
+// mailHandshakeTimeout bounds dialling a mailbox's server and completing the
+// TLS handshake, like the IMAP dial: a proxy or server that accepts the
+// connection and then stalls must not hold a request or the push watch. A var
+// so a test does not wait the full time.
+var mailHandshakeTimeout = mailDialTimeout
+
+// mailIdleConnsPerHost is how many idle connections a mailbox's client keeps
+// per host: enough for every sync slot to run its blob downloads at once.
+const mailIdleConnsPerHost = maxSyncMaxParallel * jmapBlobDownloadMax
+
+// jmapHTTPEntry is a JMAP mailbox's shared http client and the settings it
+// was built for.
+type jmapHTTPEntry struct {
+	key    string
+	client *http.Client
+}
+
+// accountJMAPHTTPClient is the http client every JMAP client of an account
+// shares, so sync jobs reuse open connections instead of each paying for a
+// new TCP, proxy and TLS handshake. A change of route or trust replaces it and
+// closes the old one's idle connections, which still carry the old settings.
+// A route that cannot be resolved fails as accountRoute does.
+func (a *App) accountJMAPHTTPClient(account storage.Account) (*http.Client, error) {
+	route, err := a.accountRoute(account)
+	if err != nil {
+		return nil, err
+	}
+	trust := accountTrust(account)
+	key := mailClientKey(route, trust)
+
+	a.jmapHTTPMu.Lock()
+	defer a.jmapHTTPMu.Unlock()
+	old, ok := a.jmapHTTP[account.ID]
+	if ok && old.key == key {
+		return old.client, nil
+	}
+	if ok {
+		old.client.CloseIdleConnections()
+	}
+	if a.jmapHTTP == nil {
+		a.jmapHTTP = make(map[int64]jmapHTTPEntry)
+	}
+	client := mailHTTPClient(route, trust, 0)
+	a.jmapHTTP[account.ID] = jmapHTTPEntry{key: key, client: client}
+	return client, nil
+}
+
+// dropJMAPHTTPClient forgets an account's shared JMAP client and closes its
+// idle connections, for a mailbox that was removed or left JMAP.
+func (a *App) dropJMAPHTTPClient(accountID int64) {
+	a.jmapHTTPMu.Lock()
+	old, ok := a.jmapHTTP[accountID]
+	delete(a.jmapHTTP, accountID)
+	a.jmapHTTPMu.Unlock()
+	if ok {
+		old.client.CloseIdleConnections()
+	}
+}
+
+// mailClientKey identifies the route and trust a client was built for. It is
+// a digest, so the proxy password is not kept around as a map key.
+func mailClientKey(route proxy.Config, trust certtrust.Trust) string {
+	pins := make([]string, 0, len(trust.Pins))
+	for _, p := range trust.Pins {
+		pins = append(pins, certtrust.NormalizeFingerprint(p))
+	}
+	sort.Strings(pins)
+	sum := sha256.Sum256([]byte(strings.Join([]string{
+		route.Mode, route.Scheme, route.Host, strconv.Itoa(route.Port), route.Username, route.Password,
+		strings.Join(pins, ","), trust.CAPEM,
+	}, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+// routeDial is route's tcp dial hook, or a plain dial for a direct route.
+func routeDial(route proxy.Config) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	if dial := route.DialContext(); dial != nil {
+		return dial
+	}
+	return (&net.Dialer{Timeout: mailDialTimeout}).DialContext
+}
+
+// dialMailTLS opens a tls connection to addr along dial, checking the
+// server's certificate with trust for the host it was opened to.
+func dialMailTLS(ctx context.Context, dial func(ctx context.Context, network, addr string) (net.Conn, error), trust certtrust.Trust, addr string) (*tls.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := trust.TLSConfig(host)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, mailHandshakeTimeout)
+	defer cancel()
+	conn, err := dial(ctx, "tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	tc := tls.Client(conn, cfg)
+	if err := tc.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	return tc, nil
+}
+
+// mailHTTPClient is an http client for a mailbox's own servers (JMAP, its
+// address books). Every connection is dialled along route the way the IMAP
+// and SMTP ones are, so there is no request that could go around it, and
+// each certificate is checked against trust for the host it was opened to.
+// Only HTTP/1.1 is offered: a JMAP push socket cannot upgrade over HTTP/2.
+func mailHTTPClient(route proxy.Config, trust certtrust.Trust, timeout time.Duration) *http.Client {
+	dial := routeDial(route)
+	return &http.Client{Timeout: timeout, Transport: &http.Transport{
+		DialContext: dial,
+		DialTLSContext: func(ctx context.Context, _, addr string) (net.Conn, error) {
+			return dialMailTLS(ctx, dial, trust, addr)
+		},
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   mailIdleConnsPerHost,
+		IdleConnTimeout:       90 * time.Second,
+		ExpectContinueTimeout: time.Second,
+	}}
+}
+
+// accountMailHTTPClient is mailHTTPClient for an account: along its route, or
+// the app-wide one when useGlobal says so, with the certificates it trusts.
+func (a *App) accountMailHTTPClient(account storage.Account, useGlobal bool, timeout time.Duration) (*http.Client, error) {
+	route := a.currentProxy()
+	if !useGlobal {
+		var err error
+		if route, err = a.accountRoute(account); err != nil {
+			return nil, err
+		}
+	}
+	return mailHTTPClient(route, accountTrust(account), timeout), nil
+}
+
 // contactsHTTPClient is the http client for an address book. A book added by
 // hand, or one whose mailbox is gone, has no route of its own and takes the
 // app-wide one.
@@ -155,7 +303,7 @@ func (a *App) contactsHTTPClient(accountID int64) (*http.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return a.accountHTTPClient(*account, account.Proxy.ContactsUseGlobal, contactsTimeout)
+	return a.accountMailHTTPClient(*account, account.Proxy.ContactsUseGlobal, contactsTimeout)
 }
 
 // oauthContext carries the http client oauth2 uses for a token request, so a
@@ -231,7 +379,8 @@ type RouteTestRequest struct {
 }
 
 // TestAccountRoute opens a connection to the mailbox's imap and smtp servers
-// along the given route and closes it again. Reaching them is the whole test:
+// along the given route and closes it again; for a saved JMAP mailbox, to its
+// JMAP server instead, the only one it uses. Reaching them is the whole test:
 // nothing is sent, so it needs no login and cannot lock an account out.
 func (a *App) TestAccountRoute(req RouteTestRequest) error {
 	if err := a.ready(); err != nil {
@@ -245,13 +394,27 @@ func (a *App) TestAccountRoute(req RouteTestRequest) error {
 	if dial == nil {
 		dial = (&net.Dialer{Timeout: 20 * time.Second}).DialContext
 	}
-	servers := []struct {
+	type server struct {
 		name string
 		host string
 		port int
-	}{
+	}
+	servers := []server{
 		{"IMAP", req.IMAPHost, req.IMAPPort},
 		{"SMTP", req.SMTPHost, req.SMTPPort},
+	}
+	if req.AccountID != 0 {
+		account, err := a.store.GetAccount(a.ctx, req.AccountID)
+		if err != nil {
+			return err
+		}
+		if account.Protocol == "jmap" {
+			host, port, err := jmapServer(*account)
+			if err != nil {
+				return err
+			}
+			servers = []server{{"JMAP", host, port}}
+		}
 	}
 	for _, s := range servers {
 		if s.host == "" {

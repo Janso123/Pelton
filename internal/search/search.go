@@ -86,6 +86,15 @@ const (
 // subject is close to arbitrary.
 const fieldSubjectSort = "subject_sort"
 
+// fieldAccount is the account id as one keyword term. It is filtered on, never
+// searched or shown.
+const fieldAccount = "account"
+
+// fieldFolder is the folder id as one keyword term, so a search can stay within
+// the folder it was started from. A message never changes folder in place (a
+// move stores a new row), so the term cannot go stale.
+const fieldFolder = "folder"
+
 // sortOrders maps a Sort onto the Bleve sort spec it runs as.
 //
 // Every order ends in _id so it is total. Anything less is not a detail: equal
@@ -113,6 +122,10 @@ type Query struct {
 	From    string
 	To      string
 	Subject string
+	// AccountIDs limits hits to these accounts. Empty means every account.
+	AccountIDs []int64
+	// FolderIDs limits hits to these folders. Empty means every folder.
+	FolderIDs []int64
 	// After/Before bound the message date. A zero time means the side is open.
 	After  time.Time
 	Before time.Time
@@ -210,10 +223,7 @@ func (i *Index) Search(q Query) (Results, error) {
 	if limit <= 0 {
 		limit = defaultLimit
 	}
-	offset := q.Offset
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(q.Offset, 0)
 
 	req := bleve.NewSearchRequestOptions(i.build(q), limit, offset, false)
 	req.SortBy(sortOrder(q.Sort))
@@ -265,6 +275,13 @@ func (i *Index) build(q Query) query.Query {
 		parts = append(parts, dateQuery(q.After, q.Before))
 	}
 
+	if len(q.AccountIDs) > 0 {
+		parts = append(parts, idsQuery(fieldAccount, q.AccountIDs))
+	}
+	if len(q.FolderIDs) > 0 {
+		parts = append(parts, idsQuery(fieldFolder, q.FolderIDs))
+	}
+
 	switch len(parts) {
 	case 0:
 		return bleve.NewMatchAllQuery()
@@ -273,6 +290,17 @@ func (i *Index) build(q Query) query.Query {
 	default:
 		return bleve.NewConjunctionQuery(parts...)
 	}
+}
+
+// idsQuery matches documents whose keyword field holds any of the ids.
+func idsQuery(field string, ids []int64) query.Query {
+	terms := make([]query.Query, 0, len(ids))
+	for _, id := range ids {
+		tq := bleve.NewTermQuery(strconv.FormatInt(id, 10))
+		tq.SetField(field)
+		terms = append(terms, tq)
+	}
+	return bleve.NewDisjunctionQuery(terms...)
 }
 
 // textFields are the free-text fields a query is matched against, with the boost
@@ -423,6 +451,8 @@ func toIndexable(d Doc) map[string]any {
 		"cc":             d.Cc,
 		"body":           d.Body,
 		"date":           d.Date,
+		fieldAccount:     strconv.FormatInt(d.AccountID, 10),
+		fieldFolder:      strconv.FormatInt(d.FolderID, 10),
 	}
 }
 
@@ -460,11 +490,17 @@ func buildMapping() *mapping.IndexMappingImpl {
 	subjectSort.Store = false
 	subjectSort.IncludeInAll = false
 
+	account := bleve.NewKeywordFieldMapping()
+	account.Store = false
+	account.IncludeInAll = false
+
 	doc := bleve.NewDocumentMapping()
 	for _, name := range []string{"subject", "from", "to", "cc", "body"} {
 		doc.AddFieldMappingsAt(name, text)
 	}
 	doc.AddFieldMappingsAt(fieldSubjectSort, subjectSort)
+	doc.AddFieldMappingsAt(fieldAccount, account)
+	doc.AddFieldMappingsAt(fieldFolder, account)
 	doc.AddFieldMappingsAt("date", date)
 
 	im := bleve.NewIndexMapping()

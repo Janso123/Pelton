@@ -36,6 +36,10 @@ export function ApproveAgentProposal(arg1:number):Promise<void>;
 
 export function ArchiveMessage(arg1:number):Promise<desktop.ArchiveUndoDTO>;
 
+export function BeginOAuthAccount(arg1:desktop.AddAccountRequest):Promise<desktop.PendingAccount>;
+
+export function CancelAddAccount(arg1:string):Promise<void>;
+
 export function CancelDownload():Promise<void>;
 
 export function CancelSend(arg1:number):Promise<boolean>;
@@ -133,6 +137,8 @@ export function ExportTheme(arg1:string):Promise<string>;
 export function FetchOlderMessages(arg1:desktop.ListMessagesRequest):Promise<desktop.FetchOlderResult>;
 
 export function FindThunderbirdProfiles():Promise<Array<desktop.ThunderbirdProfileDTO>>;
+
+export function FinishAddAccount(arg1:string,arg2:string):Promise<desktop.AccountDTO>;
 
 export function ForgetPGPPassphrase(arg1:string):Promise<void>;
 
@@ -246,7 +252,11 @@ export function PreviewArchiveExportName(arg1:string,arg2:string):Promise<string
 
 export function PreviewThemeImport():Promise<desktop.ThemeImportPreviewDTO>;
 
+export function ProbeAccount(arg1:number):Promise<desktop.TestConnectionResult>;
+
 export function ProbeAccountCertificates(arg1:number):Promise<Array<desktop.UntrustedCertDTO>>;
+
+export function ProbeAccountCertificatesFor(arg1:number,arg2:string):Promise<Array<desktop.UntrustedCertDTO>>;
 
 export function ProgramLicense():Promise<string>;
 
@@ -376,6 +386,8 @@ export function StartAccountSync(arg1:number):Promise<void>;
 
 export function SwitchProfile(arg1:number):Promise<void>;
 
+export function SwitchProtocol(arg1:number,arg2:string):Promise<void>;
+
 export function SyncAccountNow(arg1:number):Promise<void>;
 
 export function SyncContacts():Promise<void>;
@@ -396,7 +408,7 @@ export function TrustAccountCertificate(arg1:number,arg2:string):Promise<void>;
 
 export function TrustSenderImages(arg1:number):Promise<void>;
 
-export function UnarchiveMessage(arg1:string,arg2:number):Promise<void>;
+export function UnarchiveMessage(arg1:string,arg2:string,arg3:number,arg4:number):Promise<void>;
 
 export function UndoDelete(arg1:number):Promise<void>;
 

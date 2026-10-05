@@ -1,10 +1,13 @@
 package desktop
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
+
+	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
 // colorKeywords maps a color index (1..8) to the Thunderbird-style imap keyword
@@ -12,6 +15,25 @@ import (
 var colorKeywords = []imap.Flag{
 	"$Label1", "$Label2", "$Label3", "$Label4",
 	"$Label5", "$Label6", "$Label7", "$Label8",
+}
+
+// keywordSetter is the part of the JMAP adapter colour sync uses.
+type keywordSetter interface {
+	SetKeywords(ctx context.Context, remoteID string, add, remove []string) error
+}
+
+// colorKeywordChange is the keyword to add for a colour (none for 0) and the
+// other colour keywords to clear. The added keyword is left out of remove
+// because a JMAP patch must not both set and null the same key.
+func colorKeywordChange(color int) (add, remove []string) {
+	for i, kw := range colorKeywords {
+		if i == color-1 {
+			add = append(add, string(kw))
+			continue
+		}
+		remove = append(remove, string(kw))
+	}
+	return add, remove
 }
 
 // SetFlagColor sets a message's color label (0 clears, 1..8 pick a palette
@@ -33,7 +55,7 @@ func (a *App) SetFlagColor(id int64, color int) error {
 	return nil
 }
 
-// pushColorKeyword reflects a color change onto the server as an imap keyword.
+// pushColorKeyword reflects a color change onto the server as a keyword.
 // It removes every label keyword then adds the chosen one, so switching or
 // clearing a color leaves a single (or no) label. Failures are logged only; the
 // local color is already saved and authoritative.
@@ -53,13 +75,28 @@ func (a *App) pushColorKeyword(id int64, color int) {
 		a.log.Error("color sync: load account", "id", id, "err", err)
 		return
 	}
+	if account.Protocol == "jmap" {
+		add, remove := colorKeywordChange(color)
+		err := a.withAccountAdapter(account.ID, func(ad psync.Adapter) error {
+			ks, ok := ad.(keywordSetter)
+			if !ok {
+				return fmt.Errorf("pelton: this account cannot store colours on the server")
+			}
+			return ks.SetKeywords(a.ctx, m.RemoteID, add, remove)
+		})
+		if err != nil {
+			a.log.Error("color sync", "id", id, "err", err)
+		}
+		return
+	}
 	cfg, err := a.resolveIMAP(*account)
 	if err != nil {
 		return // no credentials: color stays local until sync is possible
 	}
 
-	syncMu.Lock()
-	defer syncMu.Unlock()
+	accountMu := a.accountLock(account.ID)
+	accountMu.Lock()
+	defer accountMu.Unlock()
 
 	client, err := a.connectIMAP(cfg)
 	if err != nil {
@@ -88,12 +125,24 @@ func (a *App) pushColorKeyword(id int64, color int) {
 	}
 }
 
-// DownloadMessageOffline pins a message for offline availability. Sync already
-// caches the body; this records the deliberate keep signal that drives the
-// downloaded indicator.
+// DownloadMessageOffline keeps a message available offline. A message that so
+// far has only its list entry gets its body fetched first; pinning a row with
+// no body would show it as downloaded while there is nothing to read.
 func (a *App) DownloadMessageOffline(id int64) error {
 	if err := a.ready(); err != nil {
 		return err
+	}
+	m, err := a.store.GetMessage(a.ctx, id)
+	if err != nil {
+		return err
+	}
+	if !m.BodyComplete {
+		if err := a.fetchMessageBodyOnDemand(m); err != nil {
+			return offlineOrErr(err)
+		}
+		if err := a.bodyStored(id); err != nil {
+			return err
+		}
 	}
 	return a.store.SetOffline(a.ctx, id, true)
 }

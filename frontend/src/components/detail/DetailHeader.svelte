@@ -2,8 +2,9 @@
   // the header block of the reading pane: subject, sender with avatar, recipients,
   // full date, the technical-info badges the list rows show, and the
   // unsubscribe button when the message advertises a mechanism (or, failing
-  // that, contains an unsubscribe link in its body).
-  import { IconMailOff, IconCheck, IconStar, IconStarFilled } from '@tabler/icons-svelte'
+  // that, contains an unsubscribe link in its body). Clicking an address offers
+  // to copy it or to write to it.
+  import { IconMailOff, IconCheck, IconStar, IconStarFilled, IconCopy, IconPencil } from '@tabler/icons-svelte'
   import Avatar from '../common/Avatar.svelte'
   import TechBadges from '../common/TechBadges.svelte'
   import { prefs } from '../../stores/prefs'
@@ -13,7 +14,10 @@
   import { errorMessage, toastError, toastSuccess } from '../../stores/toast'
   import { t } from '../../lib/i18n'
   import { vipSenders, bareAddress, addVIP, removeVIP } from '../../stores/vip'
-  import type { MessageDetail, UnsubscribeInfo, SMIMERevocation } from '../../lib/types'
+  import { openContextMenu } from '../../stores/contextmenu'
+  import { openComposeWith } from '../../stores/compose'
+  import { parseAddressList, formatAddress } from '../../lib/mailcompose'
+  import type { MessageDetail, UnsubscribeInfo, SMIMERevocation, EditorMode, Address } from '../../lib/types'
 
   export let detail: MessageDetail
 
@@ -49,6 +53,45 @@
   // senderVip flag only seeds the store, it must not be OR'd in here or a
   // removed sender would stay lit.
   $: isVip = $vipSenders.has(bareAddress(detail.fromAddress))
+
+  // the parsed header addresses. fromAddress can arrive as a whole
+  // `name <email>` when the sender's header is malformed, so it goes through the
+  // same parser as the recipient lists.
+  $: parsedFrom = parseAddressList(detail.fromAddress)[0]
+  $: sender = { name: detail.fromName || parsedFrom?.name || '', email: parsedFrom?.email ?? detail.fromAddress }
+  $: toList = parseAddressList(detail.toAddresses)
+  $: ccList = parseAddressList(detail.ccAddresses)
+
+  // openAddressMenu drops the copy / write menu under the clicked address. The
+  // element's box is used rather than the pointer, so keyboard activation
+  // places it the same way.
+  function openAddressMenu(event: MouseEvent, addr: Address): void {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    openContextMenu(rect.left, rect.bottom, [
+      { label: $t('detail.header.copyAddress'), icon: IconCopy, action: () => void copyAddress(addr.email) },
+      {
+        label: $t('detail.header.writeTo'),
+        icon: IconPencil,
+        action: () =>
+          openComposeWith(detail.accountId, $prefs.defaultEditorMode as EditorMode, {
+            to: formatAddress(addr),
+            cc: '',
+            bcc: '',
+            subject: '',
+            body: '',
+          }),
+      },
+    ])
+  }
+
+  async function copyAddress(email: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(email)
+      toastSuccess($t('detail.header.addressCopied'))
+    } catch {
+      toastError($t('detail.infoModal.copyFailed'))
+    }
+  }
 
   // toggleVip stars or unstars the sender; failures surface as a toast and the
   // store reverts via the reload path.
@@ -155,14 +198,24 @@
             <IconStar size={15} stroke={1.6} />
           {/if}
         </button>
-        <span dir="auto" class="from-name">{displayName(detail.fromName, detail.fromAddress)}</span>
-        {#if detail.fromName}
-          <span class="from-addr">&lt;{detail.fromAddress}&gt;</span>
+        {#if detail.fromName.trim()}
+          <span dir="auto" class="from-name">{detail.fromName}</span>
+          <span class="from-addr">&lt;<button type="button" class="addr" aria-haspopup="menu" on:click={(e) => openAddressMenu(e, sender)}>{sender.email}</button>&gt;</span>
+        {:else}
+          <span class="from-name"><button type="button" class="addr" aria-haspopup="menu" on:click={(e) => openAddressMenu(e, sender)}>{sender.email}</button></span>
         {/if}
       </div>
       <div class="recipients">
-        {#if detail.toAddresses}<span>{$t('detail.header.to')} {detail.toAddresses}</span>{/if}
-        {#if detail.ccAddresses}<span class="cc">{$t('detail.header.cc')} {detail.ccAddresses}</span>{/if}
+        {#each [{ label: $t('detail.header.to'), list: toList }, { label: $t('detail.header.cc'), list: ccList }] as row}
+          {#if row.list.length > 0}
+            <span>
+              {row.label}
+              {#each row.list as addr, i}
+                {#if i > 0}{', '}{/if}<button type="button" class="addr" aria-haspopup="menu" on:click={(e) => openAddressMenu(e, addr)}>{formatAddress(addr)}</button>
+              {/each}
+            </span>
+          {/if}
+        {/each}
       </div>
     </div>
     {#if $prefs.showDateTime}
@@ -262,6 +315,21 @@
   .from-addr {
     font-size: var(--fz-label);
     color: var(--text-tertiary);
+  }
+
+  .addr {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: var(--cursor-action);
+    border-radius: var(--radius-sm);
+  }
+
+  .addr:hover {
+    color: var(--text-secondary);
+    text-decoration: underline;
   }
 
   .recipients {

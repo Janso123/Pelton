@@ -35,7 +35,13 @@ const settingSearchIndexVersion = "search_index_version"
 // an index built without it would have it dynamically mapped as analyzed text,
 // which sorts by whichever word comes first alphabetically. Hence the rebuild
 // rather than a reindex in place.
-const searchIndexVersion = 3
+//
+// Version 4 indexes the account id so search can stay within the active
+// profile's mailboxes.
+//
+// Version 5 indexes the folder id so search can stay within the folder (or
+// unified view) it was started from.
+const searchIndexVersion = 5
 
 // searchBatchSize bounds how many messages are read and indexed per commit during
 // a backfill.
@@ -257,6 +263,11 @@ type SearchRequestDTO struct {
 	HasAttachment bool `json:"hasAttachment"`
 	// UnreadOnly filters to messages that have not been read.
 	UnreadOnly bool `json:"unreadOnly"`
+	// FolderID and View scope the search to one folder or to the folders of a
+	// unified view (inbox, sent, ...). With neither set it covers every folder
+	// the profile shows. FolderID wins when both are set.
+	FolderID int64  `json:"folderId"`
+	View     string `json:"view"`
 	// Sort is the order results come back in: relevance, newest, oldest,
 	// subjectAsc or subjectDesc. Empty means relevance. The ui resolves its
 	// "automatic" setting to one of these before asking, so the choice of what
@@ -316,6 +327,22 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 		q.After.IsZero() && q.Before.IsZero() && !req.HasAttachment && !req.UnreadOnly {
 		return empty, nil
 	}
+	accounts, err := a.profileAccountIDs()
+	if err != nil {
+		return empty, err
+	}
+	if len(accounts) == 0 {
+		return empty, nil
+	}
+	q.AccountIDs = accounts
+	folders, require, err := a.searchScope(req)
+	if err != nil {
+		return empty, err
+	}
+	if folders != nil && len(folders) == 0 {
+		return empty, nil
+	}
+	q.FolderIDs = folders
 
 	res, err := a.index.Search(q)
 	if err != nil {
@@ -343,10 +370,43 @@ func (a *App) Search(req SearchRequestDTO) (SearchResultDTO, error) {
 		if req.UnreadOnly && m.Flags.Has(storage.FlagSeen) {
 			continue
 		}
+		if require != 0 && !m.Flags.Has(require) {
+			continue
+		}
 		email, folderName := a.lookupContext(a.ctx, m.AccountID, m.FolderID)
 		dto := toSummaryDTO(*m, email, folderName)
 		dto.SenderVIP = vips[bareAddress(m.FromAddress)]
 		out = append(out, dto)
 	}
 	return SearchResultDTO{Messages: out, Total: int(res.Total)}, nil
+}
+
+// searchScope resolves the folders a search is limited to. A nil slice means
+// no folder limit; an empty, non-nil one means the scope holds no folders (a
+// unified view with no matching folder) and the search finds nothing. require
+// is a flag every hit must carry, which is how the flagged view narrows.
+func (a *App) searchScope(req SearchRequestDTO) (folders []int64, require storage.Flag, err error) {
+	if req.FolderID > 0 {
+		return []int64{req.FolderID}, 0, nil
+	}
+	view := strings.TrimSpace(req.View)
+	if view == "" {
+		return nil, 0, nil
+	}
+	mq, err := a.viewQuery(a.ctx, view)
+	if err != nil {
+		return nil, 0, err
+	}
+	if mq.FolderIDs == nil {
+		mq.FolderIDs = []int64{}
+	}
+	return mq.FolderIDs, mq.RequireFlags, nil
+}
+
+// profileAccountIDs is the accounts the active profile shows. Anything that
+// reads mail outside the profile-scoped store queries (the search index, the MCP
+// server) has to narrow itself to these, since an empty search.Query.AccountIDs
+// means every account.
+func (a *App) profileAccountIDs() ([]int64, error) {
+	return a.store.ProfileAccountIDs(a.ctx, a.store.ScopedProfileID())
 }

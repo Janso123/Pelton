@@ -5,6 +5,8 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
+	pjmap "github.com/peltonapp/Pelton/internal/jmap"
+	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
 
@@ -54,6 +56,11 @@ type UpdateAccountRequest struct {
 	// PGPDefault is the account's starting point for protecting outgoing mail:
 	// '' unprotected, 'sign', or 'auto'. An unknown value is treated as ''.
 	PGPDefault string `json:"pgpDefault"`
+	// SyncMaxParallel overrides the global parallel-sync setting for this
+	// account (clamped to 1-5). Nil follows the global setting: it clears a
+	// stored override rather than leaving it alone, so every update must send
+	// the current value.
+	SyncMaxParallel *int `json:"syncMaxParallel"`
 	// Proxy is the route the mailbox's connections take (#457).
 	Proxy AccountProxyDTO `json:"proxy"`
 }
@@ -109,6 +116,15 @@ func (a *App) UpdateAccount(req UpdateAccountRequest) (AccountDTO, error) {
 	if err := a.store.SetAccountProxy(a.ctx, account.ID, route); err != nil {
 		return AccountDTO{}, err
 	}
+	if req.SyncMaxParallel != nil {
+		n := clampSyncMaxParallel(*req.SyncMaxParallel)
+		req.SyncMaxParallel = &n
+	}
+	account.SyncMaxParallel = req.SyncMaxParallel
+	if err := a.store.SetAccountSyncMaxParallel(a.ctx, account.ID, account.SyncMaxParallel); err != nil {
+		return AccountDTO{}, err
+	}
+	a.reconfigureAccountPool(account.ID)
 	if req.Password != "" {
 		if err := a.SetAccountPassword(req.ID, req.Password); err != nil {
 			return AccountDTO{}, err
@@ -207,7 +223,7 @@ func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
 	return nil
 }
 
-// PasswordCheckDTO reports how a password fared against the account's imap
+// PasswordCheckDTO reports how a password fared against the account's mail
 // server. Rejected separates "the server said no" from "nothing answered": the
 // first means the password is wrong, the second says nothing about it at all.
 type PasswordCheckDTO struct {
@@ -216,9 +232,10 @@ type PasswordCheckDTO struct {
 	Error    string `json:"error"`
 }
 
-// CheckAccountPassword tries a password against an existing account's imap
-// server without storing it, so a mailbox marked as refused can be fixed on the
-// spot instead of the user finding out at the next sync.
+// CheckAccountPassword tries a password against an existing account's server
+// (JMAP for a JMAP mailbox, IMAP otherwise) without storing it, so a mailbox
+// marked as refused can be fixed on the spot instead of the user finding out at
+// the next sync.
 //
 // A refusal and an unreachable server are both returned as a result, not an
 // error: the caller shows them differently. Only a problem with the request
@@ -236,6 +253,9 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 	}
 	if existing, err := credentials.Load(accountID); err == nil && existing.Method == credentials.MethodOAuth {
 		return PasswordCheckDTO{}, errAccountUsesOAuth
+	}
+	if account.Protocol == "jmap" {
+		return a.checkJMAPPassword(*account, password), nil
 	}
 	dial, err := a.accountDial(*account)
 	if err != nil {
@@ -266,14 +286,40 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 	return PasswordCheckDTO{OK: true}, nil
 }
 
+// checkJMAPPassword is CheckAccountPassword for a JMAP mailbox: it fetches the
+// session with the typed password, which is the sign-in a JMAP sync does. A
+// mailbox with no session yet (restored from a backup) looks it up instead, as
+// its first sync would, and stores nothing it finds.
+func (a *App) checkJMAPPassword(account storage.Account, password string) PasswordCheckDTO {
+	secret := credentials.Secret{Method: credentials.MethodPassword, Password: password}
+	var err error
+	if account.JMAPSessionURL != "" {
+		_, err = a.jmapSignIn(a.ctx, account, secret)
+	} else {
+		var route proxy.Config
+		if route, err = a.accountRoute(account); err == nil {
+			_, err = a.runAuthenticateTarget(a.ctx, account, route, "jmap", secret)
+		}
+	}
+	switch {
+	case err == nil:
+		return PasswordCheckDTO{OK: true}
+	case errors.Is(err, pjmap.ErrAuthFailed):
+		return PasswordCheckDTO{Rejected: true, Error: err.Error()}
+	default:
+		return PasswordCheckDTO{Error: err.Error()}
+	}
+}
+
 // noteLoginResult records what the server said about an account's credentials.
 // A refusal is remembered so the ui can mark the mailbox and offer the password
 // prompt; anything else (a dropped connection, a server that is down) says
 // nothing about the password and is ignored. A success clears the mark.
 //
-// Callers pass the error from Login directly, including nil.
+// Callers pass the error from an IMAP Login or a JMAP session fetch directly,
+// including nil.
 func (a *App) noteLoginResult(accountID int64, err error) {
-	if err != nil && !errors.Is(err, pimap.ErrAuthFailed) {
+	if err != nil && !loginRefused(err) {
 		return
 	}
 	a.rejectedLoginsMu.Lock()
@@ -286,6 +332,12 @@ func (a *App) noteLoginResult(accountID int64, err error) {
 		a.rejectedLogins = make(map[int64]struct{})
 	}
 	a.rejectedLogins[accountID] = struct{}{}
+}
+
+// loginRefused reports whether err is the server refusing the credentials,
+// over IMAP or JMAP.
+func loginRefused(err error) bool {
+	return errors.Is(err, pimap.ErrAuthFailed) || errors.Is(err, pjmap.ErrAuthFailed)
 }
 
 // loginRejected reports whether the server refused this account's credentials
@@ -390,22 +442,30 @@ func (a *App) AllAccounts() ([]AccountDTO, error) {
 
 // DeleteAccount removes an account entirely: its keyring secret, its cached mail
 // (folders, messages and attachment rows cascade in the db) and its attachment
-// files on disk. Deleting the keyring secret also lets any running idle loop for
-// the account exit cleanly, since it stops on a missing-credentials error.
+// files on disk. First it hard-cancels that account only: its worker (IDLE or
+// JMAP watch), scheduler jobs and IMAP sessions stop, and nothing can start
+// sync work for it again. Other accounts keep running. If the row cannot be
+// deleted, a worker the account had is started again.
 func (a *App) DeleteAccount(id int64) error {
 	if err := a.ready(); err != nil {
 		return err
 	}
-	// drop the secret first so a still-running idle loop unwinds on its next
-	// reconnect instead of retrying against a half-deleted account.
+	release := a.holdAccountSync(id)
+	defer release()
+	hadWorker := a.hasAccountWorker(id)
+	a.stopAccountWorker(id)
+	if err := a.store.DeleteAccount(a.ctx, id); err != nil {
+		if hadWorker {
+			a.startHeldAccountWorker(id)
+		}
+		return err
+	}
+	a.forgetAccountState(id)
 	if err := credentials.Delete(id); err != nil {
 		a.log.Error("delete credentials", "account", id, "err", err)
 	}
 	if err := credentials.DeleteAccountProxyPassword(id); err != nil {
 		a.log.Error("delete proxy password", "account", id, "err", err)
-	}
-	if err := a.store.DeleteAccount(a.ctx, id); err != nil {
-		return err
 	}
 	if err := a.store.DeleteAttachmentFilesForAccount(id); err != nil {
 		a.log.Error("delete attachment files", "account", id, "err", err)

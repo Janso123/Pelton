@@ -139,6 +139,15 @@ func (w *Worker) process(ctx context.Context, m Message) {
 		return
 	}
 
+	if errors.Is(err, ErrMaybeSent) {
+		if e := w.queue.markMaybeSent(ctx, m); e != nil {
+			w.log.Error("failed to record send failure", "id", m.ID, "err", e)
+			return
+		}
+		w.log.Error("send outcome unknown, not retrying", "id", m.ID, "err", err)
+		return
+	}
+
 	retry, e := w.queue.markAttemptFailed(ctx, m, err.Error())
 	if e != nil {
 		w.log.Error("failed to record send failure", "id", m.ID, "err", e)

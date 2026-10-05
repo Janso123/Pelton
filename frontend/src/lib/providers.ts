@@ -122,7 +122,7 @@ export const providerPresets: ProviderPreset[] = [
   },
   {
     id: 'custom',
-    label: 'Other (IMAP / SMTP)',
+    label: 'Other (IMAP/JMAP / SMTP)',
     kind: 'password',
     custom: true,
     note: 'We will try to auto-detect your server settings from your address.',

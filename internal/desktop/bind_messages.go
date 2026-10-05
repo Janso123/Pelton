@@ -3,11 +3,13 @@ package desktop
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/peltonapp/Pelton/internal/mailview"
 	"github.com/peltonapp/Pelton/internal/storage"
@@ -85,7 +87,111 @@ func (a *App) GetMessage(id int64) (MessageDetailDTO, error) {
 	if err != nil {
 		return MessageDetailDTO{}, err
 	}
+	// a message marked for refetch (missing inline pictures, broken text) is
+	// shown as stored and fetched again now rather than at the next sync of its
+	// folder, with the body spinner on while that runs. Local Folders mail has
+	// no server, so it is shown as it is.
+	marked := m.BodyComplete && a.needsRefetch(id)
+	if !m.BodyComplete || marked {
+		detail, derr := a.messageDetailFromStored(id, m)
+		if derr != nil {
+			return MessageDetailDTO{}, derr
+		}
+		account, accErr := a.store.GetAccount(a.ctx, m.AccountID)
+		if accErr == nil && !account.Local {
+			detail.BodyComplete = false
+			if _, running := a.bodyFetches.LoadOrStore(id, struct{}{}); !running {
+				goSafe("on-demand body", func() {
+					defer a.bodyFetches.Delete(id)
+					a.fetchBodyForPane(id)
+				})
+			}
+		}
+		return detail, nil
+	}
+	return a.messageDetailFromStored(id, m)
+}
 
+// onDemandBodyRetryDelays are the pauses before each retry of a body fetch for
+// the reading pane. What makes one fail is usually brief (a dropped connection,
+// a session being re-authenticated), and every failure the reader sees is one
+// they have to retry by hand.
+var onDemandBodyRetryDelays = []time.Duration{time.Second, 3 * time.Second, 8 * time.Second}
+
+// errBodyNotStored is a fetch that finished without storing the body, which is
+// what a message the server no longer has looks like.
+var errBodyNotStored = errors.New("pelton: fetch finished without storing the message body")
+
+// fetchBodyForPane fetches the body of a message open in the reading pane,
+// retrying after each of the retry delays, and always tells the pane how it
+// ended: mail:updated once the body is stored, mail:bodyFailed once every
+// attempt failed. The pane's spinner waits for one of the two.
+func (a *App) fetchBodyForPane(id int64) {
+	delays := a.bodyRetryDelays
+	if delays == nil {
+		delays = onDemandBodyRetryDelays
+	}
+	var err error
+	for attempt := 0; ; attempt++ {
+		var msg *storage.Message
+		msg, err = a.store.GetMessage(a.ctx, id)
+		if err != nil {
+			// deleted or moved while the pane had it open: there is nothing
+			// left to fetch, and the pane follows the list, not this message.
+			return
+		}
+		if err = a.fetchMessageBodyOnDemand(msg); err == nil {
+			err = a.bodyStored(id)
+		}
+		if err == nil {
+			a.emit(EventMailUpdated, MailUpdatedEvent{MessageID: id})
+			return
+		}
+		if attempt == len(delays) {
+			break
+		}
+		select {
+		case <-time.After(delays[attempt]):
+		case <-a.ctx.Done():
+			return
+		}
+	}
+	a.log.Warn("fetch message body", "message", id, "err", err)
+	a.emit(EventMailBodyFailed, MailBodyFailedEvent{MessageID: id})
+}
+
+// bodyStored reports whether a fetch left the message complete and no longer
+// marked for refetch.
+func (a *App) bodyStored(id int64) error {
+	m, err := a.store.GetMessage(a.ctx, id)
+	if err != nil {
+		return err
+	}
+	if !m.BodyComplete || a.needsRefetch(id) {
+		return errBodyNotStored
+	}
+	return nil
+}
+
+// needsRefetch reports whether a message is marked to be fetched again. A read
+// error counts as not marked: the stored copy is still shown.
+func (a *App) needsRefetch(id int64) bool {
+	marked, err := a.store.NeedsRefetch(a.ctx, id)
+	return err == nil && marked
+}
+
+// bracketMessageID puts the angle brackets back on a stored Message-ID. The
+// parser and the imap envelope both hand it over bare while References keeps
+// them, and a reply copies this value into In-Reply-To, where rfc 5322 requires
+// the brackets and where the compose side compares it against References.
+func bracketMessageID(id string) string {
+	if id == "" || strings.HasPrefix(id, "<") {
+		return id
+	}
+	return "<" + id + ">"
+}
+
+func (a *App) messageDetailFromStored(id int64, m *storage.Message) (MessageDetailDTO, error) {
 	email, folderName := a.lookupContext(a.ctx, m.AccountID, m.FolderID)
 	summary := toSummaryDTO(*m, email, folderName)
 	summary.SenderVIP = a.isVIP(m.FromAddress)
@@ -104,6 +210,9 @@ func (a *App) GetMessage(id int64) (MessageDetailDTO, error) {
 		MessageSummaryDTO: summary,
 		ToAddresses:       m.ToAddresses,
 		CcAddresses:       m.CcAddresses,
+		ReplyTo:           m.ReplyTo,
+		MessageIDHeader:   bracketMessageID(m.MessageID),
+		References:        append([]string{}, strings.Fields(m.References)...),
 		BodyPlain:         m.BodyPlain,
 		BodyQuote:         quoteText(m.BodyPlain, m.BodyHTML),
 		IsHTML:            m.BodyHTML != "",
@@ -115,6 +224,7 @@ func (a *App) GetMessage(id int64) (MessageDetailDTO, error) {
 		Unsubscribe:       a.unsubscribeInfo(m),
 		Phishing:          a.checkPhishing(*m),
 		CharsetGuess:      m.CharsetGuess,
+		BodyComplete:      m.BodyComplete,
 	}
 	detail.BodyHTMLSafe = a.renderHTML(m.BodyHTML, atts, autoAllow)
 
@@ -163,10 +273,16 @@ func (a *App) GetMessageHTML(id int64, allowRemote, includeTrackers bool) (strin
 	if err != nil {
 		return "", err
 	}
-	if includeTrackers {
-		return a.renderHTMLWithTrackers(m.BodyHTML, atts), nil
+	// protected mail is stored as ciphertext; the html the reader is looking at
+	// came from opening it, so the re-render has to open it again.
+	body := m.BodyHTML
+	if opened, isHTML, state, _ := a.openProtected(*m); state == pgpStateOpen && isHTML {
+		body = opened
 	}
-	return a.renderHTML(m.BodyHTML, atts, allowRemote), nil
+	if includeTrackers {
+		return a.renderHTMLWithTrackers(body, atts), nil
+	}
+	return a.renderHTML(body, atts, allowRemote), nil
 }
 
 // renderHTML resolves inline cid images to data urls then sanitizes with the
@@ -250,7 +366,9 @@ func (a *App) inlineDataURLs(atts []storage.Attachment) map[string]string {
 		if err != nil {
 			continue
 		}
-		id := trimAngles(att.ContentID)
+		// cid: urls are matched lowercased (mailview.ResolveCIDs), and Outlook
+		// ids carry upper-case hex.
+		id := strings.ToLower(trimAngles(att.ContentID))
 		out[id] = fmt.Sprintf("data:%s;base64,%s", att.ContentType, base64.StdEncoding.EncodeToString(data))
 	}
 	return out

@@ -9,6 +9,7 @@
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import Modal from '../common/Modal.svelte'
   import InfoTip from '../common/InfoTip.svelte'
+  import StepSlider from './StepSlider.svelte'
   import {
     listAccounts,
     updateAccount,
@@ -17,9 +18,12 @@
     deleteLogs,
     chooseArchiveExportFolder,
     previewArchiveExportName,
+    probeAccount,
+    switchProtocol,
     accountOAuthProvider,
     reauthorizeOAuthAccount,
     probeAccountCertificates,
+    probeAccountCertificatesFor,
     trustAccountCertificate,
     removeAccountTrustedCertificate,
     chooseCAFile,
@@ -32,11 +36,15 @@
   import AccountRouteFields from '../common/AccountRouteFields.svelte'
   import { routeSummary } from '../../lib/proxyroute'
   import { refreshSidebar } from '../../stores/accounts'
+  import { prefs } from '../../stores/prefs'
   import { missingPassword, askForPassword, refreshMissingPasswords } from '../../stores/passwordprompt'
+  import { retrySync } from '../../stores/syncfailures'
   import { errorMessage, toastError, toastSuccess, pushAction } from '../../stores/toast'
   import { accountLabel } from '../../lib/format'
-  import type { Account, ProxyConfig, TLSMode, UntrustedCert } from '../../lib/types'
+  import { connectionSummary } from '../../lib/connection'
+  import type { Account, ProxyConfig, TLSMode, TestConnectionResult, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
+  import { protocolSwitchError } from '../../lib/errors'
 
   let accounts: Account[] = []
   let loading = true
@@ -68,11 +76,27 @@
   let showAdvanced = false
   // the draft as it opened, so closing knows whether there is anything to lose.
   let opened = ''
+  // JMAP probe for the account being edited; null until ProbeAccount returns.
+  let probe: TestConnectionResult | null = null
+  let protocolError = ''
+  let switchingProtocol = false
+  // what the JMAP server presents that the mailbox does not trust, held for
+  // review before switching to it; null when there is nothing to review.
+  let jmapCerts: UntrustedCert[] | null = null
   // the app-wide proxy, so a mailbox following it can say where that goes.
   let globalProxy: ProxyConfig | null = null
   let testingRoute = false
 
   $: dirty = draft !== null && (JSON.stringify(draft) !== opened || passwordDraft !== '')
+  $: jmapUnavailable = probe !== null && !probe.jmapAvailable
+  $: jmapChecking = !!draft && !draft.local && probe === null
+  // enabling JMAP is blocked when the probe says it is unavailable; switching
+  // back to IMAP stays allowed even then, so a stored JMAP protocol is kept.
+  $: jmapToggleDisabled =
+    switchingProtocol ||
+    jmapChecking ||
+    jmapCerts !== null ||
+    (!!draft && !draft.local && jmapUnavailable && draft.protocol !== 'jmap')
 
   // the subfolder modes, in the order the picker shows them.
   const subfolderModes = ['none', 'year', 'month'] as const
@@ -80,6 +104,16 @@
   // how this mailbox starts a new message: unprotected, signed, or signed and
   // encrypted whenever every recipient has a key.
   const pgpDefaults = ['', 'sign', 'auto'] as const
+
+  // the connection counts the per-mailbox slider offers; matches the global one.
+  const parallelOptions = ['1', '2', '3', '4', '5'].map((n) => ({ key: n, label: n }))
+
+  // switching the default off starts the override at the current global value.
+  function setUseDefaultParallel(useDefault: boolean): void {
+    if (draft) {
+      draft.syncMaxParallel = useDefault ? null : $prefs.syncMaxParallel
+    }
+  }
 
   function setPGPDefault(value: string): void {
     if (draft) {
@@ -128,11 +162,126 @@
     opened = JSON.stringify(draft)
     showAdvanced = false
     passwordDraft = ''
+    probe = null
+    protocolError = ''
+    switchingProtocol = false
+    jmapCerts = null
     oauthProvider = ''
     probed = null
     void refreshPreview()
     void loadOAuthProvider(account.id)
     void loadProxyPasswordStored(account.id)
+    if (!account.local) {
+      void loadProbe(account.id)
+    }
+  }
+
+  async function loadProbe(accountId: number): Promise<void> {
+    try {
+      probe = await probeAccount(accountId)
+    } catch {
+      // a failed probe is treated as unavailable: the stored protocol stays,
+      // and switching to JMAP is not offered.
+      probe = {
+        jmapAvailable: false,
+        jmapWebSocket: false,
+        jmapSessionURL: '',
+        jmapMailAccountID: '',
+      }
+    }
+  }
+
+  async function setUseJmap(on: boolean): Promise<void> {
+    if (!draft || draft.local || switchingProtocol || jmapChecking) {
+      return
+    }
+    const next = on ? 'jmap' : 'imap'
+    if (next === draft.protocol) {
+      return
+    }
+    if (next === 'jmap' && jmapUnavailable) {
+      return
+    }
+    switchingProtocol = true
+    protocolError = ''
+    const accountId = draft.id
+    try {
+      // the switch signs in to the JMAP server, so a certificate it does not
+      // trust is reviewed first; until it is trusted nothing is switched.
+      if (next === 'jmap') {
+        const certs = await probeAccountCertificatesFor(accountId, 'jmap')
+        if (!draft || draft.id !== accountId) {
+          return
+        }
+        if (certs.length > 0) {
+          jmapCerts = certs
+          return
+        }
+      }
+      await switchProtocol(accountId, next)
+      if (!draft || draft.id !== accountId) {
+        return
+      }
+      draft = { ...draft, protocol: next }
+      opened = JSON.stringify(draft)
+      accounts = accounts.map((a) => (a.id === accountId ? { ...a, protocol: next } : a))
+      // folders are rebuilt server-side; refresh only after the switch commits.
+      void refreshSidebar()
+      void reloadAfterSwitch(accountId)
+    } catch (err) {
+      protocolError = protocolSwitchError(err)
+    } finally {
+      switchingProtocol = false
+    }
+  }
+
+  // reloadAfterSwitch reads the switched account back, so the connection
+  // summary names the JMAP host it now uses rather than the IMAP host.
+  async function reloadAfterSwitch(id: number): Promise<void> {
+    try {
+      accounts = await listAccounts()
+    } catch {
+      // the summary keeps the protocol switched above.
+      return
+    }
+    const fresh = accounts.find((a) => a.id === id)
+    if (fresh && draft && draft.id === id) {
+      draft.jmapSessionUrl = fresh.jmapSessionUrl
+      const base = JSON.parse(opened) as Account
+      opened = JSON.stringify({ ...base, jmapSessionUrl: fresh.jmapSessionUrl })
+    }
+  }
+
+  // trustJmapAndSwitch pins the JMAP certificate the user reviewed, then
+  // switches; the switch checks the certificates again before signing in.
+  async function trustJmapAndSwitch(event: CustomEvent<UntrustedCert[]>): Promise<void> {
+    if (!draft) {
+      return
+    }
+    const id = draft.id
+    certBusy = true
+    try {
+      for (const fp of new Set(event.detail.map((c) => c.fingerprint))) {
+        await trustAccountCertificate(id, fp)
+      }
+      jmapCerts = null
+      await reloadTrust(id)
+    } catch (err) {
+      toastError(errorMessage(err))
+      return
+    } finally {
+      certBusy = false
+    }
+    // the editor may have closed or moved to another mailbox meanwhile, and
+    // switching that one would delete its cached mail.
+    if (!draft || draft.id !== id) {
+      return
+    }
+    await setUseJmap(true)
+  }
+
+  function keepImap(): void {
+    jmapCerts = null
   }
 
   // loadProxyPasswordStored asks the keyring whether the mailbox's own proxy
@@ -333,6 +482,10 @@
     editingId = null
     draft = null
     passwordDraft = ''
+    probe = null
+    protocolError = ''
+    switchingProtocol = false
+    jmapCerts = null
   }
 
   async function save(): Promise<void> {
@@ -359,11 +512,15 @@
         exportSubfolders: draft.exportSubfolders,
         exportNameTemplate: draft.exportNameTemplate,
         pgpDefault: draft.pgpDefault,
+        syncMaxParallel: draft.syncMaxParallel ?? null,
         proxy: draft.proxy,
       })
       accounts = accounts.map((a) => (a.id === updated.id ? updated : a))
       if (passwordDraft !== '') {
         void refreshMissingPasswords()
+        // a mailbox that had no password has not synced yet; waiting for the
+        // next sync would leave it looking broken after the fix.
+        void retrySync(updated.id)
       }
       void refreshSidebar()
       cancelEdit()
@@ -431,10 +588,12 @@
 {:else}
   <ul class="list">
     {#each accounts as account (account.id)}
+      {@const summary = connectionSummary(account, $t('sidebar.localFolders'))}
       <li>
         <div class="who">
           <span class="name">{accountLabel(account)}</span>
           {#if accountLabel(account) !== account.email}<span class="addr">{account.email}</span>{/if}
+          {#if summary !== accountLabel(account)}<span class="addr">{summary}</span>{/if}
         </div>
         {#if $missingPassword.has(account.id)}
           <button
@@ -525,6 +684,54 @@
           </div>
         </span>
       </div>
+      {#if !draft.local}
+        <div class="toggle">
+          <span class:muted={jmapToggleDisabled}>{$t('settings.protocol.jmap')}</span>
+          <ToggleSwitch
+            checked={draft.protocol === 'jmap'}
+            label={$t('settings.protocol.jmap')}
+            disabled={jmapToggleDisabled}
+            on:change={(e) => void setUseJmap(e.detail)}
+          />
+        </div>
+        {#if jmapChecking}
+          <p class="hint">{$t('settings.protocol.checking')}</p>
+        {:else if switchingProtocol}
+          <p class="hint">{$t('settings.protocol.switching')}</p>
+        {:else if jmapUnavailable && !$missingPassword.has(draft.id)}
+          <!-- without a password the probe cannot sign in, which says nothing
+               about the server; the password hint below is the real answer. -->
+          <p class="hint">{$t('settings.protocol.unavailable')}</p>
+        {/if}
+        {#if protocolError}
+          <p class="err">{protocolError}</p>
+        {/if}
+        {#if jmapCerts}
+          <p class="hint">{$t('settings.protocol.certReview')}</p>
+          <CertificateReview certs={jmapCerts} busy={certBusy} on:trust={trustJmapAndSwitch} />
+          <button type="button" class="ghost small" disabled={certBusy} on:click={keepImap}>{$t('settings.protocol.keepImap')}</button>
+        {/if}
+      {/if}
+      {#if !draft.local}
+        <div class="toggle">
+          <span>{$t('mailboxes.syncParallel.useDefaultNamed').replace('{n}', String($prefs.syncMaxParallel))}</span>
+          <ToggleSwitch
+            checked={draft.syncMaxParallel == null}
+            label={$t('mailboxes.syncParallel.useDefaultNamed').replace('{n}', String($prefs.syncMaxParallel))}
+            on:change={(e) => setUseDefaultParallel(e.detail)}
+          />
+        </div>
+        {#if draft.syncMaxParallel != null}
+          <StepSlider
+            label={$t('mailboxes.syncParallel.label')}
+            value={String(draft.syncMaxParallel)}
+            options={parallelOptions}
+            on:change={(e) => {
+              if (draft) draft.syncMaxParallel = Number(e.detail)
+            }}
+          />
+        {/if}
+      {/if}
       {#if oauthProvider}
         <div class="field">
           <span>{$t('mailboxes.oauth.label')}</span>
@@ -748,6 +955,13 @@
     margin: 0 0 var(--space-4);
     font-size: var(--fz-label);
     color: var(--text-tertiary);
+    line-height: 1.5;
+  }
+
+  .err {
+    margin: 0 0 var(--space-3);
+    font-size: var(--fz-label);
+    color: var(--danger);
     line-height: 1.5;
   }
 

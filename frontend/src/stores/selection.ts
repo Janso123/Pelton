@@ -13,6 +13,17 @@ export const defaultSelection: Selection = { kind: 'view', view: 'inbox', label:
 
 export const selection = writable<Selection>(defaultSelection)
 
+// selectionEpoch counts the selections the user made (a click, the palette, a
+// startup target), as opposed to the selection object being rewritten. The
+// language relabel above makes a new object for the same view, and that must
+// not end a search or clear the search bar, so anything that resets search
+// state on a selection reads this instead of the object's identity.
+export const selectionEpoch = writable(0)
+
+function bumpEpoch(): void {
+  selectionEpoch.update((n) => n + 1)
+}
+
 // A selection carries its label rather than looking it up, which means the
 // label is a snapshot of whatever language was active when it was made. The
 // window title and the list header read it, so switching language used to leave
@@ -106,6 +117,7 @@ export async function applyStartupSelection(pref: string, data: SidebarData): Pr
     }
   }
   const resolved = target ? resolveSelection(target, data) : null
+  bumpEpoch()
   selection.set(resolved ?? { ...defaultSelection, label: unifiedViewLabel('inbox') })
 }
 
@@ -127,6 +139,7 @@ export const searchQuery = writable<string>('')
 // selectView switches the list to a unified view and clears the open message.
 export function selectView(view: ViewKey, label: string): void {
   const sel: Selection = { kind: 'view', view, label }
+  bumpEpoch()
   selection.set(sel)
   rememberSelection(sel)
   openMessageId.set(null)
@@ -135,6 +148,7 @@ export function selectView(view: ViewKey, label: string): void {
 
 // selectSavedView switches the list to a user-defined saved View (preset search).
 export function selectSavedView(viewId: number, label: string): void {
+  bumpEpoch()
   selection.set({ kind: 'savedView', viewId, label })
   openMessageId.set(null)
   searchQuery.set('')
@@ -169,6 +183,7 @@ export function selectFolder(folder: Folder): void {
     accountId: folder.accountId,
     label: folder.name,
   }
+  bumpEpoch()
   selection.set(sel)
   rememberSelection(sel)
   openMessageId.set(null)

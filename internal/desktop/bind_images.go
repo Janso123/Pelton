@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/peltonapp/Pelton/internal/storage"
@@ -18,18 +19,42 @@ const (
 	settingRemoteMessages = "remote_allow_messages"
 )
 
-// remoteSenders returns the lowercased from-addresses the user trusts for remote
-// content.
+// remoteSenders returns the bare lowercased addresses the user trusts for remote
+// content. Lists saved before trust matched on the address alone hold the whole
+// "Name <addr>" field; those entries are read as their address.
 func (a *App) remoteSenders() []string {
-	var out []string
-	_ = a.store.GetJSON(a.ctx, settingRemoteSenders, &out)
+	var stored []string
+	_ = a.store.GetJSON(a.ctx, settingRemoteSenders, &stored)
+	out := make([]string, 0, len(stored))
+	for _, s := range stored {
+		if addr := trustAddress(s); addr != "" {
+			out = appendUnique(out, addr)
+		}
+	}
 	return out
 }
 
-// remoteDomains returns the lowercased sender domains the user trusts.
+// trustAddress is the address remote-content trust is keyed on: the one
+// address of a from field, bare and lowercased, or "" when the field names
+// several senders. Trusting one of several would let the others in, and
+// bareAddress alone would pick the last of them.
+func trustAddress(from string) string {
+	if strings.Count(from, "<") > 1 || (!strings.Contains(from, "<") && strings.Contains(from, ",")) {
+		return ""
+	}
+	return bareAddress(from)
+}
+
+// remoteDomains returns the lowercased sender domains the user trusts. Older
+// lists can hold a domain cut from "Name <addr>" with the closing bracket still
+// on it ("example.com>"); that is read as the domain.
 func (a *App) remoteDomains() []string {
-	var out []string
-	_ = a.store.GetJSON(a.ctx, settingRemoteDomains, &out)
+	var stored []string
+	_ = a.store.GetJSON(a.ctx, settingRemoteDomains, &stored)
+	out := make([]string, 0, len(stored))
+	for _, d := range stored {
+		out = appendUnique(out, strings.ToLower(strings.Trim(strings.TrimSpace(d), "<>")))
+	}
 	return out
 }
 
@@ -55,12 +80,7 @@ func messageRemoteKey(m *storage.Message) string {
 // to render remote content.
 func (a *App) remoteMessageAllowed(m *storage.Message) bool {
 	key := messageRemoteKey(m)
-	for _, k := range a.remoteMessages() {
-		if k == key {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.remoteMessages(), key)
 }
 
 // AllowRemoteForMessage permanently allows remote content for this one message,
@@ -79,30 +99,25 @@ func (a *App) AllowRemoteForMessage(messageID int64) error {
 
 // remoteAutoAllow reports whether a message from fromAddress should render remote
 // content without prompting, because of the global setting, a trusted sender, or
-// a trusted sender domain.
+// a trusted sender domain. fromAddress may be "Name <addr>" or the bare address
+// (a JMAP stub stores the latter); only the address is compared, and a field
+// naming several senders is never trusted.
 func (a *App) remoteAutoAllow(fromAddress string) bool {
 	if a.boolSetting(settingRemoteAlways, false) {
 		return true
 	}
-	addr := strings.ToLower(strings.TrimSpace(fromAddress))
+	addr := trustAddress(fromAddress)
 	if addr == "" {
 		return false
 	}
-	for _, s := range a.remoteSenders() {
-		if s == addr {
-			return true
-		}
+	if slices.Contains(a.remoteSenders(), addr) {
+		return true
 	}
 	domain := emailDomain(addr)
 	if domain == "" {
 		return false
 	}
-	for _, d := range a.remoteDomains() {
-		if d == domain {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(a.remoteDomains(), domain)
 }
 
 // TrustSenderImages permanently allows remote content from a message's sender.
@@ -114,7 +129,7 @@ func (a *App) TrustSenderImages(messageID int64) error {
 	if err != nil {
 		return err
 	}
-	addr := strings.ToLower(strings.TrimSpace(m.FromAddress))
+	addr := trustAddress(m.FromAddress)
 	if addr == "" {
 		return nil
 	}
@@ -132,7 +147,7 @@ func (a *App) AllowDomainImages(messageID int64) error {
 	if err != nil {
 		return err
 	}
-	domain := emailDomain(strings.ToLower(strings.TrimSpace(m.FromAddress)))
+	domain := emailDomain(trustAddress(m.FromAddress))
 	if domain == "" {
 		return nil
 	}
@@ -213,19 +228,14 @@ func removeValue(list []string, value string) []string {
 
 // emailDomain returns the domain part of an address, or empty if malformed.
 func emailDomain(addr string) string {
-	at := strings.LastIndex(addr, "@")
-	if at < 0 || at == len(addr)-1 {
-		return ""
-	}
-	return addr[at+1:]
+	_, domain, _ := strings.CutLast(addr, "@")
+	return domain
 }
 
 // appendUnique adds value to the slice if it is not already present.
 func appendUnique(list []string, value string) []string {
-	for _, v := range list {
-		if v == value {
-			return list
-		}
+	if slices.Contains(list, value) {
+		return list
 	}
 	return append(list, value)
 }

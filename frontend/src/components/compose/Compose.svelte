@@ -6,7 +6,6 @@
   // outbox (with the undo-send window when enabled); save stores a local draft.
   import { formatWeekdayTime, type TimeFormat } from '../../lib/format'
   import { onMount, tick } from 'svelte'
-  import { marked } from 'marked'
   import {
     IconX,
     IconSend,
@@ -22,7 +21,9 @@
     IconCalendarWeek,
   } from '@tabler/icons-svelte'
   import AddressFields from './AddressFields.svelte'
+  import MarkdownPreview from './MarkdownPreview.svelte'
   import EditorModeSwitch from './EditorModeSwitch.svelte'
+  import { looksLikeHtml, textToHtml } from '../../lib/richtext'
   import Select from '../common/Select.svelte'
   import EditorToolbar from './EditorToolbar.svelte'
   import AttachmentPicker from './AttachmentPicker.svelte'
@@ -38,7 +39,7 @@
   import { prefs } from '../../stores/prefs'
   import { shortcutTitle } from '../../stores/shortcuts'
   import { bodyFontStack } from '../../lib/fonts'
-  import { buildRequest, hasRecipients } from '../../lib/mailcompose'
+  import { buildRequest, hasRecipients, parseAddressList } from '../../lib/mailcompose'
   import ProtectionPicker from './ProtectionPicker.svelte'
   import { composeProtectionStatus } from '../../lib/api'
   import type { ProtectionStatus } from '../../lib/types'
@@ -203,11 +204,15 @@
   }
 
   $: accounts = $sidebar.data?.accounts ?? []
-  $: previewHtml = marked.parse(session.body || '', { async: false }) as string
 
   // withBlock inserts a signature block into a body: headers go to the top,
-  // footers to the bottom after the standard "-- " delimiter.
+  // footers to the bottom after the standard "-- " delimiter. The rich editor
+  // reads html, so there the block goes in as html.
   function withBlock(body: string, sig: Signature): string {
+    if (session.mode === 'wysiwyg') {
+      const block = sig.format === 'html' ? sig.content : textToHtml(sig.content)
+      return sig.kind === 'header' ? `${block}${body}` : `${body}<p>-- </p>${block}`
+    }
     if (sig.kind === 'header') {
       return `${sig.content}\n\n${body}`
     }
@@ -256,6 +261,13 @@
   function setMode(event: CustomEvent<EditorMode>): void {
     if (event.detail !== 'markdown') {
       preview = false
+    }
+    // the rich editor reads html: text written in another mode would lose its
+    // line breaks there. A body that is html already (the rich editor's, left
+    // and come back to) goes in as it is.
+    if (event.detail === 'wysiwyg' && session.mode !== 'wysiwyg' && !looksLikeHtml(session.body)) {
+      updateCompose(session.id, { mode: event.detail, body: textToHtml(session.body) })
+      return
     }
     updateCompose(session.id, { mode: event.detail })
   }
@@ -354,31 +366,32 @@
     }
   }
 
-  // hasContent decides whether closing needs a save/discard prompt: any
-  // recipient, subject or body text counts, but a session that was only ever
-  // opened and never touched should close silently.
   // recipientList is every address currently typed in, which is what the
   // status is about.
   $: recipientList = [session.to, session.cc, session.bcc]
-    .join(',')
-    .split(/[,;]/)
-    .map((part) => {
-      const match = part.match(/<([^>]+)>/)
-      return (match ? match[1] : part).trim().toLowerCase()
-    })
+    .flatMap(parseAddressList)
+    .map((a) => a.email.toLowerCase())
     .filter((email) => email.includes('@'))
 
-  $: void refreshProtection(session.accountId, recipientList.join(','))
+  $: void refreshProtection(session.accountId, recipientList)
 
   // refreshProtection asks the backend what is possible. A failure leaves the
   // controls as they were rather than pretending nothing can be protected.
-  async function refreshProtection(accountId: number, key: string): Promise<void> {
+  // The answer depends on the sending account's own keys as much as on the
+  // recipients, so both make up the key a reply is matched against.
+  async function refreshProtection(accountId: number, recipients: string[]): Promise<void> {
+    const key = JSON.stringify([accountId, recipients])
     if (key === statusFor && protectionStatus !== null) {
       return
     }
     statusFor = key
     try {
-      const status = await composeProtectionStatus(accountId, recipientList)
+      const status = await composeProtectionStatus(accountId, recipients)
+      // a newer account or recipient list was asked for while this was in
+      // flight; its answer, not this one, decides what the controls may offer.
+      if (key !== statusFor) {
+        return
+      }
       protectionStatus = status as unknown as ProtectionStatus
       if (!suggestedApplied) {
         suggestedApplied = true
@@ -397,6 +410,9 @@
     }
   }
 
+  // hasContent decides whether closing needs a save/discard prompt: any
+  // recipient, subject or body text counts, but a session that was only ever
+  // opened and never touched should close silently.
   function hasContent(): boolean {
     return (
       session.to.trim().length > 0 ||
@@ -522,7 +538,7 @@
       {:else if session.mode === 'markdown'}
         <EditorToolbar {preview} on:format={(e) => applyFormat(e.detail)} on:togglePreview={() => (preview = !preview)} />
         {#if preview}
-          <div class="preview selectable">{@html previewHtml}</div>
+          <MarkdownPreview markdown={session.body} font={composeFont ?? ''} />
         {:else if CMEditor}
           <svelte:component
             this={CMEditor}
@@ -748,19 +764,6 @@
     flex-direction: column;
   }
 
-  .preview {
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--compose-font, inherit);
-    font-size: var(--fz-body);
-    line-height: 1.55;
-    overflow-y: auto;
-    padding: var(--space-3) var(--space-4);
-  }
-
   /* shown briefly while the rich editor chunk loads. */
   .editor-loading {
     flex: 1;
@@ -771,38 +774,11 @@
     font-size: var(--fz-label);
   }
 
-  /* a light github-style rendered preview. */
-  .preview :global(h1),
-  .preview :global(h2),
-  .preview :global(h3) {
-    margin: var(--space-3) 0 var(--space-2);
-  }
-
-  .preview :global(a) {
-    color: var(--link);
-  }
-
-  .preview :global(pre),
-  .preview :global(code) {
-    font-family: var(--font-mono);
-    background: var(--surface-sunken);
-    border-radius: var(--radius-control);
-  }
-
-  .preview :global(pre) {
-    padding: var(--space-3);
-    overflow-x: auto;
-  }
-
-  .preview :global(blockquote) {
-    margin: 0 0 var(--space-2);
-    padding-inline-start: var(--space-3);
-    border-inline-start: 2px solid var(--border-strong);
-    color: var(--text-secondary);
-  }
-
+  /* a narrow pane wraps the controls onto a second row rather than squeezing
+     their labels. */
   .foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -833,6 +809,7 @@
     color: var(--text-primary);
     cursor: var(--cursor-action);
     font-size: var(--fz-label);
+    white-space: nowrap;
   }
 
   .send:hover:not(:disabled),

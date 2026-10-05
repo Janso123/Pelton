@@ -11,6 +11,9 @@ const api = vi.hoisted(() => ({
   probeAccountCertificates: vi.fn(),
   trustAccountCertificate: vi.fn(),
   removeAccountTrustedCertificate: vi.fn(),
+  probeAccount: vi.fn(),
+  probeAccountCertificatesFor: vi.fn(),
+  switchProtocol: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => ({
@@ -55,6 +58,7 @@ function account(over: Partial<Account>): Account {
     exportNameTemplate: '',
     pgpDefault: '',
     passwordPromptDismissed: false,
+    protocol: 'imap',
     trustedCerts: [],
     caSubjects: [],
     proxy: blankAccountProxy(),
@@ -90,6 +94,13 @@ beforeEach(() => {
   api.previewArchiveExportName.mockResolvedValue('')
   api.trustAccountCertificate.mockResolvedValue(undefined)
   api.removeAccountTrustedCertificate.mockResolvedValue(undefined)
+  api.probeAccount.mockResolvedValue({
+    jmapAvailable: true,
+    jmapWebSocket: true,
+    jmapSessionURL: 'https://jmap.proton.example/.well-known/jmap',
+    jmapMailAccountID: 'a1',
+  })
+  api.switchProtocol.mockResolvedValue(undefined)
 })
 
 describe('mailbox editor certificates (#446)', () => {
@@ -129,5 +140,96 @@ describe('mailbox editor certificates (#446)', () => {
 
     expect(api.removeAccountTrustedCertificate).toHaveBeenCalledWith(3, pinned)
     await vi.waitFor(() => expect(screen.queryByText(pinned)).not.toBeInTheDocument())
+  })
+})
+
+const jmapCert: UntrustedCert = {
+  ...changed,
+  server: 'jmap',
+  host: 'jmap.proton.example',
+  port: 443,
+  fingerprint: '34'.repeat(32),
+  display: Array(32).fill('34').join(':'),
+}
+
+// the JMAP server's certificate is checked before switching, so an untrusted
+// one is reviewed instead of failing the switch, and a mailbox is never left
+// half switched.
+describe('switching a mailbox to JMAP with an untrusted certificate', () => {
+  async function toggleJmap(): Promise<HTMLElement> {
+    const toggle = await screen.findByRole('switch', { name: 'Use JMAP for mail and send' })
+    await vi.waitFor(() => expect(toggle).not.toBeDisabled())
+    await userEvent.click(toggle)
+    return toggle
+  }
+
+  it('shows the certificate and switches only once it is trusted', async () => {
+    api.listAccounts
+      .mockResolvedValueOnce([account({})])
+      .mockResolvedValueOnce([account({ trustedCerts: [jmapCert.display] })])
+      .mockResolvedValue([
+        account({
+          protocol: 'jmap',
+          jmapSessionUrl: 'https://jmap.proton.example/.well-known/jmap',
+          trustedCerts: [jmapCert.display],
+        }),
+      ])
+    api.probeAccountCertificatesFor.mockResolvedValueOnce([jmapCert]).mockResolvedValue([])
+    await openEditor()
+
+    const toggle = await toggleJmap()
+    expect(api.probeAccountCertificatesFor).toHaveBeenCalledWith(3, 'jmap')
+    expect(await screen.findByText('JMAP jmap.proton.example:443')).toBeInTheDocument()
+    expect(api.switchProtocol).not.toHaveBeenCalled()
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Trust this certificate' }))
+
+    expect(api.trustAccountCertificate).toHaveBeenCalledWith(3, jmapCert.fingerprint)
+    await vi.waitFor(() => expect(api.switchProtocol).toHaveBeenCalledWith(3, 'jmap'))
+    await vi.waitFor(() => expect(toggle).toHaveAttribute('aria-checked', 'true'))
+    // the account is read back, so the summary names the real JMAP host.
+    expect(await screen.findByText('JMAP · jmap.proton.example')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Trust this certificate' })).not.toBeInTheDocument()
+  })
+
+  it('does not switch another mailbox opened while the trust was pending', async () => {
+    const other = account({ id: 4, email: 'other@proton.example' })
+    api.listAccounts.mockResolvedValue([account({}), other])
+    api.probeAccountCertificatesFor.mockResolvedValueOnce([jmapCert]).mockResolvedValue([])
+    let finishTrust!: () => void
+    api.trustAccountCertificate.mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishTrust = resolve
+      }),
+    )
+    await openEditor()
+
+    await toggleJmap()
+    await userEvent.click(await screen.findByRole('button', { name: 'Trust this certificate' }))
+    expect(api.trustAccountCertificate).toHaveBeenCalledWith(3, jmapCert.fingerprint)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit other@proton.example' }))
+    await screen.findByRole('switch', { name: 'Use JMAP for mail and send' })
+
+    finishTrust()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(api.switchProtocol).not.toHaveBeenCalled()
+  })
+
+  it('keeps the mailbox on IMAP when the review is cancelled', async () => {
+    api.listAccounts.mockResolvedValue([account({})])
+    api.probeAccountCertificatesFor.mockResolvedValue([jmapCert])
+    await openEditor()
+
+    const toggle = await toggleJmap()
+    await userEvent.click(await screen.findByRole('button', { name: 'Keep IMAP' }))
+
+    expect(screen.queryByRole('button', { name: 'Trust this certificate' })).not.toBeInTheDocument()
+    expect(api.trustAccountCertificate).not.toHaveBeenCalled()
+    expect(api.switchProtocol).not.toHaveBeenCalled()
+    expect(toggle).toHaveAttribute('aria-checked', 'false')
+    expect(screen.getByText('IMAP · 127.0.0.1:1143')).toBeInTheDocument()
   })
 })

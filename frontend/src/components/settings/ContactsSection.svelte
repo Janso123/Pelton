@@ -6,7 +6,6 @@
   import { onMount } from 'svelte'
   import { IconPlus, IconTrash, IconPencil, IconRefresh, IconAlertTriangle } from '@tabler/icons-svelte'
   import Modal from '../common/Modal.svelte'
-  import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import Select from '../common/Select.svelte'
   import Spinner from '../common/Spinner.svelte'
   import {
@@ -17,12 +16,12 @@
     removeAddressBook,
   } from '../../lib/api'
   import { addressBooks, loadContacts, refreshContacts } from '../../stores/contacts'
-  import { prefs, setHarvestAddresses } from '../../stores/prefs'
+  import { prefs, setAddressLearning } from '../../stores/prefs'
   import { errorMessage, toastError, toastSuccess } from '../../stores/toast'
   import { accountLabel } from '../../lib/format'
   import { formatRelative } from '../../lib/format'
   import { t } from '../../lib/i18n'
-  import type { Account, AddressBookDraft, DiscoveredBook } from '../../lib/types'
+  import type { Account, AddressBookDraft, AddressLearning, DiscoveredBook } from '../../lib/types'
 
   let accounts: Account[] = []
   let loading = true
@@ -203,15 +202,21 @@
   </ul>
 {/if}
 
-<div class="toggle">
-  <span>{$t('contacts.harvest.toggle')}</span>
-  <ToggleSwitch
-    checked={$prefs.harvestAddresses}
-    label={$t('contacts.harvest.toggle')}
-    on:change={(e) => setHarvestAddresses(e.detail)}
+<div class="learning">
+  <span>{$t('contacts.learning.label')}</span>
+  <Select
+    value={$prefs.addressLearning}
+    ariaLabel={$t('contacts.learning.label')}
+    items={[
+      { value: 'off', label: $t('contacts.learning.off') },
+      { value: 'sent', label: $t('contacts.learning.sent') },
+      { value: 'trusted', label: $t('contacts.learning.trusted') },
+      { value: 'all', label: $t('contacts.learning.all') },
+    ]}
+    on:change={(e) => setAddressLearning(e.detail as AddressLearning)}
   />
 </div>
-<p class="hint">{$t('contacts.harvest.hint')}</p>
+<p class="hint">{$t('contacts.learning.hint')}</p>
 
 {#if draft}
   <Modal
@@ -367,7 +372,7 @@
     color: var(--warning);
   }
 
-  .toggle {
+  .learning {
     display: flex;
     align-items: center;
     justify-content: space-between;

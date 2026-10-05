@@ -48,6 +48,9 @@ export namespace desktop {
 	    exportNameTemplate: string;
 	    pgpDefault: string;
 	    passwordPromptDismissed: boolean;
+	    protocol: string;
+	    jmapSessionUrl: string;
+	    syncMaxParallel?: number;
 	    trustedCerts: string[];
 	    caSubjects: string[];
 	    proxy: AccountProxyDTO;
@@ -77,6 +80,9 @@ export namespace desktop {
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
+	        this.protocol = source["protocol"];
+	        this.jmapSessionUrl = source["jmapSessionUrl"];
+	        this.syncMaxParallel = source["syncMaxParallel"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caSubjects = source["caSubjects"];
 	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
@@ -153,6 +159,7 @@ export namespace desktop {
 	    provider: string;
 	    clientId: string;
 	    clientSecret: string;
+	    protocol: string;
 	    trustedCerts: string[];
 	    caPem: string;
 	    proxy: AccountProxyDTO;
@@ -178,6 +185,7 @@ export namespace desktop {
 	        this.provider = source["provider"];
 	        this.clientId = source["clientId"];
 	        this.clientSecret = source["clientSecret"];
+	        this.protocol = source["protocol"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caPem = source["caPem"];
 	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
@@ -237,6 +245,7 @@ export namespace desktop {
 	    email: string;
 	    name: string;
 	    useCount: number;
+	    sentCount: number;
 	    lastUsed: string;
 	    createdAt: string;
 	    contact: boolean;
@@ -250,6 +259,7 @@ export namespace desktop {
 	        this.email = source["email"];
 	        this.name = source["name"];
 	        this.useCount = source["useCount"];
+	        this.sentCount = source["sentCount"];
 	        this.lastUsed = source["lastUsed"];
 	        this.createdAt = source["createdAt"];
 	        this.contact = source["contact"];
@@ -342,6 +352,8 @@ export namespace desktop {
 	export class ArchiveUndoDTO {
 	    messageId: string;
 	    originalFolderId: number;
+	    destFolderId: number;
+	    remoteId: string;
 	    exportPath: string;
 	    exportError: string;
 	
@@ -353,6 +365,8 @@ export namespace desktop {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.messageId = source["messageId"];
 	        this.originalFolderId = source["originalFolderId"];
+	        this.destFolderId = source["destFolderId"];
+	        this.remoteId = source["remoteId"];
 	        this.exportPath = source["exportPath"];
 	        this.exportError = source["exportError"];
 	    }
@@ -607,6 +621,10 @@ export namespace desktop {
 	}
 	export class ConnectionTestDTO {
 	    untrusted: UntrustedCertDTO[];
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionTestDTO(source);
@@ -615,6 +633,10 @@ export namespace desktop {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.untrusted = this.convertValues(source["untrusted"], UntrustedCertDTO);
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1305,6 +1327,9 @@ export namespace desktop {
 	    smime: SMIMEDTO;
 	    toAddresses: string;
 	    ccAddresses: string;
+	    replyTo: string;
+	    messageIdHeader: string;
+	    references: string[];
 	    bodyPlain: string;
 	    bodyHtmlSafe: string;
 	    bodyQuote: string;
@@ -1318,6 +1343,7 @@ export namespace desktop {
 	    pgpState: string;
 	    unsubscribe?: UnsubscribeDTO;
 	    charsetGuess: string;
+	    bodyComplete: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageDetailDTO(source);
@@ -1347,6 +1373,9 @@ export namespace desktop {
 	        this.smime = this.convertValues(source["smime"], SMIMEDTO);
 	        this.toAddresses = source["toAddresses"];
 	        this.ccAddresses = source["ccAddresses"];
+	        this.replyTo = source["replyTo"];
+	        this.messageIdHeader = source["messageIdHeader"];
+	        this.references = source["references"];
 	        this.bodyPlain = source["bodyPlain"];
 	        this.bodyHtmlSafe = source["bodyHtmlSafe"];
 	        this.bodyQuote = source["bodyQuote"];
@@ -1360,6 +1389,7 @@ export namespace desktop {
 	        this.pgpState = source["pgpState"];
 	        this.unsubscribe = this.convertValues(source["unsubscribe"], UnsubscribeDTO);
 	        this.charsetGuess = source["charsetGuess"];
+	        this.bodyComplete = source["bodyComplete"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1607,6 +1637,26 @@ export namespace desktop {
 	        this.ok = source["ok"];
 	        this.rejected = source["rejected"];
 	        this.error = source["error"];
+	    }
+	}
+	export class PendingAccount {
+	    id: string;
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PendingAccount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
 	    }
 	}
 	export class PendingMailtoDTO {
@@ -1872,6 +1922,8 @@ export namespace desktop {
 	    subject: string;
 	    hasAttachment: boolean;
 	    unreadOnly: boolean;
+	    folderId: number;
+	    view: string;
 	    sort: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1890,6 +1942,8 @@ export namespace desktop {
 	        this.subject = source["subject"];
 	        this.hasAttachment = source["hasAttachment"];
 	        this.unreadOnly = source["unreadOnly"];
+	        this.folderId = source["folderId"];
+	        this.view = source["view"];
 	        this.sort = source["sort"];
 	    }
 	}
@@ -2010,6 +2064,24 @@ export namespace desktop {
 		    }
 		    return a;
 		}
+	}
+	export class TestConnectionResult {
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestConnectionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
+	    }
 	}
 	export class ThemeApplyDTO {
 	    id: string;
@@ -2226,7 +2298,7 @@ export namespace desktop {
 	    sendDelaySeconds: number;
 	    flagHighlight: string;
 	    showShortcutHints: boolean;
-	    harvestAddresses: boolean;
+	    addressLearning: string;
 	    showAccountEmail: boolean;
 	    alwaysLoadImages: boolean;
 	    blockTrackingPixels: boolean;
@@ -2289,6 +2361,8 @@ export namespace desktop {
 	    closeAction: string;
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
+	    syncMaxParallel: number;
+	    syncFullReconcileDays: number;
 	    startupSelection: string;
 	    logToFile: boolean;
 	    logLevel: string;
@@ -2315,7 +2389,7 @@ export namespace desktop {
 	        this.sendDelaySeconds = source["sendDelaySeconds"];
 	        this.flagHighlight = source["flagHighlight"];
 	        this.showShortcutHints = source["showShortcutHints"];
-	        this.harvestAddresses = source["harvestAddresses"];
+	        this.addressLearning = source["addressLearning"];
 	        this.showAccountEmail = source["showAccountEmail"];
 	        this.alwaysLoadImages = source["alwaysLoadImages"];
 	        this.blockTrackingPixels = source["blockTrackingPixels"];
@@ -2378,6 +2452,8 @@ export namespace desktop {
 	        this.closeAction = source["closeAction"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];
+	        this.syncMaxParallel = source["syncMaxParallel"];
+	        this.syncFullReconcileDays = source["syncFullReconcileDays"];
 	        this.startupSelection = source["startupSelection"];
 	        this.logToFile = source["logToFile"];
 	        this.logLevel = source["logLevel"];
@@ -2423,6 +2499,7 @@ export namespace desktop {
 	    exportSubfolders: string;
 	    exportNameTemplate: string;
 	    pgpDefault: string;
+	    syncMaxParallel?: number;
 	    proxy: AccountProxyDTO;
 	
 	    static createFrom(source: any = {}) {
@@ -2448,6 +2525,7 @@ export namespace desktop {
 	        this.exportSubfolders = source["exportSubfolders"];
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
+	        this.syncMaxParallel = source["syncMaxParallel"];
 	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
 	    }
 	

@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 const api = vi.hoisted(() => ({
   discoverConfig: vi.fn(),
   testConnection: vi.fn(),
-  addOAuthAccount: vi.fn(),
+  beginOAuthAccount: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => ({
@@ -29,7 +29,7 @@ beforeEach(() => {
   })
   api.testConnection.mockResolvedValue({ untrusted: [] })
   // never resolves: the test stops at the moment sign-in is requested.
-  api.addOAuthAccount.mockReturnValue(new Promise(() => {}))
+  api.beginOAuthAccount.mockReturnValue(new Promise(() => {}))
 })
 
 // a mailbox only reachable through its own proxy has to be testable, and
@@ -59,7 +59,7 @@ describe('route in the add-mailbox wizard', () => {
     await userEvent.type(screen.getByLabelText('Proxy host'), 'own.example')
     await userEvent.click(screen.getByRole('button', { name: 'Sign in with Outlook / Microsoft 365' }))
 
-    expect(api.addOAuthAccount).toHaveBeenCalledWith(
+    expect(api.beginOAuthAccount).toHaveBeenCalledWith(
       expect.objectContaining({ proxy: expect.objectContaining({ mode: 'manual', host: 'own.example' }) }),
     )
   })

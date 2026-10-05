@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/base64"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/smtp"
@@ -102,7 +103,7 @@ func (a *App) SendMessage(req ComposeRequest) (int64, error) {
 	// harvest every recipient into the address book so autocomplete learns from
 	// who the user writes to. best effort: a failure here must not fail the send.
 	// Turned off, nothing is remembered and autocomplete offers only contacts.
-	for _, group := range harvestGroups(a.harvestAddresses(), req) {
+	for _, group := range harvestGroups(a.addressLearning() != learnOff, req) {
 		for _, addr := range group {
 			if err := a.store.RecordAddress(a.ctx, addr.Email, addr.Name); err != nil {
 				a.log.Error("record recipient address", "email", addr.Email, "err", err)
@@ -112,8 +113,8 @@ func (a *App) SendMessage(req ComposeRequest) (int64, error) {
 	return id, nil
 }
 
-// harvestGroups is the recipient lists to learn from, or none when learning
-// from mail is off.
+// harvestGroups is the recipient lists to learn from, or none when address
+// learning is off.
 func harvestGroups(harvest bool, req ComposeRequest) [][]AddressDTO {
 	if !harvest {
 		return nil
@@ -280,17 +281,49 @@ type storedDraft struct {
 // draftsKey is the settings key holding the json array of local drafts.
 const draftsKey = "local_drafts"
 
+// maxSafeDraftID is the largest id a JavaScript number holds exactly. Draft ids
+// travel to the frontend as numbers, and a larger one comes back rounded to a
+// different id.
+const maxSafeDraftID int64 = 1<<53 - 1
+
+// nextDraftID is one above the highest id in use.
+func nextDraftID(drafts []storedDraft) int64 {
+	var highest int64
+	for _, d := range drafts {
+		highest = max(highest, d.ID)
+	}
+	return highest + 1
+}
+
+// renumberUnsafeDraftIDs gives every draft whose id a JavaScript number cannot
+// hold a fresh small id, and reports whether it changed anything.
+func renumberUnsafeDraftIDs(drafts []storedDraft) bool {
+	var next int64
+	for _, d := range drafts {
+		if d.ID <= maxSafeDraftID {
+			next = max(next, d.ID)
+		}
+	}
+	changed := false
+	for i := range drafts {
+		if drafts[i].ID > maxSafeDraftID {
+			next++
+			drafts[i].ID = next
+			changed = true
+		}
+	}
+	return changed
+}
+
 // SaveDraft stores a compose request as a local draft and returns its id. An id
-// of 0 in the request creates a new draft; a non zero id replaces that draft.
+// of 0 creates a new draft and a known id replaces that draft. An id no longer
+// in the list (the draft was discarded in another pane) is saved as a new
+// draft under a new id, which the caller takes over, so what the user wrote is
+// kept rather than every later save failing.
 func (a *App) SaveDraft(id int64, req ComposeRequest) (int64, error) {
 	if err := a.ready(); err != nil {
 		return 0, err
 	}
-	drafts, err := a.loadDrafts()
-	if err != nil {
-		return 0, err
-	}
-
 	entry := storedDraft{
 		ID:         id,
 		SavedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -311,16 +344,22 @@ func (a *App) SaveDraft(id int64, req ComposeRequest) (int64, error) {
 		entry.Request = ComposeRequest{AccountID: req.AccountID, Protection: req.Protection}
 	}
 
-	if id == 0 {
-		entry.ID = time.Now().UnixNano()
+	a.draftsMu.Lock()
+	defer a.draftsMu.Unlock()
+	drafts, err := a.loadDrafts()
+	if err != nil {
+		return 0, err
+	}
+	i := -1
+	if id != 0 {
+		i = slices.IndexFunc(drafts, func(d storedDraft) bool { return d.ID == id })
+	}
+	if i < 0 {
+		entry.ID = nextDraftID(drafts)
 		id = entry.ID
 		drafts = append(drafts, entry)
-	}
-	for i := range drafts {
-		if drafts[i].ID == id {
-			entry.ID = id
-			drafts[i] = entry
-		}
+	} else {
+		drafts[i] = entry
 	}
 	if err := a.store.SetJSON(a.ctx, draftsKey, drafts); err != nil {
 		return 0, err
@@ -335,7 +374,9 @@ func (a *App) ListDrafts() ([]DraftDTO, error) {
 	if err := a.ready(); err != nil {
 		return nil, err
 	}
+	a.draftsMu.Lock()
 	drafts, err := a.loadDrafts()
+	a.draftsMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +417,9 @@ func (a *App) UnsealDraft(id int64, passphrase string) (DraftDTO, error) {
 	if err := a.ready(); err != nil {
 		return DraftDTO{}, err
 	}
+	a.draftsMu.Lock()
 	drafts, err := a.loadDrafts()
+	a.draftsMu.Unlock()
 	if err != nil {
 		return DraftDTO{}, err
 	}
@@ -404,6 +447,8 @@ func (a *App) DeleteDraft(id int64) error {
 	if err := a.ready(); err != nil {
 		return err
 	}
+	a.draftsMu.Lock()
+	defer a.draftsMu.Unlock()
 	drafts, err := a.loadDrafts()
 	if err != nil {
 		return err
@@ -417,7 +462,8 @@ func (a *App) DeleteDraft(id int64) error {
 	return a.store.SetJSON(a.ctx, draftsKey, kept)
 }
 
-// loadDrafts reads the drafts json, treating an unset key as an empty list.
+// loadDrafts reads the drafts json, treating an unset key as an empty list. The
+// caller holds draftsMu, as the renumbering of legacy ids writes back.
 func (a *App) loadDrafts() ([]storedDraft, error) {
 	var drafts []storedDraft
 	err := a.store.GetJSON(a.ctx, draftsKey, &drafts)
@@ -426,6 +472,11 @@ func (a *App) loadDrafts() ([]storedDraft, error) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if renumberUnsafeDraftIDs(drafts) {
+		if err := a.store.SetJSON(a.ctx, draftsKey, drafts); err != nil {
+			return nil, err
+		}
 	}
 	return drafts, nil
 }

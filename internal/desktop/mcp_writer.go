@@ -21,7 +21,10 @@ type mcpWriter struct {
 }
 
 func (w *mcpWriter) MarkRead(_ context.Context, id int64, read bool) error {
-	err := w.app.SetSeen(id, read)
+	err := w.messageInProfile(id)
+	if err == nil {
+		err = w.app.SetSeen(id, read)
+	}
 	state := "unread"
 	if read {
 		state = "read"
@@ -30,17 +33,29 @@ func (w *mcpWriter) MarkRead(_ context.Context, id int64, read bool) error {
 }
 
 func (w *mcpWriter) Move(_ context.Context, id, folderID int64) error {
-	_, err := w.app.MoveMessage(id, folderID)
+	err := w.messageInProfile(id)
+	if err == nil {
+		err = w.folderInProfile(folderID)
+	}
+	if err == nil {
+		_, err = w.app.MoveMessage(id, folderID)
+	}
 	return w.record(mcpserver.ToolMoveMessage, id, "moved to "+w.folderName(folderID), err)
 }
 
 func (w *mcpWriter) Archive(_ context.Context, id int64) error {
-	_, err := w.app.ArchiveMessage(id)
+	err := w.messageInProfile(id)
+	if err == nil {
+		_, err = w.app.ArchiveMessage(id)
+	}
 	return w.record(mcpserver.ToolArchive, id, "archived", err)
 }
 
 func (w *mcpWriter) Flag(_ context.Context, id int64, flagged bool) error {
-	err := w.app.SetFlagged(id, flagged)
+	err := w.messageInProfile(id)
+	if err == nil {
+		err = w.app.SetFlagged(id, flagged)
+	}
 	action := "unstarred"
 	if flagged {
 		action = "starred"
@@ -49,7 +64,10 @@ func (w *mcpWriter) Flag(_ context.Context, id int64, flagged bool) error {
 }
 
 func (w *mcpWriter) SetFlagColor(_ context.Context, id int64, color int) error {
-	err := w.app.SetFlagColor(id, color)
+	err := w.messageInProfile(id)
+	if err == nil {
+		err = w.app.SetFlagColor(id, color)
+	}
 	action := "cleared the colour label"
 	if color != 0 {
 		action = fmt.Sprintf("set colour label %d", color)
@@ -60,7 +78,10 @@ func (w *mcpWriter) SetFlagColor(_ context.Context, id int64, color int) error {
 // Delete moves to the trash. There is deliberately no path from here to an
 // expunge: emptying the trash stays with the person at the keyboard.
 func (w *mcpWriter) Delete(_ context.Context, id int64) error {
-	err := w.app.DeleteMessage(id)
+	err := w.messageInProfile(id)
+	if err == nil {
+		err = w.app.DeleteMessage(id)
+	}
 	return w.record(mcpserver.ToolDeleteMessage, id, "moved to the trash", err)
 }
 
@@ -72,6 +93,10 @@ func (w *mcpWriter) QueueSend(_ context.Context, msg mcpserver.OutgoingMessage) 
 		return 0, fmt.Errorf("desktop: a proposed message needs at least one recipient")
 	}
 	to := strings.Join(msg.To, ", ")
+	if err := w.accountInProfile(msg.AccountID, storage.ErrAccountNotFound); err != nil {
+		_ = w.record(mcpserver.ToolSendMessage, 0, "proposed a message to "+to, err)
+		return 0, err
+	}
 	id, err := w.app.store.CreateAgentProposal(w.app.ctx, storage.AgentProposal{
 		AccountID: msg.AccountID,
 		To:        to,
@@ -88,6 +113,39 @@ func (w *mcpWriter) QueueSend(_ context.Context, msg mcpserver.OutgoingMessage) 
 		"proposed a message to "+to+", awaiting your approval", nil)
 	w.app.emit(EventAgentProposals, nil)
 	return id, nil
+}
+
+// messageInProfile refuses a message the active profile does not show with the
+// not-found error the read tools give for it, so an agent can neither act on
+// mail the user switched away from nor tell it apart from mail that is gone.
+func (w *mcpWriter) messageInProfile(id int64) error {
+	msg, err := w.app.store.GetMessage(w.app.ctx, id)
+	if err != nil {
+		return err
+	}
+	return w.accountInProfile(msg.AccountID, storage.ErrMessageNotFound)
+}
+
+// folderInProfile is messageInProfile for a destination folder.
+func (w *mcpWriter) folderInProfile(id int64) error {
+	folder, err := w.app.store.GetFolder(w.app.ctx, id)
+	if err != nil {
+		return err
+	}
+	return w.accountInProfile(folder.AccountID, storage.ErrFolderNotFound)
+}
+
+// accountInProfile returns notFound when accountID is outside the active
+// profile.
+func (w *mcpWriter) accountInProfile(accountID int64, notFound error) error {
+	ok, err := w.app.inProfile(accountID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return notFound
+	}
+	return nil
 }
 
 // record logs the action and passes the error straight back, so logging can

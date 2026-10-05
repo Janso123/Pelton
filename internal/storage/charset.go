@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -102,6 +103,50 @@ func (d *DB) MessagesNeedingRefetch(ctx context.Context, folderID int64, limit i
 		return nil, fmt.Errorf("storage: iterate messages needing refetch: %w", err)
 	}
 	return out, nil
+}
+
+// MarkedForRefetch returns the messages among remoteIDs in a folder that are
+// marked for refetch, for repairing one the reader has open right away.
+func (d *DB) MarkedForRefetch(ctx context.Context, folderID int64, remoteIDs []string) ([]MangledMessage, error) {
+	if len(remoteIDs) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(remoteIDs)+1)
+	args = append(args, folderID)
+	for _, id := range remoteIDs {
+		args = append(args, id)
+	}
+	marks := strings.Repeat("?,", len(remoteIDs))
+	rows, err := d.sql.QueryContext(ctx,
+		`SELECT id, uid FROM messages WHERE folder_id = ? AND needs_refetch = 1 AND remote_id IN (`+marks[:len(marks)-1]+`)`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list marked messages in folder %d: %w", folderID, err)
+	}
+	defer rows.Close()
+
+	var out []MangledMessage
+	for rows.Next() {
+		var m MangledMessage
+		if err := rows.Scan(&m.ID, &m.UID); err != nil {
+			return nil, fmt.Errorf("storage: scan marked message: %w", err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("storage: iterate marked messages: %w", err)
+	}
+	return out, nil
+}
+
+// NeedsRefetch reports whether a message is marked to be fetched again.
+func (d *DB) NeedsRefetch(ctx context.Context, id int64) (bool, error) {
+	var marked bool
+	if err := d.sql.QueryRowContext(ctx,
+		`SELECT needs_refetch FROM messages WHERE id = ?`, id).Scan(&marked); err != nil {
+		return false, fmt.Errorf("storage: read refetch mark of message %d: %w", id, err)
+	}
+	return marked, nil
 }
 
 // RepairMessageText replaces a message's subject and bodies with freshly

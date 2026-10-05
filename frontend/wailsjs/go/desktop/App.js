@@ -70,6 +70,14 @@ export function ArchiveMessage(arg1) {
   return window['go']['desktop']['App']['ArchiveMessage'](arg1);
 }
 
+export function BeginOAuthAccount(arg1) {
+  return window['go']['desktop']['App']['BeginOAuthAccount'](arg1);
+}
+
+export function CancelAddAccount(arg1) {
+  return window['go']['desktop']['App']['CancelAddAccount'](arg1);
+}
+
 export function CancelDownload() {
   return window['go']['desktop']['App']['CancelDownload']();
 }
@@ -264,6 +272,10 @@ export function FetchOlderMessages(arg1) {
 
 export function FindThunderbirdProfiles() {
   return window['go']['desktop']['App']['FindThunderbirdProfiles']();
+}
+
+export function FinishAddAccount(arg1, arg2) {
+  return window['go']['desktop']['App']['FinishAddAccount'](arg1, arg2);
 }
 
 export function ForgetPGPPassphrase(arg1) {
@@ -490,8 +502,16 @@ export function PreviewThemeImport() {
   return window['go']['desktop']['App']['PreviewThemeImport']();
 }
 
+export function ProbeAccount(arg1) {
+  return window['go']['desktop']['App']['ProbeAccount'](arg1);
+}
+
 export function ProbeAccountCertificates(arg1) {
   return window['go']['desktop']['App']['ProbeAccountCertificates'](arg1);
+}
+
+export function ProbeAccountCertificatesFor(arg1, arg2) {
+  return window['go']['desktop']['App']['ProbeAccountCertificatesFor'](arg1, arg2);
 }
 
 export function ProgramLicense() {
@@ -750,6 +770,10 @@ export function SwitchProfile(arg1) {
   return window['go']['desktop']['App']['SwitchProfile'](arg1);
 }
 
+export function SwitchProtocol(arg1, arg2) {
+  return window['go']['desktop']['App']['SwitchProtocol'](arg1, arg2);
+}
+
 export function SyncAccountNow(arg1) {
   return window['go']['desktop']['App']['SyncAccountNow'](arg1);
 }
@@ -790,8 +814,8 @@ export function TrustSenderImages(arg1) {
   return window['go']['desktop']['App']['TrustSenderImages'](arg1);
 }
 
-export function UnarchiveMessage(arg1, arg2) {
-  return window['go']['desktop']['App']['UnarchiveMessage'](arg1, arg2);
+export function UnarchiveMessage(arg1, arg2, arg3, arg4) {
+  return window['go']['desktop']['App']['UnarchiveMessage'](arg1, arg2, arg3, arg4);
 }
 
 export function UndoDelete(arg1) {

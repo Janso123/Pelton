@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	keyring "github.com/zalando/go-keyring"
@@ -32,8 +33,22 @@ func rememberSecret(s Secret) {
 	remember(s.Password, s.ClientSecret, s.RefreshToken, s.AccessToken)
 }
 
-// service is the keyring service name all pelton secrets are filed under.
-const service = "Pelton"
+// defaultService is the keyring service name a normal install files its
+// secrets under.
+const defaultService = "Pelton"
+
+// service is the keyring service name all secrets of this process are filed
+// under. See UseService.
+var service = defaultService
+
+// UseService files every secret of this process under name instead of the
+// default. Entries are keyed by account id, and a dev run or a nightly keeps
+// its own database whose ids start at 1 like the installed app's; sharing one
+// service let them overwrite the installed app's passwords. Call it once at
+// startup, before any secret is read or written.
+func UseService(name string) {
+	service = name
+}
 
 // maxEntrySize keeps every keyring write under Windows Credential Manager's
 // hard 2560-byte-per-entry cap (with margin), splitting anything larger
@@ -41,9 +56,28 @@ const service = "Pelton"
 // exceed that on their own.
 const maxEntrySize = 2000
 
-// chunkMarker prefixes the main entry's value when the secret was split
-// across chunkMarker+N and the numbered chunk entries below it.
-const chunkMarker = "pelton-chunked:v1:"
+// chunkMarkerV1 prefixes the main entry of a secret split across numbered
+// entries <id>.0..<id>.N-1. It is only read now: those chunks were rewritten
+// in place, so a failed store could mix two secrets.
+const chunkMarkerV1 = "pelton-chunked:v1:"
+
+// chunkMarkerV2 prefixes the main entry of a secret split across one of two
+// slots, "pelton-chunked:v2:<slot>:<n>". A store writes the slot the current
+// secret is not using and only then points the main entry at it.
+const chunkMarkerV2 = "pelton-chunked:v2:"
+
+// setEntry writes one keyring entry. Tests replace it to make a write fail.
+var setEntry = keyring.Set
+
+// getEntry reads one account-secret keyring entry. Tests replace it to make a
+// read fail.
+var getEntry = keyring.Get
+
+// secretMu serialises the account-secret functions. Store reads the current
+// layout and then writes the other slot; two stores at once pick the same slot
+// and interleave their chunks. The hooks above must not call back into Store,
+// Load or Delete, or they would wait on this lock forever.
+var secretMu sync.Mutex
 
 // ErrNotFound is returned when no secret is stored for an account.
 var ErrNotFound = errors.New("credentials: not found")
@@ -69,55 +103,70 @@ type Secret struct {
 	ClientSecret string    `json:"clientSecret,omitempty"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
 	AccessToken  string    `json:"accessToken,omitempty"`
-	Expiry       time.Time `json:"expiry,omitempty"`
+	Expiry       time.Time `json:"expiry"`
 }
 
-// Store writes the secret for an account, replacing any existing one. The new
-// value (and, if chunked, every new chunk) is written before any stale chunk
-// from a previous, larger secret is removed, so a failed write never leaves
-// the account's secret unreadable.
+// Store writes the secret for an account, replacing any existing one. A secret
+// over the entry cap is split into the chunk slot the current secret does not
+// use, and the main entry is switched to it only once every chunk is written,
+// so a failed store leaves the previous secret whole. When the current entry
+// cannot be read nothing is written, since the slot it uses is unknown.
 func Store(accountID int64, s Secret) error {
+	secretMu.Lock()
+	defer secretMu.Unlock()
 	rememberSecret(s)
 	encoded, err := json.Marshal(s)
 	if err != nil {
 		return fmt.Errorf("credentials: encode secret: %w", err)
 	}
-	oldChunks := existingChunkCount(accountID)
+	old, split, err := currentLayout(accountID)
+	if err != nil {
+		return err
+	}
 
 	if len(encoded) <= maxEntrySize {
-		if err := keyring.Set(service, key(accountID), string(encoded)); err != nil {
+		if err := setEntry(service, key(accountID), string(encoded)); err != nil {
 			return fmt.Errorf("credentials: store for account %d: %w", accountID, err)
 		}
-		deleteChunkRange(accountID, 0, oldChunks)
+		if split {
+			deleteChunks(accountID, old)
+		}
 		return nil
 	}
 
 	chunks := chunkBytes(encoded, maxEntrySize)
+	next := chunkLayout{slot: otherSlot(old.slot), n: len(chunks)}
 	for i, part := range chunks {
-		if err := keyring.Set(service, chunkKey(accountID, i), string(part)); err != nil {
+		if err := setEntry(service, next.key(accountID, i), string(part)); err != nil {
+			deleteChunks(accountID, chunkLayout{slot: next.slot, n: i})
 			return fmt.Errorf("credentials: store chunk %d for account %d: %w", i, accountID, err)
 		}
 	}
-	if err := keyring.Set(service, key(accountID), chunkMarker+strconv.Itoa(len(chunks))); err != nil {
+	if err := setEntry(service, key(accountID), next.marker()); err != nil {
+		deleteChunks(accountID, next)
 		return fmt.Errorf("credentials: store for account %d: %w", accountID, err)
 	}
-	deleteChunkRange(accountID, len(chunks), oldChunks)
+	if split {
+		deleteChunks(accountID, old)
+	}
 	return nil
 }
 
 // Load reads the secret for an account, or ErrNotFound.
 func Load(accountID int64) (Secret, error) {
-	raw, err := keyring.Get(service, key(accountID))
+	secretMu.Lock()
+	defer secretMu.Unlock()
+	raw, err := getEntry(service, key(accountID))
 	if errors.Is(err, keyring.ErrNotFound) {
 		return Secret{}, ErrNotFound
 	}
 	if err != nil {
 		return Secret{}, fmt.Errorf("credentials: load for account %d: %w", accountID, err)
 	}
-	if n, ok := chunkCount(raw); ok {
+	if layout, ok := parseChunkMarker(raw); ok {
 		var sb strings.Builder
-		for i := range n {
-			part, err := keyring.Get(service, chunkKey(accountID, i))
+		for i := range layout.n {
+			part, err := getEntry(service, layout.key(accountID, i))
 			if err != nil {
 				return Secret{}, fmt.Errorf("credentials: load chunk %d for account %d: %w", i, accountID, err)
 			}
@@ -134,9 +183,14 @@ func Load(accountID int64) (Secret, error) {
 }
 
 // Delete removes the secret for an account. A missing entry is not an error so
-// account deletion is idempotent.
+// account deletion is idempotent. When the main entry cannot be read its chunks
+// are left in place rather than guessed at, and the main entry is still removed.
 func Delete(accountID int64) error {
-	deleteChunkRange(accountID, 0, existingChunkCount(accountID))
+	secretMu.Lock()
+	defer secretMu.Unlock()
+	if l, ok, err := currentLayout(accountID); err == nil && ok {
+		deleteChunks(accountID, l)
+	}
 	err := keyring.Delete(service, key(accountID))
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return fmt.Errorf("credentials: delete for account %d: %w", accountID, err)
@@ -316,22 +370,55 @@ func key(accountID int64) string {
 	return strconv.FormatInt(accountID, 10)
 }
 
-// chunkKey is the entry name for chunk i of a split secret.
-func chunkKey(accountID int64, i int) string {
-	return key(accountID) + "." + strconv.Itoa(i)
+// chunkLayout says where a split secret's chunks live: slot "" is the v1
+// numbering, "a" and "b" the two v2 slots.
+type chunkLayout struct {
+	slot string
+	n    int
 }
 
-// chunkCount reports whether raw is a chunk marker and, if so, how many
-// chunk entries to read.
-func chunkCount(raw string) (int, bool) {
-	if !strings.HasPrefix(raw, chunkMarker) {
-		return 0, false
+// key is the entry name for chunk i in this layout.
+func (l chunkLayout) key(accountID int64, i int) string {
+	if l.slot == "" {
+		return key(accountID) + "." + strconv.Itoa(i)
 	}
-	n, err := strconv.Atoi(strings.TrimPrefix(raw, chunkMarker))
-	if err != nil {
-		return 0, false
+	return key(accountID) + "." + l.slot + "." + strconv.Itoa(i)
+}
+
+// marker is the main-entry value pointing at this layout (v2 only).
+func (l chunkLayout) marker() string {
+	return chunkMarkerV2 + l.slot + ":" + strconv.Itoa(l.n)
+}
+
+// otherSlot picks the slot a new split secret is written to.
+func otherSlot(current string) string {
+	if current == "a" {
+		return "b"
 	}
-	return n, true
+	return "a"
+}
+
+// parseChunkMarker reports whether raw is a chunk marker and where it points.
+func parseChunkMarker(raw string) (chunkLayout, bool) {
+	if rest, ok := strings.CutPrefix(raw, chunkMarkerV1); ok {
+		n, err := strconv.Atoi(rest)
+		if err != nil {
+			return chunkLayout{}, false
+		}
+		return chunkLayout{n: n}, true
+	}
+	if rest, ok := strings.CutPrefix(raw, chunkMarkerV2); ok {
+		slot, count, found := strings.Cut(rest, ":")
+		if !found || (slot != "a" && slot != "b") {
+			return chunkLayout{}, false
+		}
+		n, err := strconv.Atoi(count)
+		if err != nil {
+			return chunkLayout{}, false
+		}
+		return chunkLayout{slot: slot, n: n}, true
+	}
+	return chunkLayout{}, false
 }
 
 // chunkBytes splits data into pieces of at most size bytes.
@@ -344,23 +431,25 @@ func chunkBytes(data []byte, size int) [][]byte {
 	return append(out, data)
 }
 
-// existingChunkCount returns how many chunk entries accountID's current
-// secret is split across, or 0 if it isn't chunked (or doesn't exist).
-func existingChunkCount(accountID int64) int {
-	raw, err := keyring.Get(service, key(accountID))
+// currentLayout returns where accountID's stored secret keeps its chunks, and
+// false when it is not split or does not exist. Any other read error is
+// returned: treating it as "not split" would point the next store at a slot
+// that may be the live one.
+func currentLayout(accountID int64) (chunkLayout, bool, error) {
+	raw, err := getEntry(service, key(accountID))
+	if errors.Is(err, keyring.ErrNotFound) {
+		return chunkLayout{}, false, nil
+	}
 	if err != nil {
-		return 0
+		return chunkLayout{}, false, fmt.Errorf("credentials: read current secret for account %d: %w", accountID, err)
 	}
-	n, ok := chunkCount(raw)
-	if !ok {
-		return 0
-	}
-	return n
+	l, ok := parseChunkMarker(raw)
+	return l, ok, nil
 }
 
-// deleteChunkRange removes chunk entries [from, to) for accountID.
-func deleteChunkRange(accountID int64, from, to int) {
-	for i := from; i < to; i++ {
-		_ = keyring.Delete(service, chunkKey(accountID, i))
+// deleteChunks removes every chunk entry of a layout.
+func deleteChunks(accountID int64, l chunkLayout) {
+	for i := range l.n {
+		_ = keyring.Delete(service, l.key(accountID, i))
 	}
 }

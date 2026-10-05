@@ -12,6 +12,7 @@
   import { createEventDispatcher } from 'svelte'
   import { outbox, loadOutbox } from '../../stores/outbox'
   import { cancelSend, retrySend, discardFailedSend } from '../../lib/api'
+  import { outboxFailureText } from '../../lib/outbox'
   import { errorMessage, toastError, toastInfo } from '../../stores/toast'
   import type { OutboxRow } from '../../lib/types'
   import { t } from '../../lib/i18n'
@@ -128,7 +129,7 @@
             {#if row.state === 'sending'}
               <span class="bar"><span class="fill"></span></span>
             {:else if row.state === 'failed'}
-              <span class="err">{row.lastError || $t('common.outboxPanel.sendFailed')}</span>
+              <span class="err">{outboxFailureText(row.lastError, $t) || $t('common.outboxPanel.sendFailed')}</span>
               {#if confirmingDiscard === row.id}
                 <span class="confirm">
                   <span class="muted">{$t('common.outboxPanel.discardConfirm')}</span>

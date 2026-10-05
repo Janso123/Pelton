@@ -5,13 +5,13 @@ import type { Discovered } from '../../lib/types'
 
 const api = vi.hoisted(() => ({
   discoverConfig: vi.fn(),
-  addOAuthAccount: vi.fn(),
+  beginOAuthAccount: vi.fn(),
 }))
 
 vi.mock('../../lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/api')>()),
   discoverConfig: api.discoverConfig,
-  addOAuthAccount: api.addOAuthAccount,
+  beginOAuthAccount: api.beginOAuthAccount,
 }))
 
 vi.mock('../../../wailsjs/runtime/runtime', () => ({
@@ -41,9 +41,9 @@ function open(providerId: string): void {
 
 beforeEach(() => {
   api.discoverConfig.mockReset()
-  api.addOAuthAccount.mockReset()
+  api.beginOAuthAccount.mockReset()
   // never resolves: the tests stop at the moment sign-in is requested.
-  api.addOAuthAccount.mockReturnValue(new Promise(() => {}))
+  api.beginOAuthAccount.mockReturnValue(new Promise(() => {}))
 })
 
 describe('google workspace detection (#445)', () => {
@@ -88,7 +88,7 @@ describe('oauth client secret', () => {
     expect(signIn).toBeEnabled()
 
     await userEvent.click(signIn)
-    expect(api.addOAuthAccount).toHaveBeenCalledWith(
+    expect(api.beginOAuthAccount).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'google', clientId: 'id.apps.googleusercontent.com', clientSecret: 'GOCSPX-secret' }),
     )
   })

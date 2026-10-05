@@ -46,6 +46,9 @@ type Message struct {
 	// first was added by the receiving server and is the only trustworthy one.
 	ReplyTo     string
 	AuthResults []string
+	// References is the References header as space-separated message ids ('' when
+	// absent), kept so a reply can extend the thread chain.
+	References string
 	// CharsetGuess names the encoding a body part was read as when the message
 	// declared none or declared one nothing knows. Empty for mail that was
 	// right about itself, which is nearly all of it.
@@ -127,6 +130,7 @@ func parts(mr *mail.Reader, msg *Message) error {
 	msg.Header = mr.Header
 	msg.ReplyTo = addressList(&mr.Header, "Reply-To")
 	msg.AuthResults = headerValues(&mr.Header, "Authentication-Results")
+	msg.References = strings.Join(strings.Fields(mr.Header.Get("References")), " ")
 	msg.ListUnsubscribe = mr.Header.Get("List-Unsubscribe")
 	msg.ListUnsubscribePost = strings.Contains(strings.ToLower(mr.Header.Get("List-Unsubscribe-Post")), "one-click")
 
@@ -141,6 +145,17 @@ func parts(mr *mail.Reader, msg *Message) error {
 
 		switch header := part.Header.(type) {
 		case *mail.InlineHeader:
+			// go-message calls every Content-Disposition: inline part inline,
+			// whatever its type. Outlook sends the pictures its html points at
+			// by cid that way; they are attachments, not text.
+			if contentType, _, _ := header.ContentType(); !strings.HasPrefix(strings.ToLower(contentType), "text/") {
+				att, err := attachment(&mail.AttachmentHeader{Header: header.Header}, part.Body)
+				if err != nil {
+					return err
+				}
+				msg.Attachments = append(msg.Attachments, att)
+				continue
+			}
 			body, err := io.ReadAll(part.Body)
 			if err != nil {
 				return fmt.Errorf("rfc822: read inline part: %w", err)
@@ -168,23 +183,31 @@ func parts(mr *mail.Reader, msg *Message) error {
 				msg.Text = text
 			}
 		case *mail.AttachmentHeader:
-			filename, _ := header.Filename()
-			contentType, _, _ := header.ContentType()
-			content, err := io.ReadAll(part.Body)
+			att, err := attachment(header, part.Body)
 			if err != nil {
-				return fmt.Errorf("rfc822: read attachment part: %w", err)
+				return err
 			}
-			// content-id arrives wrapped in angle brackets, strip them
-			contentID := strings.Trim(header.Get("Content-Id"), "<>")
-			msg.Attachments = append(msg.Attachments, Attachment{
-				Filename:    filename,
-				ContentType: contentType,
-				ContentID:   contentID,
-				Content:     content,
-			})
+			msg.Attachments = append(msg.Attachments, att)
 		}
 	}
 	return nil
+}
+
+// attachment reads one attachment part.
+func attachment(header *mail.AttachmentHeader, body io.Reader) (Attachment, error) {
+	filename, _ := header.Filename()
+	contentType, _, _ := header.ContentType()
+	content, err := io.ReadAll(body)
+	if err != nil {
+		return Attachment{}, fmt.Errorf("rfc822: read attachment part: %w", err)
+	}
+	return Attachment{
+		Filename:    filename,
+		ContentType: contentType,
+		// content-id arrives wrapped in angle brackets, strip them
+		ContentID: strings.Trim(header.Get("Content-Id"), "<>"),
+		Content:   content,
+	}, nil
 }
 
 // addressList renders one address header as `Name <user@host>, ...`, matching
@@ -216,14 +239,32 @@ func addressList(h *mail.Header, key string) string {
 	}
 	parts := make([]string, 0, len(addrs))
 	for _, a := range addrs {
-		switch {
-		case a.Name != "" && a.Address != "":
-			parts = append(parts, fmt.Sprintf("%s <%s>", a.Name, a.Address))
-		case a.Address != "":
-			parts = append(parts, a.Address)
-		case a.Name != "":
-			parts = append(parts, a.Name)
+		if s := FormatAddress(a.Name, a.Address); s != "" {
+			parts = append(parts, s)
 		}
 	}
 	return charsetguess.Valid(strings.Join(parts, ", "))
 }
+
+// FormatAddress renders one address the way address lists are stored: the
+// bare address when there is no name, otherwise `name <addr>`, with the name
+// quoted (`"` and `\` escaped) when it holds a character a recipient-list
+// parser would split on or misread, so "Doe, John" stays one recipient when
+// the list is read back for reply-all. A name without an address is returned
+// as is. Unlike mail.Address.String it never RFC 2047-encodes the name: the
+// result is read by people and by Pelton's own parser, not written into a
+// header.
+func FormatAddress(name, addr string) string {
+	switch {
+	case addr == "":
+		return name
+	case name == "":
+		return addr
+	case strings.ContainsAny(name, `,;"<>@()\`):
+		return `"` + nameEscaper.Replace(name) + `" <` + addr + ">"
+	default:
+		return name + " <" + addr + ">"
+	}
+}
+
+var nameEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)

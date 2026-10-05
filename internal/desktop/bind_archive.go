@@ -7,12 +7,14 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/mailexport"
 	"github.com/peltonapp/Pelton/internal/storage"
+	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
-// ArchiveUndoDTO carries what undo-archive needs to move a message back: its
-// stable rfc Message-ID (the moved copy has a new UID) and the folder it came
-// from. MessageID is empty when the message had no Message-ID header, in which
-// case undo is not possible.
+// ArchiveUndoDTO carries what undo needs to move a message back: the folder it
+// came from, the folder the action put it in, and how to find it there. An IMAP
+// move gives the message a new UID, so it is found by its rfc Message-ID; a JMAP
+// email keeps its id, so RemoteID finds it. Undo is not possible when MessageID
+// is empty (IMAP) or RemoteID is empty (JMAP).
 // ExportPath is the .eml copy written by the account's export-on-archive
 // option, empty when the option is off. ExportError explains why no copy was
 // written when one was expected; the archive itself still succeeded, so the ui
@@ -20,6 +22,8 @@ import (
 type ArchiveUndoDTO struct {
 	MessageID        string `json:"messageId"`
 	OriginalFolderID int64  `json:"originalFolderId"`
+	DestFolderID     int64  `json:"destFolderId"`
+	RemoteID         string `json:"remoteId"`
 	ExportPath       string `json:"exportPath"`
 	ExportError      string `json:"exportError"`
 }
@@ -82,13 +86,19 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 	if err != nil {
 		return ArchiveUndoDTO{}, err
 	}
+	// withAccountAdapter takes the account lock itself, so this has to return
+	// before the IMAP path below takes it.
+	if account.Protocol == "jmap" {
+		return a.moveMessageJMAP(m, *source, dest, *account)
+	}
 	cfg, err := a.resolveIMAP(*account)
 	if err != nil {
 		return ArchiveUndoDTO{}, err
 	}
 
-	syncMu.Lock()
-	defer syncMu.Unlock()
+	accountMu := a.accountLock(account.ID)
+	accountMu.Lock()
+	defer accountMu.Unlock()
 
 	client, err := a.connectIMAP(cfg)
 	if err != nil {
@@ -122,7 +132,38 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 	if err := client.Move(imap.UID(m.UID), dest.IMAPPath); err != nil {
 		return ArchiveUndoDTO{}, err
 	}
+	return a.finishMove(m, *source, dest, *account, raw, exportError)
+}
 
+// moveMessageJMAP is moveMessageTo for a JMAP account: the move is an Email/set
+// on the message's mailboxes, and the email keeps its id.
+func (a *App) moveMessageJMAP(m *storage.Message, source, dest storage.Folder, account storage.Account) (ArchiveUndoDTO, error) {
+	var (
+		raw         []byte
+		exportError string
+	)
+	err := a.withAccountAdapter(account.ID, func(ad psync.Adapter) error {
+		if exportWanted(account, dest) {
+			var ferr error
+			raw, ferr = rawFromAdapter(a.ctx, ad, source, m.RemoteID)
+			if ferr != nil {
+				raw = nil
+				exportError = ferr.Error()
+				a.log.Error("archive export: fetch source", "id", m.ID, "err", ferr)
+			}
+		}
+		return ad.Move(a.ctx, source.RemoteID, []string{m.RemoteID}, dest.RemoteID)
+	})
+	if err != nil {
+		return ArchiveUndoDTO{}, err
+	}
+	return a.finishMove(m, source, dest, account, raw, exportError)
+}
+
+// finishMove is the local half of a move the server has already accepted: it
+// drops the cached row and its files, announces the destination, and writes the
+// export copy when raw was fetched.
+func (a *App) finishMove(m *storage.Message, source, dest storage.Folder, account storage.Account, raw []byte, exportError string) (ArchiveUndoDTO, error) {
 	if err := a.store.DeleteMessage(a.ctx, m.ID); err != nil {
 		return ArchiveUndoDTO{}, err
 	}
@@ -133,7 +174,8 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 
 	var path string
 	if len(raw) > 0 {
-		path, err = exportOptions(*account).Write(exportMeta(m), raw)
+		var err error
+		path, err = exportOptions(account).Write(exportMeta(m), raw)
 		if err != nil {
 			exportError = err.Error()
 			a.log.Error("archive export: write file", "id", m.ID, "err", err)
@@ -142,6 +184,8 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 	return ArchiveUndoDTO{
 		MessageID:        m.MessageID,
 		OriginalFolderID: source.ID,
+		DestFolderID:     dest.ID,
+		RemoteID:         m.RemoteID,
 		ExportPath:       path,
 		ExportError:      exportError,
 	}, nil
@@ -178,35 +222,52 @@ func exportMeta(m *storage.Message) mailexport.Meta {
 	}
 }
 
-// UnarchiveMessage moves an archived message back to originalFolderID, locating
-// it by its rfc Message-ID (its UID changed when it was moved). It errors when
-// the message has no Message-ID or can no longer be found in Archive.
-func (a *App) UnarchiveMessage(rfcMessageID string, originalFolderID int64) error {
+// UnarchiveMessage undoes an archive or move: it moves the message from
+// fromFolderID, where the action put it, back to originalFolderID. A JMAP
+// email keeps its id across moves, so remoteID finds it; an IMAP move gives the
+// message a new uid, so it is found by its rfc Message-ID.
+func (a *App) UnarchiveMessage(rfcMessageID, remoteID string, fromFolderID, originalFolderID int64) error {
 	if err := a.ready(); err != nil {
 		return err
-	}
-	if rfcMessageID == "" {
-		return fmt.Errorf("pelton: this message cannot be un-archived (no Message-ID)")
 	}
 	dest, err := a.store.GetFolder(a.ctx, originalFolderID)
 	if err != nil {
 		return err
 	}
-	archive, err := a.findArchiveFolder(dest.AccountID)
+	from, err := a.store.GetFolder(a.ctx, fromFolderID)
 	if err != nil {
 		return err
+	}
+	if from.AccountID != dest.AccountID {
+		return fmt.Errorf("pelton: cannot undo a move across accounts")
 	}
 	account, err := a.store.GetAccount(a.ctx, dest.AccountID)
 	if err != nil {
 		return err
+	}
+	if account.Protocol == "jmap" {
+		if remoteID == "" {
+			return fmt.Errorf("pelton: this message cannot be moved back")
+		}
+		if err := a.withAccountAdapter(account.ID, func(ad psync.Adapter) error {
+			return ad.Move(a.ctx, from.RemoteID, []string{remoteID}, dest.RemoteID)
+		}); err != nil {
+			return err
+		}
+		a.emit(EventMailNew, MailNewEvent{AccountID: dest.AccountID, FolderID: dest.ID, Count: 1})
+		return nil
+	}
+	if rfcMessageID == "" {
+		return fmt.Errorf("pelton: this message cannot be moved back (no Message-ID)")
 	}
 	cfg, err := a.resolveIMAP(*account)
 	if err != nil {
 		return err
 	}
 
-	syncMu.Lock()
-	defer syncMu.Unlock()
+	accountMu := a.accountLock(account.ID)
+	accountMu.Lock()
+	defer accountMu.Unlock()
 
 	client, err := a.connectIMAP(cfg)
 	if err != nil {
@@ -217,15 +278,15 @@ func (a *App) UnarchiveMessage(rfcMessageID string, originalFolderID int64) erro
 		return err
 	}
 	defer client.Logout()
-	if _, err := client.Select(archive.IMAPPath); err != nil {
-		return fmt.Errorf("unarchive: select %q: %w", archive.IMAPPath, err)
+	if _, err := client.Select(from.IMAPPath); err != nil {
+		return fmt.Errorf("undo move: select %q: %w", from.IMAPPath, err)
 	}
 	uids, err := client.SearchByMessageID(rfcMessageID)
 	if err != nil {
 		return err
 	}
 	if len(uids) == 0 {
-		return fmt.Errorf("pelton: archived message not found to restore")
+		return fmt.Errorf("pelton: moved message not found to restore")
 	}
 	if err := client.Move(uids[len(uids)-1], dest.IMAPPath); err != nil {
 		return err

@@ -34,3 +34,17 @@ export function friendlyError(err: unknown): string {
   }
   return errorMessage(err)
 }
+
+// matches the backend's errProtocolSwitchTimedOut, which may carry the cause
+// after a colon.
+const protocolSwitchTimedOut = /pelton: protocol switch timed out/
+
+// protocolSwitchError returns the message for a failed SwitchProtocol call.
+// a switch that ran out of time left the mailbox on its old protocol, so it
+// gets a localized line saying so instead of the raw context error.
+export function protocolSwitchError(err: unknown): string {
+  if (protocolSwitchTimedOut.test(errorMessage(err))) {
+    return get(t)('settings.protocol.switchFailed')
+  }
+  return errorMessage(err)
+}

@@ -10,6 +10,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -33,6 +34,15 @@ const (
 	// maxBackoff caps the per-attempt delay.
 	maxBackoff = 30 * time.Minute
 )
+
+// ErrMaybeSent marks a transmit that ended without knowing whether the server
+// took the message: the connection broke after the message was handed over.
+// The worker does not retry it, since a retry may deliver it a second time.
+var ErrMaybeSent = errors.New("outbox: the message may have been sent")
+
+// CauseMaybeSent is the last error recorded for a message failed with
+// ErrMaybeSent. The ui shows its own wording for it.
+const CauseMaybeSent = "maybe-sent"
 
 // recipientSep joins envelope recipients in the single stored column.
 const recipientSep = "\n"
@@ -114,6 +124,11 @@ func (q *Queue) markAttemptFailed(ctx context.Context, m Message, cause string) 
 	}
 	next := time.Now().UTC().Add(backoff(attempts))
 	return true, q.db.UpdateOutboxState(ctx, m.ID, StateQueued, attempts, cause, next)
+}
+
+// markMaybeSent fails a message at once, without retrying, and records why.
+func (q *Queue) markMaybeSent(ctx context.Context, m Message) error {
+	return q.db.UpdateOutboxState(ctx, m.ID, StateFailed, m.Attempts+1, CauseMaybeSent, time.Time{})
 }
 
 // RequeueStuck moves any rows left in sending (from a crashed run) back to

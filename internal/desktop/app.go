@@ -17,13 +17,16 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/configsync"
+	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
+	pjmap "github.com/peltonapp/Pelton/internal/jmap"
 	"github.com/peltonapp/Pelton/internal/logging"
 	"github.com/peltonapp/Pelton/internal/mcpserver"
 	"github.com/peltonapp/Pelton/internal/outbox"
 	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/search"
 	"github.com/peltonapp/Pelton/internal/storage"
+	psync "github.com/peltonapp/Pelton/internal/sync"
 	"github.com/wailsapp/wails/v2/pkg/menu"
 	"golang.org/x/oauth2"
 )
@@ -53,9 +56,6 @@ type App struct {
 	// though a nil check keeps it from crashing.
 	storeReady chan struct{}
 	index      *search.Index
-	// syncTally holds the message counts behind the sync progress bar for the
-	// run in flight.
-	syncTally syncTally
 	// streamTick rate-limits the "mail arrived" events a running sync emits, so
 	// a fast first sync fills the list without asking the ui to redraw it
 	// hundreds of times a minute.
@@ -63,6 +63,9 @@ type App struct {
 	// searchMu serializes index backfills so a startup pass and a post-sync pass
 	// do not advance the watermark concurrently.
 	searchMu sync.Mutex
+	// draftsMu serializes draft changes: the drafts live in one settings value
+	// and every change is a load, modify, write.
+	draftsMu sync.Mutex
 	// rejectedLogins holds the accounts whose credentials the server refused,
 	// which is not something the keyring can tell us: the password is stored,
 	// it is simply wrong. It is in memory on purpose, since the only way to
@@ -154,6 +157,9 @@ type App struct {
 	// never races.
 	mcpMu sync.Mutex
 	mcp   *mcpserver.Server
+	// mcpCfg is the configuration mcp was started with, so a profile switch can
+	// tell whether the new profile asks for a different server at all.
+	mcpCfg mcpserver.Config
 
 	// mailto holds a mailto: draft the app was launched with (or received from a
 	// second launch) until the frontend consumes it. See mailto.go.
@@ -164,6 +170,79 @@ type App struct {
 	// waiting for the next sidebar refresh.
 	badgeMu     sync.Mutex
 	unreadBadge int
+
+	// workersMu guards workers, the per-account sync/idle (or JMAP watch)
+	// goroutines. stopAccountWorker cancels and joins one entry; profile
+	// shutdown cancels the session and joins all.
+	workersMu sync.Mutex
+	workers   map[int64]*accountWorker
+
+	// accountStatesMu guards accountStates and removedAccounts. A state holds
+	// the account's lock, sync hold, tracked IMAP sessions, in-flight run and
+	// progress tally. Entries outlive the account's scheduler so a protocol
+	// switch can abort, hold and lock only that account across the teardown.
+	accountStatesMu sync.Mutex
+	accountStates   map[int64]*accountState
+	// removedAccounts are the ids DeleteAccount removed while the app ran.
+	// Nothing may start sync work for them again.
+	removedAccounts map[int64]struct{}
+
+	// syncsMu guards syncs, one scheduler and sync pool per account. SMTP
+	// send never checks a slot out and pauses nothing.
+	syncsMu sync.Mutex
+	syncs   map[int64]*accountSync
+
+	// jmapPushMu guards jmapPushOK. A healthy JMAP WebSocket sets the account's
+	// entry; timed auto-sync skips that account until the watch fails or ends.
+	jmapPushMu sync.Mutex
+	jmapPushOK map[int64]bool
+
+	// jmapHTTPMu guards jmapHTTP, each JMAP mailbox's shared http client
+	// (see accountJMAPHTTPClient).
+	jmapHTTPMu sync.Mutex
+	jmapHTTP   map[int64]jmapHTTPEntry
+
+	// pendingMu guards pending, OAuth accounts waiting for a protocol choice
+	// before FinishAddAccount inserts a row. Entries die with the process.
+	pendingMu sync.Mutex
+	pending   map[string]pendingAccount
+
+	// authenticateTarget verifies the chosen protocol before create/switch.
+	// Tests replace it so login can be stubbed without a server.
+	authenticateTarget func(ctx context.Context, account storage.Account, route proxy.Config, protocol string, secret credentials.Secret) (targetAuth, error)
+
+	// provisionCardDAV, when set, replaces provisionCardDAVBooks (tests).
+	provisionCardDAV func(ctx context.Context, account storage.Account, password string) error
+
+	// jmapClientForTest, when set, replaces jmapClient (watch/sync tests).
+	jmapClientForTest func(ctx context.Context, account storage.Account) (*pjmap.Client, error)
+	// jmapAdapterForTest, when set, is the adapter withAccountAdapter hands out
+	// for JMAP accounts (message action tests).
+	jmapAdapterForTest func(account storage.Account) psync.Adapter
+	// jmapManualSyncForTest, when set, replaces the incremental reconcile inside
+	// the manual Sync live job. Production leaves it nil.
+	jmapManualSyncForTest func(ctx context.Context, account storage.Account) error
+	// fullReconcileForTest, when set, replaces execFullReconcile. Tests only.
+	fullReconcileForTest func(ctx context.Context, account storage.Account, folder storage.Folder) error
+	// onDemandFetchForTest, when set, replaces the protocol fetch inside
+	// fetchMessageBodyOnDemand. Production leaves it nil.
+	onDemandFetchForTest func(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error
+	// bodyRetryDelays, when set, replaces onDemandBodyRetryDelays (tests).
+	bodyRetryDelays []time.Duration
+	// bodyFetches holds the ids of messages whose body is being fetched for the
+	// reading pane, so opening one again joins that fetch instead of racing it.
+	bodyFetches sync.Map
+	// syncProgressEmitForTest, when set, receives sync progress events before the
+	// wails runtime (tests).
+	syncProgressEmitForTest func(SyncProgressEvent)
+	// emitForTest, when set, receives every event before the wails runtime
+	// (tests).
+	emitForTest func(name string, payload any)
+	// notificationForTest, when set, receives OS notifications instead of the
+	// platform backend (tests).
+	notificationForTest func(notification)
+	// progressHeartbeatEvery, when set, replaces syncProgressHeartbeat (tests).
+	progressHeartbeatEvery time.Duration
 }
 
 // IsDemoMode reports whether the app was launched in the cosmetic demo mode. The
@@ -193,6 +272,8 @@ func newApp(version, channel string) *App {
 		channel:    channel,
 		startedAt:  time.Now(),
 		storeReady: make(chan struct{}),
+		workers:    make(map[int64]*accountWorker),
+		pending:    make(map[string]pendingAccount),
 	}
 }
 
@@ -274,6 +355,7 @@ func (a *App) startup(ctx context.Context) {
 	// backgrounded: it reads every message body once, which is not something to
 	// hold a window open for.
 	goSafe("checking cached mail for broken text", a.markMangledMail)
+	goSafe("checking cached mail for missing inline pictures", a.markMissingInlineMail)
 
 	a.startBackgroundServices()
 
@@ -283,8 +365,8 @@ func (a *App) startup(ctx context.Context) {
 	goSafe("checking for updates", func() { a.maybeAutoCheckForUpdates(ctx) })
 
 	// if a bulk offline download was still running when the app last closed,
-	// pick it back up; planDownload skips anything already cached so this is
-	// cheap when most of the range was already fetched.
+	// pick it back up; planDownload skips anything that already has its body so
+	// this is cheap when most of the range was already fetched.
 	a.ResumePendingDownload()
 }
 

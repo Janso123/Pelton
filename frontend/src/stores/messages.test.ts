@@ -7,7 +7,33 @@ import type { MessageSummary } from '../lib/types'
 // for one, not about the request it would make.
 vi.mock('./sidebarcounts', () => ({ refreshCountsSoon: vi.fn() }))
 
-import { messageList, neighbourInList, patchInList, removeFromList, restoreToList } from './messages'
+const api = vi.hoisted(() => ({
+  listFolderMessages: vi.fn(),
+  search: vi.fn(),
+}))
+
+vi.mock('../lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/api')>()),
+  listFolderMessages: api.listFolderMessages,
+  search: api.search,
+}))
+
+import {
+  messageList,
+  neighbourInList,
+  patchInList,
+  refreshListHead,
+  removeFromList,
+  restoreToList,
+  loadList,
+  isSearching,
+  reloadList,
+  rerunSearch,
+  runSearch,
+  searchScope,
+  emptyFilter,
+  PAGE_SIZE,
+} from './messages'
 import { refreshCountsSoon } from './sidebarcounts'
 
 const refreshed = vi.mocked(refreshCountsSoon)
@@ -56,8 +82,64 @@ function ids(): number[] {
 }
 
 beforeEach(() => {
+  api.listFolderMessages.mockReset()
+  api.search.mockReset()
   messageList.set(idle())
   refreshed.mockClear()
+})
+
+describe('refreshListHead', () => {
+  it('leaves a paged list alone when body sync announces existing rows', async () => {
+    const firstPage = Array.from({ length: PAGE_SIZE }, (_, i) => summary(i + 1))
+    const secondPage = [summary(51), summary(52)]
+    api.listFolderMessages.mockResolvedValue({
+      messages: firstPage,
+      total: 52,
+      hasOlder: false,
+    })
+
+    await loadList({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+    messageList.set(
+      ready({
+        items: [...firstPage, ...secondPage],
+        total: 52,
+        searching: false,
+        hasOlder: false,
+        backfilling: false,
+      }),
+    )
+
+    await refreshListHead({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+
+    expect(get(messageList).data!.items).toHaveLength(52)
+    expect(get(messageList).data!.items[0].id).toBe(1)
+    expect(get(messageList).data!.items.at(-1)?.id).toBe(52)
+    expect(api.listFolderMessages).toHaveBeenCalledTimes(2)
+  })
+
+  it('prepends stubs that arrived during body fill', async () => {
+    const existing = [summary(2), summary(3)]
+    api.listFolderMessages.mockResolvedValue({
+      messages: [summary(1), ...existing],
+      total: 3,
+      hasOlder: false,
+    })
+    await loadList({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+    messageList.set(
+      ready({
+        items: existing,
+        total: 2,
+        searching: false,
+        hasOlder: false,
+        backfilling: false,
+      }),
+    )
+
+    await refreshListHead({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+
+    expect(get(messageList).data!.items.map((m) => m.id)).toEqual([1, 2, 3])
+    expect(get(messageList).data!.total).toBe(3)
+  })
 })
 
 // #403: the sidebar used to wait for the next sync, so a folder kept its unread
@@ -235,5 +317,91 @@ describe('neighbourInList', () => {
 
   it('returns null while the list is not loaded', () => {
     expect(neighbourInList(1)).toBeNull()
+  })
+})
+
+describe('search state', () => {
+  it('is searching after a search and not after the folder list loads', async () => {
+    api.search.mockResolvedValue({ messages: [summary(1)], total: 1 })
+    api.listFolderMessages.mockResolvedValue({ messages: [summary(2)], total: 1, hasOlder: false })
+    expect(isSearching()).toBe(false)
+    await runSearch('invoice')
+    expect(isSearching()).toBe(true)
+    await loadList({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+    expect(isSearching()).toBe(false)
+  })
+
+  it('rerunSearch reads the current query again and keeps the result set', async () => {
+    api.search.mockResolvedValue({ messages: [summary(1)], total: 1 })
+    await runSearch('invoice')
+    api.search.mockResolvedValue({ messages: [summary(3), summary(1)], total: 2 })
+    await rerunSearch()
+    expect(api.search).toHaveBeenLastCalledWith(expect.objectContaining({ query: 'invoice' }))
+    expect(ids()).toEqual([3, 1])
+    expect(get(messageList).data?.searching).toBe(true)
+    expect(api.listFolderMessages).not.toHaveBeenCalled()
+  })
+
+  it('rerunSearch does nothing when no search is active', async () => {
+    api.listFolderMessages.mockResolvedValue({ messages: [summary(2)], total: 1, hasOlder: false })
+    await loadList({ kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' })
+    await rerunSearch()
+    expect(api.search).not.toHaveBeenCalled()
+  })
+})
+
+describe('reloadList', () => {
+  const sel = { kind: 'folder', folderId: 1, accountId: 1, label: 'INBOX' } as const
+
+  // the active search is module state that outlives a test, so leave it first.
+  beforeEach(async () => {
+    api.listFolderMessages.mockResolvedValue({ messages: [], total: 0, hasOlder: false })
+    await loadList(sel)
+    api.listFolderMessages.mockClear()
+  })
+
+  it('re-runs the search instead of loading the folder while searching', async () => {
+    api.search.mockResolvedValue({ messages: [summary(1)], total: 1 })
+    await runSearch('invoice')
+    await reloadList(sel)
+    expect(api.search).toHaveBeenCalledTimes(2)
+    expect(api.listFolderMessages).not.toHaveBeenCalled()
+    expect(get(messageList).data?.searching).toBe(true)
+  })
+
+  it('loads the selection when no search is active', async () => {
+    api.listFolderMessages.mockResolvedValue({ messages: [summary(2)], total: 1, hasOlder: false })
+    await reloadList(sel)
+    expect(api.listFolderMessages).toHaveBeenCalled()
+    expect(api.search).not.toHaveBeenCalled()
+  })
+})
+
+describe('search scope', () => {
+  const inbox = { kind: 'folder', folderId: 7, accountId: 1, label: 'INBOX' } as const
+
+  it('stays in the folder the search was started from', () => {
+    expect(searchScope(null, inbox)).toEqual({ folderId: 7, view: '' })
+  })
+
+  it('stays in the unified view the search was started from', () => {
+    expect(searchScope(null, { kind: 'view', view: 'inbox', label: 'Unified Inbox' })).toEqual({ folderId: 0, view: 'inbox' })
+  })
+
+  it('covers every folder from a saved view or with in:all', () => {
+    expect(searchScope(null, { kind: 'savedView', viewId: 3, label: 'Bills' })).toEqual({ folderId: 0, view: '' })
+    expect(searchScope('all', inbox)).toEqual({ folderId: 0, view: '' })
+  })
+
+  it('uses a folder picked with in: wherever the search started', () => {
+    expect(searchScope(12, inbox)).toEqual({ folderId: 12, view: '' })
+  })
+
+  it('sends the scope of the list on screen with the search', async () => {
+    api.listFolderMessages.mockResolvedValue({ messages: [], total: 0, hasOlder: false })
+    api.search.mockResolvedValue({ messages: [], total: 0 })
+    await loadList(inbox)
+    await runSearch('invoice', { ...emptyFilter, unreadOnly: true })
+    expect(api.search).toHaveBeenLastCalledWith(expect.objectContaining({ folderId: 7, view: '', unreadOnly: true }))
   })
 })

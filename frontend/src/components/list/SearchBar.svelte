@@ -1,29 +1,37 @@
 <script lang="ts">
   // the search field at the top of the message list. besides free text it accepts
-  // typed keyword chips (from:/sender:, to:, subject:, has:attachment) and date
-  // chips (before:/after:). a keyword token is committed to a chip on space or
-  // enter; an autocomplete dropdown suggests keywords as you type; the calendar
-  // button inserts before/after date chips. everything is emitted as free text
-  // plus a structured SearchFilter so the list re-runs the ranked search.
+  // typed keyword chips (from:/sender:, to:, subject:, has:attachment), a folder
+  // chip (in:/folder:, a folder or all) and date chips (before:/after:). Without
+  // a folder chip the search stays in the folder or view the list is showing. a keyword token is committed to a chip on space or
+  // enter; a dropdown suggests filters on focus and values once a filter is typed
+  // (addresses for from:/to:); the calendar button inserts before/after date
+  // chips. everything is emitted as free text plus a structured SearchFilter so
+  // the list re-runs the ranked search.
   import { createEventDispatcher, tick } from 'svelte'
   import { IconSearch, IconX, IconCalendar, IconBookmarkPlus, IconArrowsSort, IconCheck } from '@tabler/icons-svelte'
   import { prefs } from '../../stores/prefs'
   import { shortcutLabel, t } from '../../lib/i18n'
+  import { searchAddresses } from '../../lib/api'
+  import type { AddressBookEntry, Folder } from '../../lib/types'
   import { emptyFilter, type SearchFilter } from '../../stores/messages'
+  import { sidebar } from '../../stores/accounts'
+  import { selection } from '../../stores/selection'
+  import { accountLabel } from '../../lib/format'
   import { activeSortPref, searchSortKind } from '../../stores/messages'
   import { searchSorts, automaticSort } from '../../lib/searchsort'
   import type { SearchSortPref } from '../../lib/types'
-  import { selection } from '../../stores/selection'
+  import { selectionEpoch } from '../../stores/selection'
   import { openViewEditor } from '../../stores/views'
   import DateTimePicker from '../common/DateTimePicker.svelte'
 
   export let value: string = ''
 
   // switching folder/view clears the query upstream (searchQuery), so drop any
-  // typed text and chips here to match, keyed off the selection changing.
-  let lastSelection = $selection
-  $: if ($selection !== lastSelection) {
-    lastSelection = $selection
+  // typed text and chips here to match. Keyed off the epoch of user selections,
+  // not the selection object, which a language switch rewrites.
+  let lastEpoch = $selectionEpoch
+  $: if ($selectionEpoch !== lastEpoch) {
+    lastEpoch = $selectionEpoch
     text = ''
     chips = []
   }
@@ -32,7 +40,7 @@
   const dispatch = createEventDispatcher<{ search: string; filter: SearchFilter; sort: SearchSortPref }>()
 
   // chip fields and the aliases that produce them ("sender:" -> from).
-  type ChipField = 'from' | 'to' | 'subject' | 'has' | 'is' | 'before' | 'after'
+  type ChipField = 'from' | 'to' | 'subject' | 'has' | 'is' | 'in' | 'before' | 'after'
   const alias: Record<string, ChipField> = {
     from: 'from',
     sender: 'from',
@@ -40,14 +48,96 @@
     subject: 'subject',
     has: 'has',
     is: 'is',
+    in: 'in',
+    folder: 'in',
     before: 'before',
     after: 'after',
   }
-  const keywordList = ['from', 'sender', 'to', 'subject', 'has', 'is', 'before', 'after']
-
   interface Chip {
     field: ChipField
     value: string
+  }
+
+  // a dropdown row: a keyword to complete ("from:"), a whole chip to add
+  // (has:attachment, or an address after from:/to:), or the date picker.
+  type Suggestion =
+    | { kind: 'keyword'; keyword: string; field: ChipField }
+    | { kind: 'chip'; chip: Chip; label: string; note?: string }
+    | { kind: 'date' }
+
+  // the filters offered, in the order the dropdown lists them. has: and is: each
+  // have one value, so they are offered whole. sender: and folder: are aliases
+  // of from: and in: and only show up when typed towards.
+  const filterSuggestions: Suggestion[] = [
+    { kind: 'keyword', keyword: 'from', field: 'from' },
+    { kind: 'keyword', keyword: 'sender', field: 'from' },
+    { kind: 'keyword', keyword: 'to', field: 'to' },
+    { kind: 'keyword', keyword: 'subject', field: 'subject' },
+    { kind: 'chip', chip: { field: 'has', value: 'attachment' }, label: 'has:attachment' },
+    { kind: 'chip', chip: { field: 'is', value: 'unread' }, label: 'is:unread' },
+    { kind: 'keyword', keyword: 'in', field: 'in' },
+    { kind: 'keyword', keyword: 'folder', field: 'in' },
+    { kind: 'keyword', keyword: 'after', field: 'after' },
+    { kind: 'keyword', keyword: 'before', field: 'before' },
+  ]
+
+  // the in: chip's value for every folder.
+  const allFolders = 'all'
+
+  // the folders in:/folder: offers, the current mailbox's first so a bare name
+  // resolves to the folder of that name where the search was started. A folder
+  // that cannot hold mail (\Noselect) has nothing to find.
+  interface FolderOption {
+    folder: Folder
+    note: string
+  }
+  $: folderOptions = listFolderOptions($sidebar.data, $selection)
+  $: folderById = new Map(folderOptions.map((o) => [o.folder.id, o.folder]))
+
+  function listFolderOptions(data: typeof $sidebar.data, sel: typeof $selection): FolderOption[] {
+    if (!data) {
+      return []
+    }
+    const current = sel.kind === 'folder' ? sel.accountId : 0
+    const accounts = [...data.accounts].sort((a, b) => Number(b.id === current) - Number(a.id === current))
+    const out: FolderOption[] = []
+    for (const acc of accounts) {
+      for (const folder of data.foldersByAccount[acc.id] ?? []) {
+        // a folder with no attributes arrives as null rather than [] (the store
+        // keeps them as one joined string). Reading it as an array threw inside
+        // a reactive statement, which stopped the bar updating at all: a chip
+        // could not be removed and switching folder did not clear the search.
+        if ((folder.attributes ?? []).some((a) => a.toLowerCase() === '\\noselect')) {
+          continue
+        }
+        // a nested folder's name alone ("2024") says little, its path says where.
+        const path = folder.imapPath !== folder.name ? folder.imapPath : ''
+        const parts = data.accounts.length > 1 ? [path, accountLabel(acc)] : [path]
+        out.push({ folder, note: parts.filter(Boolean).join(' · ') })
+      }
+    }
+    return out
+  }
+
+  // findFolder resolves a typed in: value to a folder by name, then by path.
+  function findFolder(raw: string): Folder | undefined {
+    const want = raw.toLowerCase()
+    return (
+      folderOptions.find((o) => o.folder.name.toLowerCase() === want)?.folder ??
+      folderOptions.find((o) => o.folder.imapPath.toLowerCase() === want)?.folder
+    )
+  }
+
+  function suggestionKey(s: Suggestion): string {
+    if (s.kind === 'keyword') {
+      return `${s.keyword}:`
+    }
+    if (s.kind === 'chip') {
+      // field and value rather than the label: two mailboxes both have an
+      // Inbox, and the rows are keyed on this.
+      return `${s.chip.field}:${s.chip.value}`
+    }
+    return 'date'
   }
 
   let chips: Chip[] = []
@@ -75,6 +165,12 @@
     if (chip.field === 'is') {
       return $t('messageList.search.chip.isUnread')
     }
+    if (chip.field === 'in') {
+      if (chip.value === allFolders) {
+        return $t('messageList.search.chip.inAll')
+      }
+      return `${fieldLabel('in')}: ${folderById.get(Number(chip.value))?.name ?? chip.value}`
+    }
     return `${fieldLabel(chip.field)}: ${chip.value}`
   }
 
@@ -95,6 +191,13 @@
     }
     if (field === 'is') {
       return raw.toLowerCase().startsWith('unread') ? { field, value: 'unread' } : null
+    }
+    if (field === 'in') {
+      if (raw.toLowerCase() === allFolders) {
+        return { field, value: allFolders }
+      }
+      const folder = findFolder(raw)
+      return folder ? { field, value: String(folder.id) } : null
     }
     if ((field === 'before' || field === 'after') && Number.isNaN(Date.parse(raw))) {
       return null
@@ -128,6 +231,8 @@
         f.hasAttachment = true
       } else if (c.field === 'is') {
         f.unreadOnly = true
+      } else if (c.field === 'in') {
+        f.folder = c.value === allFolders ? 'all' : Number(c.value)
       } else if (c.field === 'after') {
         f.afterUnix = Math.floor(Date.parse(c.value) / 1000) || 0
       } else if (c.field === 'before') {
@@ -149,13 +254,128 @@
 
   // the token currently being typed (after the last space), used for autocomplete.
   $: partial = text.slice(text.lastIndexOf(' ') + 1)
-  $: suggestions =
-    partial.length > 0 && !partial.includes(':')
-      ? keywordList.filter((k) => k.startsWith(partial.toLowerCase()) && k !== partial.toLowerCase())
-      : []
+
+  // the dropdown shows while the input has focus, until Escape dismisses it;
+  // typing or clicking the input brings it back. highlight is the row Enter and
+  // Tab act on; it follows the keyboard only, since a row the pointer happens to
+  // rest on must not take Enter from the text being searched.
+  let focused = false
+  let dismissed = false
+  let highlight = -1
+  let addresses: AddressBookEntry[] = []
+  const listId = `search-suggest-${Math.random().toString(36).slice(2, 9)}`
+
+  $: suggestions = suggestFor(partial, chips, addresses, folderOptions)
+  $: showSuggest = focused && !dismissed && suggestions.length > 0
+  $: resetHighlight(suggestions, partial)
+  $: lookupAddresses(partial)
+
+  // suggestFor lists the dropdown rows for the token being typed. Without a colon
+  // it offers the filters, all of them on an empty token minus the ones already
+  // applied; after one it offers values for that filter.
+  function suggestFor(token: string, current: Chip[], found: AddressBookEntry[], folders: FolderOption[]): Suggestion[] {
+    const applied = new Set(current.map((c) => c.field))
+    const at = token.indexOf(':')
+    if (at < 0) {
+      const typed = token.toLowerCase()
+      return filterSuggestions.filter((s) => {
+        if (s.kind === 'chip' && applied.has(s.chip.field)) {
+          return false
+        }
+        if (typed === '') {
+          return s.kind !== 'keyword' || (s.keyword !== 'sender' && s.keyword !== 'folder' && !applied.has(s.field))
+        }
+        return suggestionKey(s).startsWith(typed)
+      })
+    }
+    const field = alias[token.slice(0, at).toLowerCase()]
+    const value = token.slice(at + 1).toLowerCase()
+    if (field === 'from' || field === 'to') {
+      return found.map((e) => ({ kind: 'chip', chip: { field, value: e.email }, label: e.email, note: e.name }))
+    }
+    if (field === 'has' || field === 'is') {
+      return filterSuggestions.filter(
+        (s) => s.kind === 'chip' && s.chip.field === field && s.chip.value.startsWith(value) && !applied.has(field),
+      )
+    }
+    if (field === 'in') {
+      return folderSuggestions(value, folders)
+    }
+    if (field === 'after' || field === 'before') {
+      return [{ kind: 'date' }]
+    }
+    return []
+  }
+
+  // the most folder rows the dropdown lists; the rest are reached by typing more
+  // of the name.
+  const maxFolderSuggestions = 8
+
+  // folderSuggestions offers every folder first, then folders whose name holds
+  // what was typed, those starting with it ahead of the rest.
+  function folderSuggestions(value: string, folders: FolderOption[]): Suggestion[] {
+    const out: Suggestion[] = []
+    if (allFolders.startsWith(value)) {
+      out.push({
+        kind: 'chip',
+        chip: { field: 'in', value: allFolders },
+        label: `in:${allFolders}`,
+        note: $t('messageList.search.suggest.inAll'),
+      })
+    }
+    const matching = folders.filter((o) => o.folder.name.toLowerCase().includes(value))
+    const ranked = [
+      ...matching.filter((o) => o.folder.name.toLowerCase().startsWith(value)),
+      ...matching.filter((o) => !o.folder.name.toLowerCase().startsWith(value)),
+    ]
+    for (const o of ranked.slice(0, maxFolderSuggestions)) {
+      out.push({
+        kind: 'chip',
+        chip: { field: 'in', value: String(o.folder.id) },
+        label: o.folder.name,
+        note: o.note || undefined,
+      })
+    }
+    return out
+  }
+
+  // only a value (after the colon) is highlighted up front. A filter name is
+  // not, because a word being searched can start like one: Enter on "invoice
+  // to" has to search for it, not turn it into "to:". Tab still completes it.
+  function resetHighlight(list: Suggestion[], token: string): void {
+    highlight = token.includes(':') && list.length > 0 ? 0 : -1
+  }
+
+  // lookupAddresses fetches address suggestions for a from:/to: value, debounced
+  // like the compose fields, dropping answers that arrive after a newer query.
+  let lookupSeq = 0
+  let lookupTimer: ReturnType<typeof setTimeout> | undefined
+  function lookupAddresses(token: string): void {
+    clearTimeout(lookupTimer)
+    const seq = ++lookupSeq
+    const at = token.indexOf(':')
+    const field = at > 0 ? alias[token.slice(0, at).toLowerCase()] : undefined
+    const query = token.slice(at + 1).trim()
+    if ((field !== 'from' && field !== 'to') || query === '') {
+      addresses = []
+      return
+    }
+    lookupTimer = setTimeout(async () => {
+      let found: AddressBookEntry[] = []
+      try {
+        found = await searchAddresses(query, 6)
+      } catch {
+        found = []
+      }
+      if (seq === lookupSeq) {
+        addresses = found
+      }
+    }, 140)
+  }
 
   function onInput(event: Event): void {
     text = (event.currentTarget as HTMLInputElement).value
+    dismissed = false
     // a trailing space commits a completed keyword token immediately.
     if (text.endsWith(' ')) {
       commitTrailingToken()
@@ -179,21 +399,45 @@
     }
   }
 
+  // withoutPartial is the input text with the token being typed removed.
+  function withoutPartial(): string {
+    const rest = text.slice(0, text.lastIndexOf(' ') + 1).replace(/\s*$/, '')
+    return rest ? `${rest} ` : ''
+  }
+
   function onKeydown(event: KeyboardEvent): void {
+    if (showSuggest) {
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        const n = suggestions.length
+        const delta = event.key === 'ArrowDown' ? 1 : -1
+        highlight = highlight < 0 ? (delta > 0 ? 0 : n - 1) : (highlight + delta + n) % n
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        dismissed = true
+        return
+      }
+      if ((event.key === 'Enter' || event.key === 'Tab') && highlight >= 0) {
+        event.preventDefault()
+        pick(suggestions[highlight])
+        return
+      }
+      if (event.key === 'Tab' && partial !== '') {
+        event.preventDefault()
+        pick(suggestions[0])
+        return
+      }
+    }
     if (event.key === 'Enter') {
       const chip = parseToken(partial)
       if (chip) {
         event.preventDefault()
         addChip(chip)
-        text = text.slice(0, text.lastIndexOf(' ') + 1).replace(/\s*$/, '')
-        text = text ? `${text} ` : ''
+        text = withoutPartial()
         emit()
       }
-      return
-    }
-    if (event.key === 'Tab' && suggestions.length > 0) {
-      event.preventDefault()
-      applySuggestion(suggestions[0])
       return
     }
     if (event.key === 'Backspace' && text === '' && chips.length > 0) {
@@ -201,9 +445,23 @@
     }
   }
 
-  // applySuggestion replaces the partial keyword with "keyword:" and refocuses.
-  async function applySuggestion(keyword: string): Promise<void> {
-    text = `${text.slice(0, text.lastIndexOf(' ') + 1)}${keyword}:`
+  // pick applies a dropdown row: a keyword is completed in the input for its
+  // value to be typed, a chip row is added straight away, and the date row opens
+  // the calendar popover in place of a typed date.
+  async function pick(s: Suggestion): Promise<void> {
+    if (s.kind === 'keyword') {
+      text = `${withoutPartial()}${s.keyword}:`
+    } else if (s.kind === 'chip') {
+      text = withoutPartial()
+      addChip(s.chip)
+    } else {
+      text = withoutPartial()
+      emit()
+      // the input keeps focus, so the filter list would open over the calendar.
+      dismissed = true
+      showDate = true
+      return
+    }
     await tick()
     inputEl?.focus()
   }
@@ -232,6 +490,14 @@
   }
 
   $: hasContent = text !== '' || chips.length > 0
+
+  // the placeholder names where a search will look, since that is now the folder
+  // or view on screen rather than every folder. A saved view is already a search
+  // over every folder, so it keeps the plain wording.
+  $: placeholder =
+    $selection.kind === 'savedView'
+      ? $t('messageList.search.placeholder')
+      : $t('messageList.search.placeholderIn').replace('{name}', $selection.label)
 
   let showSort = false
 
@@ -299,11 +565,23 @@
       <input
         type="text"
         bind:this={inputEl}
-        placeholder={chips.length === 0 ? $t('messageList.search.placeholder') : ''}
+        placeholder={chips.length === 0 ? placeholder : ''}
         aria-label={$t('messageList.search.placeholder')}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={showSuggest}
+        aria-controls={listId}
+        aria-activedescendant={showSuggest && highlight >= 0 ? `${listId}-${highlight}` : undefined}
+        autocomplete="off"
         value={text}
         on:input={onInput}
         on:keydown={onKeydown}
+        on:focus={() => (focused = true)}
+        on:mousedown={() => (dismissed = false)}
+        on:blur={() => {
+          focused = false
+          dismissed = false
+        }}
       />
     </div>
     {#if hasContent}
@@ -314,12 +592,32 @@
       <kbd class="hint">{searchHint}</kbd>
     {/if}
 
-    {#if suggestions.length > 0}
-      <div class="autocomplete" role="listbox">
-        {#each suggestions as s (s)}
-          <button type="button" class="ac-opt" role="option" aria-selected="false" on:click={() => applySuggestion(s)}>
-            <span class="ac-key">{s}:</span>
-            <span class="ac-desc">{$t(`messageList.search.suggest.${s}`)}</span>
+    {#if showSuggest}
+      <div class="autocomplete" id={listId} role="listbox">
+        {#each suggestions as s, i (suggestionKey(s))}
+          <!-- mousedown is held back so the input keeps focus and the list stays
+               open until the click lands. -->
+          <button
+            type="button"
+            id={`${listId}-${i}`}
+            class="ac-opt"
+            class:active={i === highlight}
+            role="option"
+            aria-selected={i === highlight}
+            tabindex="-1"
+            on:mousedown|preventDefault
+            on:click={() => pick(s)}
+          >
+            {#if s.kind === 'keyword'}
+              <span class="ac-key">{s.keyword}:</span>
+              <span class="ac-desc">{$t(`messageList.search.suggest.${s.keyword}`)}</span>
+            {:else if s.kind === 'chip'}
+              <span class="ac-key">{s.label}</span>
+              <span class="ac-desc">{s.note ?? $t(`messageList.search.suggest.${s.chip.field}`)}</span>
+            {:else}
+              <IconCalendar size={13} stroke={1.7} class="ac-icon" />
+              <span class="ac-desc">{$t('messageList.search.suggest.pickDate')}</span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -559,7 +857,8 @@
     padding: var(--space-2);
     border-radius: var(--radius-control);
   }
-  .ac-opt:hover {
+  .ac-opt:hover,
+  .ac-opt.active {
     background: var(--surface-hover);
   }
   .ac-key {

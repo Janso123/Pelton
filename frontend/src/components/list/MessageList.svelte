@@ -34,10 +34,11 @@
     IconLayoutColumns,
     IconArchive,
   } from '@tabler/icons-svelte'
-  import { selection, searchQuery, openMessageId, openMessage } from '../../stores/selection'
+  import { selection, selectionEpoch, searchQuery, openMessageId, openMessage } from '../../stores/selection'
   import {
     messageList,
     loadList,
+    isSearching,
     loadMore,
     loadOlder,
     backfillFailed,
@@ -181,12 +182,25 @@
   }
 
   let lastKey = ''
-  $: if ($selection && selectionKey($selection) !== lastKey) {
+  let lastEpoch = $selectionEpoch
+  // SearchBar drops its text and chips on every new epoch, so searchFilter is
+  // reset on the same trigger. The same folder or view picked again keeps its
+  // key, so it is the epoch that tells it apart from a relabel, which leaves
+  // the list and the search alone.
+  $: if ($selection) {
+    const reselected = $selectionEpoch !== lastEpoch
+    lastEpoch = $selectionEpoch
+    const keyChanged = selectionKey($selection) !== lastKey
     lastKey = selectionKey($selection)
-    activeIndex = -1
-    clearSelection()
-    resetScroll()
-    void loadList($selection)
+    if (reselected) {
+      searchFilter = emptyFilter
+    }
+    if (keyChanged || (reselected && isSearching())) {
+      activeIndex = -1
+      clearSelection()
+      resetScroll()
+      void loadList($selection)
+    }
   }
 
   $: items = $messageList.data?.items ?? []
@@ -483,9 +497,7 @@
     try {
       const undo = await archiveMessage(item.id)
       reportArchiveExport(undo)
-      if (undo.messageId) {
-        recordArchived(item, undo.messageId, undo.originalFolderId)
-      }
+      recordArchived(item, undo)
     } catch (err) {
       toastError(errorMessage(err))
       // the move failed; bring the row back so nothing is silently lost.

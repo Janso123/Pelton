@@ -73,6 +73,13 @@ type mailboxBackup struct {
 	IMAPPort      int    `json:"imapPort"`
 	SMTPHost      string `json:"smtpHost"`
 	SMTPPort      int    `json:"smtpPort"`
+	// Protocol is "imap" or "jmap"; older backups have none and mean imap. The
+	// JMAP session URL and mail account id are not carried: they are found
+	// again by signing in on restore.
+	Protocol string `json:"protocol,omitempty"`
+	// SyncMaxParallel is the mailbox's own parallel-sync override; absent
+	// means it follows the global setting.
+	SyncMaxParallel *int `json:"syncMaxParallel,omitempty"`
 	// TrustedCerts and CAPEM are the certificates and CA the mailbox trusts
 	// beyond the system roots. They are not secrets, and without them a
 	// restored Proton Bridge or self-hosted mailbox could not connect.
@@ -216,6 +223,11 @@ func (a *App) exportMailboxes(credentialPassword string) ([]mailboxBackup, error
 			SMTPPort:      acc.SMTPPort,
 			TrustedCerts:  acc.TrustedCerts,
 			CAPEM:         acc.CAPEM,
+			Protocol:      acc.Protocol,
+		}
+		if acc.SyncMaxParallel != nil {
+			n := *acc.SyncMaxParallel
+			m.SyncMaxParallel = &n
 		}
 		if credentialPassword != "" {
 			secret, err := credentials.Load(acc.ID)
@@ -359,12 +371,7 @@ func (a *App) ImportData(path string, categories []string, credentialPassword st
 		// without credentials drop out of both with errNoCredentials, which is
 		// not an error here.
 		for _, acc := range ready {
-			goSafe("syncing an imported mailbox", func() {
-				if err := a.syncAccount(acc); err != nil && !errors.Is(err, errNoCredentials) {
-					a.log.Error("sync imported account", "account", acc.Email, "err", err)
-				}
-				goSafe("waiting for new mail", func() { a.idleLoop(acc) })
-			})
+			a.startAccountWorker(acc.ID)
 		}
 	}
 	if want[backupCategorySignatures] {
@@ -452,14 +459,47 @@ func (a *App) importMailboxes(mailboxes []mailboxBackup, credentialPassword stri
 			SMTPPort:      m.SMTPPort,
 			TrustedCerts:  m.TrustedCerts,
 			CAPEM:         m.CAPEM,
+			Protocol:      normalizeProtocol(m.Protocol),
+		}
+		secret, hasSecret := secrets[m.Email]
+		switch {
+		case account.Protocol != "imap" && account.Protocol != "jmap":
+			a.log.Warn("backup mailbox has an unknown protocol, restoring as imap", "account", m.Email, "protocol", m.Protocol)
+			account.Protocol = "imap"
+		case account.Protocol == "jmap" && !hasSecret:
+			// switching protocol would drop the cache and download everything
+			// again, so the account stays JMAP and finds its session on the
+			// first sync after its password is entered.
+			a.log.Warn("backup mailbox is JMAP but has no credential, its session will be found on first connect", "account", m.Email)
+		case account.Protocol == "jmap":
+			// the route the account will sync over; never a direct fallback.
+			route, err := a.accountRoute(account)
+			if err != nil {
+				a.log.Warn("backup mailbox proxy route unavailable, its JMAP session will be found on first connect", "account", m.Email, "err", err)
+				break
+			}
+			auth, err := a.runAuthenticateTarget(a.ctx, account, route, "jmap", secret)
+			if err != nil {
+				a.log.Warn("backup mailbox JMAP sign-in failed, its session will be found on first connect", "account", m.Email, "err", err)
+				break
+			}
+			account.JMAPSessionURL = auth.SessionURL
+			account.JMAPMailAccountID = auth.MailAccountID
 		}
 		id, err := a.store.CreateAccount(a.ctx, &account)
 		if err != nil {
 			return ready, err
 		}
+		if m.SyncMaxParallel != nil {
+			n := clampSyncMaxParallel(*m.SyncMaxParallel)
+			if err := a.store.SetAccountSyncMaxParallel(a.ctx, id, &n); err != nil {
+				return ready, err
+			}
+			account.SyncMaxParallel = &n
+		}
 		have[m.Email] = id
 		ready = append(ready, account)
-		if secret, ok := secrets[m.Email]; ok {
+		if hasSecret {
 			if err := credentials.Store(id, secret); err != nil {
 				return ready, err
 			}

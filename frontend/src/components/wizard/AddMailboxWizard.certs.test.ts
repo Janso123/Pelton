@@ -67,4 +67,28 @@ describe('untrusted certificate in the connection test (#446)', () => {
     )
     expect(screen.queryByText(bridgeCert.display)).not.toBeInTheDocument()
   })
+
+  it('lets an IMAP mailbox through when only its JMAP certificate is untrusted', async () => {
+    const jmapCert = { ...bridgeCert, server: 'jmap', host: 'mail.example', port: 443 }
+    api.testConnection
+      .mockResolvedValueOnce({ untrusted: [jmapCert], jmapAvailable: false })
+      .mockResolvedValueOnce({ untrusted: [], jmapAvailable: true })
+    render(AddMailboxWizard, { props: { initialProviderId: 'custom', offerImport: false } })
+
+    await userEvent.type(screen.getByLabelText('Email'), 'me@mail.example')
+    await userEvent.tab()
+    await userEvent.type(screen.getByLabelText('Password'), 'pw')
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: 'Test connection' }))
+
+    // the IMAP login passed, so the mailbox can be added as is; the JMAP
+    // certificate is offered for review next to that.
+    expect(await screen.findByText('Connection works.')).toBeInTheDocument()
+    expect(screen.getByText('JMAP mail.example:443')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add mailbox' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Trust this certificate' }))
+    expect(api.testConnection).toHaveBeenLastCalledWith(expect.objectContaining({ trustedCerts: [jmapCert.fingerprint] }))
+    await vi.waitFor(() => expect(screen.queryByText('JMAP mail.example:443')).not.toBeInTheDocument())
+  })
 })

@@ -44,6 +44,14 @@ export interface Account {
   // the user told the missing-password prompt to stop asking about this
   // account. It still cannot sync; the ui marks it instead of interrupting.
   passwordPromptDismissed: boolean
+  // 'imap' or 'jmap'. the backend derives session urls; this is only the choice.
+  protocol: string
+  // the JMAP session endpoint the backend derived or discovered; empty for IMAP
+  // accounts and until a session has been resolved.
+  jmapSessionUrl?: string
+  // this account's own parallel sync connection limit (1-5), or null/absent
+  // when it follows the global setting.
+  syncMaxParallel?: number | null
   // fingerprints of server certificates the user accepted for this mailbox,
   // formatted for reading, and the subjects of the CA it trusts (#446).
   trustedCerts: string[]
@@ -254,6 +262,12 @@ export interface PhishingReport {
 export interface MessageDetail extends MessageSummary {
   toAddresses: string
   ccAddresses: string
+  // replyTo is the Reply-To header, where a reply goes instead of fromAddress.
+  replyTo: string
+  // messageIdHeader and references are the original's Message-ID and References
+  // chain, which a reply turns into In-Reply-To and References.
+  messageIdHeader: string
+  references: string[]
   bodyPlain: string
   // bodyQuote is the message as plain text for a reply or forward to quote:
   // bodyPlain when the message has a text part, and the html rendered down to
@@ -290,6 +304,9 @@ export interface MessageDetail extends MessageSummary {
   // when it was opened, so the pane can offer the right next step rather than
   // one generic error.
   pgpState: PGPState
+  // bodyComplete is false while the row is still a stub and the reading pane
+  // may be showing a preview before the full body arrives.
+  bodyComplete?: boolean
 }
 
 export type PGPState = '' | 'open' | 'locked' | 'nokey' | 'failed'
@@ -424,9 +441,9 @@ export interface UIPrefs {
   // showShortcutHints toggles the keyboard shortcut shown beside a context-menu
   // entry that has one. On by default.
   showShortcutHints: boolean
-  // harvestAddresses keeps learning addresses from mail for compose
-  // autocomplete. off leaves only the contacts from a synced address book.
-  harvestAddresses: boolean
+  // addressLearning is what compose autocomplete learns from mail beyond the
+  // contacts in a synced address book.
+  addressLearning: AddressLearning
   // showAccountEmail shows the account email instead of its name in the sidebar.
   showAccountEmail: boolean
   // alwaysLoadImages disables remote-image blocking globally (off by default).
@@ -569,12 +586,20 @@ export interface UIPrefs {
   // closeAction is what the window's close button does: 'background' keeps
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction
-  // syncMessageLimit caps how many of a folder's newest messages the first sync
-  // fetches; older mail stays on the server until asked for. 0 means no limit.
+  // syncMessageLimit caps how many of a folder's newest message bodies the
+  // first sync fetches. JMAP may still list the whole folder as stubs. 0 means
+  // no limit.
   syncMessageLimit: number
   // syncAutoBackfill fetches the next batch of older mail automatically on
   // reaching the end of the list. Off puts it behind a button instead.
   syncAutoBackfill: boolean
+  // syncMaxParallel is how many sync connections one mailbox may use at once
+  // (1–5). IMAP sync sessions, or concurrent JMAP sync requests. Sending and
+  // new-mail push do not count.
+  syncMaxParallel: number
+  // syncFullReconcileDays is how many days a folder may go without a full
+  // check against the server before startup re-checks it; 0 = manual Sync only.
+  syncFullReconcileDays: number
   // what the sidebar selects on launch: 'view:<key>' for a unified view,
   // 'folder:<id>' for one account folder, or 'last' to restore the previous
   // session. A target that no longer exists falls back to the unified inbox.
@@ -706,6 +731,8 @@ export interface AddressBookEntry {
   email: string
   name: string
   useCount: number
+  // sentCount is how many messages the user sent to the address.
+  sentCount: number
   lastUsed: string
   createdAt: string
 }
@@ -884,6 +911,8 @@ export interface AddAccountRequest {
   // optional oauth client secret for confidential-client app registrations
   // (some Microsoft Entra setups). empty keeps the default PKCE public flow.
   clientSecret: string
+  // 'imap' or 'jmap'; empty means imap. client-supplied session urls are ignored.
+  protocol: string
   // what the mailbox trusts beyond the system roots: fingerprints accepted in
   // the connection test, and a CA file's PEM text.
   trustedCerts: string[]
@@ -911,6 +940,19 @@ export interface TestConnectionRequest {
   proxy: AccountProxy
 }
 
+// IMAP success plus the optional JMAP probe. There is no contacts capability field.
+export interface TestConnectionResult {
+  jmapAvailable: boolean
+  jmapWebSocket: boolean
+  jmapSessionURL: string
+  jmapMailAccountID: string
+}
+
+// OAuth flow that has tokens but no account row yet.
+export interface PendingAccount extends TestConnectionResult {
+  id: string
+}
+
 // SyncFailureReason is the coarse class of a failed sync, which the ui turns
 // into a sentence. Anything unrecognized reads as 'other'.
 export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'certificate' | 'other'
@@ -919,7 +961,7 @@ export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'certificat
 // the user to review before trusting it. fingerprint is what trusting it sends
 // back; display is the same for reading. Dates are rfc3339.
 export interface UntrustedCert {
-  server: 'imap' | 'smtp'
+  server: 'imap' | 'smtp' | 'jmap'
   host: string
   port: number
   fingerprint: string
@@ -935,7 +977,7 @@ export interface UntrustedCert {
 
 // ConnectionTest is a connection test that reached the servers: untrusted is
 // empty when it logged in.
-export interface ConnectionTest {
+export interface ConnectionTest extends TestConnectionResult {
   untrusted: UntrustedCert[]
 }
 
@@ -995,6 +1037,13 @@ export type EditorMode = 'plaintext' | 'markdown' | 'wysiwyg'
 export type ThemePref = 'system' | 'light' | 'dark' | 'schedule'
 export type DensityPref = 'compact' | 'medium' | 'luxe'
 export type SelectAllScope = 'offer' | 'all' | 'loaded'
+
+/**
+ * What autocomplete learns from mail: nothing, the people written to, those
+ * plus trusted image senders and VIPs, or every sender except mailing lists
+ * and automated mailboxes.
+ */
+export type AddressLearning = 'off' | 'sent' | 'trusted' | 'all'
 
 // SearchSort is an order search results can actually come back in. The backend
 // takes one of these; 'auto' is never sent, it is resolved first.

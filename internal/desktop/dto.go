@@ -52,6 +52,13 @@ type AccountDTO struct {
 	// prompt to stop asking for this account. The ui marks the mailbox instead
 	// of interrupting.
 	PasswordPromptDismissed bool `json:"passwordPromptDismissed"`
+	// Protocol is "imap" or "jmap". JMAPSessionURL is set for jmap accounts so
+	// settings can show the current choice; secrets never go here.
+	Protocol       string `json:"protocol"`
+	JMAPSessionURL string `json:"jmapSessionUrl"`
+	// SyncMaxParallel is the account's own parallel-sync limit, or null when
+	// it follows the global setting.
+	SyncMaxParallel *int `json:"syncMaxParallel"`
 	// TrustedCerts are the fingerprints of certificates the user accepted for
 	// this mailbox, formatted for reading. CASubjects name the certificates in
 	// the CA it trusts, empty when it has none.
@@ -179,10 +186,16 @@ type AttachmentDTO struct {
 // offer "load remote images".
 type MessageDetailDTO struct {
 	MessageSummaryDTO
-	ToAddresses  string `json:"toAddresses"`
-	CcAddresses  string `json:"ccAddresses"`
-	BodyPlain    string `json:"bodyPlain"`
-	BodyHTMLSafe string `json:"bodyHtmlSafe"`
+	ToAddresses string `json:"toAddresses"`
+	CcAddresses string `json:"ccAddresses"`
+	// ReplyTo is the Reply-To header, where a reply goes instead of From.
+	ReplyTo string `json:"replyTo"`
+	// MessageIDHeader and References are the original's Message-ID and
+	// References chain, which a reply turns into In-Reply-To and References.
+	MessageIDHeader string   `json:"messageIdHeader"`
+	References      []string `json:"references"`
+	BodyPlain       string   `json:"bodyPlain"`
+	BodyHTMLSafe    string   `json:"bodyHtmlSafe"`
 	// BodyQuote is the message as plain text for a reply or forward to quote.
 	// It is BodyPlain when the message has a text part, and the html rendered
 	// down to text when it does not, which is the case BodyPlain is empty for
@@ -220,6 +233,9 @@ type MessageDetailDTO struct {
 	// picked but not reported back. Empty for mail that was right about itself,
 	// which is nearly all of it, and the reader is shown nothing then.
 	CharsetGuess string `json:"charsetGuess"`
+	// BodyComplete is false while the row is still a list stub whose preview
+	// may be shown before the full body arrives.
+	BodyComplete bool `json:"bodyComplete"`
 }
 
 // TrackingPixelDTO is one remote image the scan thinks exists to report the
@@ -280,6 +296,9 @@ func toAccountDTO(a storage.Account) AccountDTO {
 		PGPDefault:         a.PGPDefault,
 
 		PasswordPromptDismissed: a.PasswordPromptDismissed,
+		Protocol:                a.Protocol,
+		JMAPSessionURL:          a.JMAPSessionURL,
+		SyncMaxParallel:         a.SyncMaxParallel,
 
 		TrustedCerts: displayPins(a.TrustedCerts),
 		CASubjects:   caSubjects(a.CAPEM),
@@ -333,6 +352,8 @@ func folderRole(f storage.Folder) string {
 	}
 	for _, attr := range f.Attributes {
 		switch strings.ToLower(strings.TrimPrefix(attr, "\\")) {
+		case "inbox":
+			return roleInbox
 		case "sent":
 			return roleSent
 		case "drafts":

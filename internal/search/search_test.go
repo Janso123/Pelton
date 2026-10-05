@@ -1,6 +1,7 @@
 package search
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -39,12 +40,7 @@ func ids(t *testing.T, idx *Index, q Query) []int64 {
 }
 
 func contains(ids []int64, want int64) bool {
-	for _, id := range ids {
-		if id == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ids, want)
 }
 
 var corpus = []Doc{
@@ -316,5 +312,41 @@ func TestPrefixDoesNotWidenTheQuery(t *testing.T) {
 	idx := testIndex(t, corpus...)
 	if got := ids(t, idx, Query{Text: "Lunch invoi"}); len(got) != 0 {
 		t.Errorf("search %q returned %v, want nothing: no message is both", "Lunch invoi", got)
+	}
+}
+
+func TestSearchFiltersByAccount(t *testing.T) {
+	idx := testIndex(t,
+		Doc{ID: 1, AccountID: 7, Subject: "invoice march"},
+		Doc{ID: 2, AccountID: 8, Subject: "invoice april"},
+	)
+	res, err := idx.Search(Query{Text: "invoice", AccountIDs: []int64{7}})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if res.Total != 1 || len(res.Hits) != 1 || res.Hits[0].ID != 1 {
+		t.Fatalf("hits = %+v total %d, want only message 1", res.Hits, res.Total)
+	}
+	if got := ids(t, idx, Query{Text: "invoice"}); len(got) != 2 {
+		t.Fatalf("no account filter returned %v, want both", got)
+	}
+}
+
+// A search started from a folder stays in it, so the junk folder's copy of a
+// newsletter does not crowd the inbox's results.
+func TestSearchFiltersByFolder(t *testing.T) {
+	idx := testIndex(t,
+		Doc{ID: 1, AccountID: 7, FolderID: 10, Subject: "invoice march"},
+		Doc{ID: 2, AccountID: 7, FolderID: 11, Subject: "invoice april"},
+		Doc{ID: 3, AccountID: 7, FolderID: 12, Subject: "invoice may"},
+	)
+	if got := ids(t, idx, Query{Text: "invoice", FolderIDs: []int64{10}}); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("one folder returned %v, want only message 1", got)
+	}
+	if got := ids(t, idx, Query{Text: "invoice", FolderIDs: []int64{10, 12}}); len(got) != 2 || contains(got, 2) {
+		t.Fatalf("two folders returned %v, want messages 1 and 3", got)
+	}
+	if got := ids(t, idx, Query{Text: "invoice"}); len(got) != 3 {
+		t.Fatalf("no folder filter returned %v, want all three", got)
 	}
 }
