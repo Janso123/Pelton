@@ -83,6 +83,9 @@ type Message struct {
 	// columns; neither is a failure.
 	ReplyTo string
 	Auth    MessageAuth
+	// References is the References header as space-separated message ids ('' when
+	// the message has none), kept so a reply can extend the thread chain.
+	References string
 	// CharsetGuess names what the text was read as when the message declared no
 	// charset or one nothing knows, and is 'detected' when the guess was made
 	// where the name does not travel back. Empty for mail that was right about
@@ -336,7 +339,7 @@ UPDATE messages SET
   list_unsubscribe = ?, list_unsubscribe_post = ?,
   smime_status = ?, smime_signer = ?, smime_email = ?, smime_issuer = ?, smime_detail = ?,
   smime_certs = ?, smime_fingerprint = ?,
-  reply_to = ?, auth_spf = ?, auth_dkim = ?, auth_dmarc = ?, auth_spf_domain = ?, auth_dkim_domain = ?,
+  reply_to = ?, references_header = ?, auth_spf = ?, auth_dkim = ?, auth_dmarc = ?, auth_spf_domain = ?, auth_dkim_domain = ?,
   charset_guess = ?, body_complete = 1
 WHERE id = ?`,
 			m.UID, m.UID,
@@ -346,7 +349,7 @@ WHERE id = ?`,
 			m.ListUnsubscribe, boolToInt(m.ListUnsubscribePost),
 			m.SMIME.Status, m.SMIME.Signer, m.SMIME.Email, m.SMIME.Issuer, m.SMIME.Detail,
 			orEmptyBlob(m.SMIME.Certs), m.SMIME.Fingerprint,
-			m.ReplyTo, m.Auth.SPF, m.Auth.DKIM, m.Auth.DMARC, m.Auth.SPFDomain, m.Auth.DKIMDomain,
+			m.ReplyTo, m.References, m.Auth.SPF, m.Auth.DKIM, m.Auth.DMARC, m.Auth.SPFDomain, m.Auth.DKIMDomain,
 			m.CharsetGuess, id,
 		)
 		if err != nil {
@@ -402,9 +405,9 @@ INSERT INTO messages (
     has_attachments, size_bytes, list_unsubscribe, list_unsubscribe_post,
     smime_status, smime_signer, smime_email, smime_issuer, smime_detail,
     smime_certs, smime_fingerprint,
-    reply_to, auth_spf, auth_dkim, auth_dmarc, auth_spf_domain, auth_dkim_domain,
+    reply_to, references_header, auth_spf, auth_dkim, auth_dmarc, auth_spf_domain, auth_dkim_domain,
     charset_guess, body_complete
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	res, err := ex.ExecContext(ctx, query,
 		m.AccountID, m.FolderID, m.UID, remoteID, m.MessageID, m.Subject, m.FromAddress,
 		m.FromName, m.ToAddresses, m.CcAddresses, formatTime(m.Date), uint8(m.Flags),
@@ -412,7 +415,7 @@ INSERT INTO messages (
 		m.ListUnsubscribe, boolToInt(m.ListUnsubscribePost),
 		m.SMIME.Status, m.SMIME.Signer, m.SMIME.Email, m.SMIME.Issuer, m.SMIME.Detail,
 		orEmptyBlob(m.SMIME.Certs), m.SMIME.Fingerprint,
-		m.ReplyTo, m.Auth.SPF, m.Auth.DKIM, m.Auth.DMARC, m.Auth.SPFDomain, m.Auth.DKIMDomain,
+		m.ReplyTo, m.References, m.Auth.SPF, m.Auth.DKIM, m.Auth.DMARC, m.Auth.SPFDomain, m.Auth.DKIMDomain,
 		m.CharsetGuess, boolToInt(m.BodyComplete))
 	if err != nil {
 		return 0, fmt.Errorf("storage: insert message uid %d: %w", m.UID, err)
@@ -666,7 +669,7 @@ SELECT id, account_id, folder_id, uid, remote_id, message_id, subject, from_addr
        body_html, has_attachments, size_bytes, flag_color, snooze_until,
        snooze_hidden, offline, list_unsubscribe, list_unsubscribe_post,
        smime_status, smime_signer, smime_email, smime_issuer, smime_detail,
-       smime_fingerprint, reply_to, auth_spf, auth_dkim, auth_dmarc, auth_spf_domain,
+       smime_fingerprint, reply_to, references_header, auth_spf, auth_dkim, auth_dmarc, auth_spf_domain,
        auth_dkim_domain, charset_guess, body_complete`
 
 const selectMessageByID = selectMessageColumns + `
@@ -689,7 +692,7 @@ func scanMessage(row rowScanner) (*Message, error) {
 		&m.FlagColor, &m.SnoozeUntil, &snoozeHidden, &offline,
 		&m.ListUnsubscribe, &unsubPost,
 		&m.SMIME.Status, &m.SMIME.Signer, &m.SMIME.Email, &m.SMIME.Issuer,
-		&m.SMIME.Detail, &m.SMIME.Fingerprint, &m.ReplyTo, &m.Auth.SPF, &m.Auth.DKIM, &m.Auth.DMARC,
+		&m.SMIME.Detail, &m.SMIME.Fingerprint, &m.ReplyTo, &m.References, &m.Auth.SPF, &m.Auth.DKIM, &m.Auth.DMARC,
 		&m.Auth.SPFDomain, &m.Auth.DKIMDomain, &m.CharsetGuess, &bodyComplete); err != nil {
 		return nil, err
 	}

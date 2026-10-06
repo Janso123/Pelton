@@ -36,7 +36,14 @@
   import { loadVirusTotalConfig } from './stores/virustotal'
   import { loadOutbox, syncing, lastSynced, syncFolder, syncServer, syncAccount, syncCounts, syncPhase, emptySyncCounts } from './stores/outbox'
   import { selection, applyStartupSelection, searchQuery } from './stores/selection'
-  import { loadList, listIsPaginated, messageList, refreshListHead } from './stores/messages'
+  import {
+    loadList,
+    listIsPaginated,
+    isSearching,
+    reloadList,
+    messageList,
+    refreshListHead,
+  } from './stores/messages'
   import { shouldReplaceListOnMailNew } from './lib/maillistrefresh'
   import { initProgress } from './stores/progress'
   import { composeSessions, openCompose, openComposeWith, initComposePrefs, openReply, openForward, requestComposeClose } from './stores/compose'
@@ -363,6 +370,7 @@
           shouldReplaceListOnMailNew({
             syncPhase: get(syncPhase),
             paginated: listIsPaginated(),
+            searching: isSearching(),
           })
         ) {
           void loadList(sel)
@@ -375,7 +383,7 @@
       onMailRepaired(() => {
         // the subjects and bodies changed underneath the list, so what is on
         // screen is stale rather than merely incomplete.
-        void loadList(get(selection))
+        void reloadList(get(selection))
       }),
     )
     unsubscribers.push(
@@ -404,8 +412,9 @@
         if (!e.running) {
           lastSynced.set(Date.now())
           // a password the server refuses is only discovered by trying, so the
-          // markers can only be right after a sync has run.
-          void refreshMissingPasswords()
+          // markers can only be right after a sync has run, and that is also
+          // when to ask for a new one rather than leave the mailbox failing.
+          void promptForMissingPasswords()
         }
       }),
     )
@@ -556,7 +565,7 @@
     try {
       await triggerSync()
       await refreshSidebar()
-      await loadList(get(selection))
+      await reloadList(get(selection))
       lastSynced.set(Date.now())
       setOnline(true)
     } catch (err) {

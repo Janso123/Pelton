@@ -13,7 +13,7 @@
   import { IconPhoto, IconUserCheck, IconWorldCheck, IconMailCheck, IconShieldSearch, IconChevronDown, IconEyeOff } from '@tabler/icons-svelte'
   import { prefs } from '../../stores/prefs'
   import { getMessageHtml, trustSenderImages, allowDomainImages, allowRemoteForMessage, scanUrl } from '../../lib/api'
-  import { setBodyHtml } from '../../stores/message'
+  import { type BodyRequest, beginBodyRequest, isBodyRequestCurrent, setBodyHtml } from '../../stores/message'
   import { openContextMenu } from '../../stores/contextmenu'
   import { virusTotal, linkVerdicts, putLinkVerdict, scanEnabled } from '../../stores/virustotal'
   import VerdictBadge from '../common/VerdictBadge.svelte'
@@ -43,6 +43,11 @@
     frameHeight = 320
     nonce = makeNonce()
     startFrameLoad()
+  }
+  // the same message can refresh in place with remote content now allowed: a
+  // stub whose sender only matches the trust list once the full body is stored.
+  $: if (detail.remoteAllowed) {
+    remoteLoaded = true
   }
 
   $: senderLabel = displayName(detail.fromName, detail.fromAddress)
@@ -430,7 +435,10 @@
 
   window.addEventListener('message', onWindowMessage)
 
+  let bodyAlive = true
+
   onDestroy(() => {
+    bodyAlive = false
     clearTimeout(frameSpinnerTimer)
     clearTimeout(frameGiveUpTimer)
     resizeObserver?.disconnect()
@@ -462,49 +470,41 @@
     return text === key ? reason : text
   }
 
-  async function loadRemote(includeTrackers = false): Promise<void> {
+  type RemoteTrust = 'sender' | 'domain' | 'email'
+
+  async function loadRemote(includeTrackers = false, trust?: RemoteTrust): Promise<void> {
+    const request: BodyRequest | null = beginBodyRequest(detail.id)
+    if (!request) return
+    const label = trust === 'domain' ? (senderDomain ?? '') : senderLabel
+    const current = () => bodyAlive && isBodyRequestCurrent(request)
     try {
-      const html = await getMessageHtml(detail.id, true, includeTrackers)
-      setBodyHtml(html)
+      if (trust === 'sender') await trustSenderImages(request.id)
+      if (trust === 'domain') await allowDomainImages(request.id)
+      if (trust === 'email') await allowRemoteForMessage(request.id)
+      if (!current()) return
+      if (trust === 'sender' || trust === 'domain') {
+        toastSuccess($t('detail.mailBody.imagesTrusted').replace('{who}', label))
+      }
+      const html = await getMessageHtml(request.id, true, includeTrackers)
+      if (!current() || !setBodyHtml(request, html)) return
       remoteLoaded = true
       pixelsBlocked = !includeTrackers && trackers.length > 0
       pixelMenu = null
     } catch (err) {
-      toastError(errorMessage(err))
+      if (current()) toastError(errorMessage(err))
     }
   }
 
-  // trust the sender permanently, then show this message's remote content now.
   async function trustSender(includeTrackers = false): Promise<void> {
-    try {
-      await trustSenderImages(detail.id)
-      toastSuccess($t('detail.mailBody.imagesTrusted').replace('{who}', senderLabel))
-      await loadRemote(includeTrackers)
-    } catch (err) {
-      toastError(errorMessage(err))
-    }
+    await loadRemote(includeTrackers, 'sender')
   }
 
-  // trust the whole sender domain permanently, then show remote content now.
   async function trustDomain(includeTrackers = false): Promise<void> {
-    try {
-      await allowDomainImages(detail.id)
-      toastSuccess($t('detail.mailBody.imagesTrusted').replace('{who}', senderDomain ?? ''))
-      await loadRemote(includeTrackers)
-    } catch (err) {
-      toastError(errorMessage(err))
-    }
+    await loadRemote(includeTrackers, 'domain')
   }
 
-  // allow remote content for this one message only (persists), then show it now.
-  // nothing else from the sender or domain is trusted.
   async function trustThisEmail(includeTrackers = false): Promise<void> {
-    try {
-      await allowRemoteForMessage(detail.id)
-      await loadRemote(includeTrackers)
-    } catch (err) {
-      toastError(errorMessage(err))
-    }
+    await loadRemote(includeTrackers, 'email')
   }
 
   // the load buttons, built as data so the split control that carries the

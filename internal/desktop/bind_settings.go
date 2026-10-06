@@ -54,15 +54,17 @@ const (
 	// fetch anything (the reading pane's csp limits font-src to data:). Off puts
 	// every message in the reader font.
 	settingSenderFonts = "sender_fonts"
-	// settingHarvestAddresses keeps learning addresses from mail for compose
-	// autocomplete. On by default, since it is what autocomplete was before
-	// there were contacts. Off leaves only the synced address books, which is
-	// what someone who maintains a real one asked for (#168).
-	settingHarvestAddresses = "harvest_addresses"
-	settingAvatarSource     = "avatar_source"
-	settingAvatarStyle      = "avatar_style"
-	settingMultiSelect      = "multi_select_enabled"
-	settingSelectedCount    = "show_selected_count"
+	// settingAddressLearning is how much of the mail passing through compose
+	// autocomplete learns from: one of the learn* levels in bind_addressbook.go.
+	settingAddressLearning = "address_learning"
+	// settingHarvestAddressesLegacy is the on/off switch address_learning
+	// replaced. It is only read, so a user who had turned learning off keeps
+	// it off, including after restoring a backup made before the change.
+	settingHarvestAddressesLegacy = "harvest_addresses"
+	settingAvatarSource           = "avatar_source"
+	settingAvatarStyle            = "avatar_style"
+	settingMultiSelect            = "multi_select_enabled"
+	settingSelectedCount          = "show_selected_count"
 	// settingSelectAllScope is how far select-all reaches. The default offers
 	// the rest rather than taking it: a mailbox holds more than the pages that
 	// were scrolled to, and silently selecting all of it is not what a click on
@@ -246,9 +248,11 @@ type UIPrefsDTO struct {
 	// ShowShortcutHints shows inline keyboard shortcut chips in the ui. Off by
 	// default to keep the interface clean.
 	ShowShortcutHints bool `json:"showShortcutHints"`
-	// HarvestAddresses keeps learning addresses from the mail that passes
-	// through, for compose autocomplete. Off leaves only synced contacts.
-	HarvestAddresses bool `json:"harvestAddresses"`
+	// AddressLearning is what compose autocomplete learns from beyond synced
+	// contacts: off, sent (people written to, the default), trusted (plus
+	// trusted image senders and VIPs) or all (plus every other sender except
+	// mailing lists and automated ones).
+	AddressLearning string `json:"addressLearning"`
 	// ShowAccountEmail shows the account email instead of its display name in the
 	// sidebar account header.
 	ShowAccountEmail bool `json:"showAccountEmail"`
@@ -460,7 +464,7 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		SendDelaySeconds:    a.intSetting(settingSendDelay, 0),
 		FlagHighlight:       a.stringSetting(settingFlagHighlight, defaultFlagHighlight),
 		ShowShortcutHints:   a.boolSetting(settingShortcutHints, true),
-		HarvestAddresses:    a.harvestAddresses(),
+		AddressLearning:     a.addressLearning(),
 		ShowAccountEmail:    a.boolSetting(settingAccountEmail, false),
 		AlwaysLoadImages:    a.boolSetting(settingRemoteAlways, false),
 		BlockTrackingPixels: a.blockTrackers(),
@@ -609,6 +613,11 @@ func (a *App) SetSetting(key, value string) error {
 	}
 	if key == settingUnreadBadge || key == settingLanguage {
 		a.applyUnreadBadge()
+	}
+	if key == settingAddressLearning {
+		// a raised level learns what it now admits straight away rather than
+		// after the next sync.
+		goSafe("collecting addresses", a.harvestAddressBook)
 	}
 	if key == settingIndexDecrypted {
 		// rebuilt from scratch rather than re-indexed in place: switching this

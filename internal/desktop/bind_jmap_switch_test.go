@@ -16,6 +16,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	pjmap "github.com/peltonapp/Pelton/internal/jmap"
+	"github.com/peltonapp/Pelton/internal/logging"
 	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/storage"
 	"golang.org/x/oauth2"
@@ -637,3 +638,33 @@ func TestDiscoveryFailureStillCreatesAccount(t *testing.T) {
 }
 
 var _ io.Reader = strings.NewReader("")
+
+// An account taken out of the active profile while its protocol switch runs
+// must not get its worker back when the switch finishes.
+func TestSwitchProtocolSkipsWorkerForAccountRemovedFromProfile(t *testing.T) {
+	a := newJMAPSwitchTestApp(t)
+	a.logWriter = logging.NewWriter()
+	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return &fakeIMAP{}, nil }
+	id, _ := seedSwitchAccount(t, a, "user@example.test", "jmap")
+	keep, _ := seedSwitchAccount(t, a, "keep@example.test", "imap")
+	work, err := a.CreateProfile(ProfileRequest{Name: "Work", AccountIDs: []int64{id, keep}})
+	if err != nil {
+		t.Fatalf("CreateProfile: %v", err)
+	}
+	if err := a.SwitchProfile(work.ID); err != nil {
+		t.Fatalf("SwitchProfile: %v", err)
+	}
+
+	a.authenticateTarget = func(context.Context, storage.Account, proxy.Config, string, credentials.Secret) (targetAuth, error) {
+		if _, err := a.UpdateProfile(ProfileRequest{ID: work.ID, Name: "Work", AccountIDs: []int64{keep}}); err != nil {
+			t.Errorf("UpdateProfile: %v", err)
+		}
+		return targetAuth{}, nil
+	}
+	if err := a.SwitchProtocol(id, "imap"); err != nil {
+		t.Fatalf("SwitchProtocol: %v", err)
+	}
+	if a.hasAccountWorker(id) {
+		t.Fatal("switch restarted the worker of an account outside the active profile")
+	}
+}

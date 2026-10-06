@@ -61,6 +61,9 @@ type App struct {
 	// searchMu serializes index backfills so a startup pass and a post-sync pass
 	// do not advance the watermark concurrently.
 	searchMu sync.Mutex
+	// draftsMu serializes draft changes: the drafts live in one settings value
+	// and every change is a load, modify, write.
+	draftsMu sync.Mutex
 	// rejectedLogins holds the accounts whose credentials the server refused,
 	// which is not something the keyring can tell us: the password is stored,
 	// it is simply wrong. It is in memory on purpose, since the only way to
@@ -152,6 +155,9 @@ type App struct {
 	// never races.
 	mcpMu sync.Mutex
 	mcp   *mcpserver.Server
+	// mcpCfg is the configuration mcp was started with, so a profile switch can
+	// tell whether the new profile asks for a different server at all.
+	mcpCfg mcpserver.Config
 
 	// mailto holds a mailto: draft the app was launched with (or received from a
 	// second launch) until the frontend consumes it. See mailto.go.
@@ -332,6 +338,7 @@ func (a *App) startup(ctx context.Context) {
 	// backgrounded: it reads every message body once, which is not something to
 	// hold a window open for.
 	goSafe("checking cached mail for broken text", a.markMangledMail)
+	goSafe("checking cached mail for missing inline pictures", a.markMissingInlineMail)
 
 	a.startBackgroundServices()
 

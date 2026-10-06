@@ -5,6 +5,7 @@
   import { IconSend, IconAlertTriangle } from '@tabler/icons-svelte'
   import { outbox } from '../../stores/outbox'
   import { t } from '../../lib/i18n'
+  import { outboxFailureText } from '../../lib/outbox'
 
   // outbox states mirror the backend outbox package constants.
   $: pending = $outbox.filter((r) => r.state === 'queued' || r.state === 'sending')
@@ -20,7 +21,7 @@
       </span>
     {/if}
     {#if failed.length > 0}
-      <span class="item failed" title={failed[0].lastError}>
+      <span class="item failed" title={outboxFailureText(failed[0].lastError, $t)}>
         <IconAlertTriangle size={13} stroke={1.7} />
         {failed.length} {$t('common.outbox.failedSuffix')}
       </span>

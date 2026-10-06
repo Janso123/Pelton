@@ -174,22 +174,24 @@ func (d *DB) UnreadCount(ctx context.Context, folderIDs []int64) (int, error) {
 }
 
 // LatestMessageFrom returns the most recent cached message whose sender matches
-// value: an exact from-address when matchDomain is false, or any sender in the
-// domain when it is true. Returns nil (no error) when nothing matches, so the
+// value: a bare address when matchDomain is false, or any sender in the domain
+// when it is true. The stored from field may be the bare address or
+// "Name <addr>"; either matches. Returns nil (no error) when nothing matches, so the
 // image allowlist ui can show an example message for a trusted sender/domain.
 func (d *DB) LatestMessageFrom(ctx context.Context, value string, matchDomain bool) (*Message, error) {
-	cond := "LOWER(from_address) = ?"
-	arg := strings.ToLower(value)
+	value = strings.ToLower(value)
+	cond := "(LOWER(from_address) = ? OR LOWER(from_address) LIKE ? ESCAPE '\\')"
+	args := []any{value, "%<" + escapeLike(value) + ">"}
 	if matchDomain {
-		cond = "LOWER(from_address) LIKE ?"
-		arg = "%@" + strings.ToLower(value)
+		cond = "(LOWER(from_address) LIKE ? ESCAPE '\\' OR LOWER(from_address) LIKE ? ESCAPE '\\')"
+		args = []any{"%@" + escapeLike(value), "%@" + escapeLike(value) + ">"}
 	}
 	query := selectMessageColumns + `
 FROM messages
 WHERE ` + cond + `
 ORDER BY date DESC, uid DESC
 LIMIT 1`
-	m, err := scanMessage(d.sql.QueryRowContext(ctx, query, arg))
+	m, err := scanMessage(d.sql.QueryRowContext(ctx, query, args...))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

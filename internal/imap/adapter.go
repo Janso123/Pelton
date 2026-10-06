@@ -525,6 +525,7 @@ func messageToFetched(msg *Message) psync.Fetched {
 		HTML:                msg.HTML,
 		ListUnsubscribe:     msg.ListUnsubscribe,
 		ReplyTo:             msg.ReplyTo,
+		References:          msg.References,
 		CharsetGuess:        msg.CharsetGuess,
 		Date:                msg.Date,
 		Size:                msg.Size,

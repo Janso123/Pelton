@@ -60,7 +60,7 @@ func TestParseMultipart(t *testing.T) {
 	}
 	// a display name containing a comma must stay one address, not split into
 	// two, which is exactly what naive comma-splitting gets wrong.
-	if msg.From != "Doe, Jane <jane@example.com>" {
+	if msg.From != `"Doe, Jane" <jane@example.com>` {
 		t.Errorf("from = %q", msg.From)
 	}
 	if msg.To != "a@example.com, Bob <b@example.com>" {
@@ -97,6 +97,132 @@ func TestParseMultipart(t *testing.T) {
 	}
 	if strings.TrimSpace(string(msg.Attachments[1].Content)) != "attached text" {
 		t.Errorf("attachment content = %q", msg.Attachments[1].Content)
+	}
+}
+
+// Outlook marks the pictures in a signature Content-Disposition: inline, which
+// go-message hands over as an inline part like the text bodies. They are still
+// attachments the html points at by cid, and dropping them left empty boxes
+// where the logos belong.
+func TestParseKeepsOutlookInlineImages(t *testing.T) {
+	raw := "From: a@example.com\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/related; boundary=rel; type=\"text/html\"\r\n" +
+		"\r\n" +
+		"--rel\r\n" +
+		"Content-Type: text/html; charset=windows-1252\r\n" +
+		"\r\n" +
+		"<img src=\"cid:image001.png@01DD30BD.0D1ADF40\">\r\n" +
+		"--rel\r\n" +
+		"Content-Type: image/png; name=\"image001.png\"\r\n" +
+		"Content-Description: image001.png\r\n" +
+		"Content-Disposition: inline; filename=\"image001.png\"; size=5\r\n" +
+		"Content-ID: <image001.png@01DD30BD.0D1ADF40>\r\n" +
+		"Content-Transfer-Encoding: base64\r\n" +
+		"\r\n" +
+		"aGVsbG8=\r\n" +
+		"--rel\r\n" +
+		"Content-Type: image/gif\r\n" +
+		"Content-Disposition: inline\r\n" +
+		"Content-ID: <noname@example.com>\r\n" +
+		"\r\n" +
+		"GIF89a\r\n" +
+		"--rel--\r\n"
+	msg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !strings.Contains(msg.HTML, "cid:image001.png") {
+		t.Errorf("html = %q", msg.HTML)
+	}
+	if msg.Text != "" {
+		t.Errorf("text = %q, want no image bytes taken for the plain body", msg.Text)
+	}
+	if len(msg.Attachments) != 2 {
+		t.Fatalf("got %d attachments, want both inline images", len(msg.Attachments))
+	}
+	img := msg.Attachments[0]
+	if img.ContentID != "image001.png@01DD30BD.0D1ADF40" || img.Filename != "image001.png" ||
+		img.ContentType != "image/png" || string(img.Content) != "hello" {
+		t.Errorf("inline image = %+v", img)
+	}
+	if gif := msg.Attachments[1]; gif.ContentID != "noname@example.com" || gif.ContentType != "image/gif" {
+		t.Errorf("unnamed inline image = %+v", gif)
+	}
+}
+
+// The nestings real clients send: Outlook wraps the alternative bodies and its
+// pictures in multipart/related inside multipart/mixed; Apple Mail puts the
+// related part, html plus pictures, inside multipart/alternative. Either way the
+// pictures come out as attachments and the bodies as text.
+func TestParseInlineImagesInNestedShapes(t *testing.T) {
+	const (
+		plain = "--alt\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nplain body\r\n"
+		html  = "Content-Type: text/html; charset=utf-8\r\n\r\n<img src=\"cid:image001.png@01DD\">\r\n"
+		image = "Content-Type: image/png; name=\"image001.png\"\r\n" +
+			"Content-Disposition: inline; filename=\"image001.png\"\r\n" +
+			"Content-ID: <image001.png@01DD>\r\n" +
+			"Content-Transfer-Encoding: base64\r\n\r\naGVsbG8=\r\n"
+		pdf = "--mix\r\nContent-Type: application/pdf; name=\"a.pdf\"\r\n" +
+			"Content-Disposition: attachment; filename=\"a.pdf\"\r\n" +
+			"Content-Transfer-Encoding: base64\r\n\r\nJVBERi0=\r\n--mix--\r\n"
+		head = "From: a@example.com\r\nMIME-Version: 1.0\r\n" +
+			"Content-Type: multipart/mixed; boundary=mix\r\n\r\n"
+	)
+	shapes := map[string]string{
+		"outlook: mixed > related > alternative": head +
+			"--mix\r\nContent-Type: multipart/related; boundary=rel\r\n\r\n" +
+			"--rel\r\nContent-Type: multipart/alternative; boundary=alt\r\n\r\n" +
+			plain + "--alt\r\n" + html + "--alt--\r\n" +
+			"--rel\r\n" + image + "--rel--\r\n" + pdf,
+		"apple mail: mixed > alternative > related": head +
+			"--mix\r\nContent-Type: multipart/alternative; boundary=alt\r\n\r\n" +
+			plain + "--alt\r\nContent-Type: multipart/related; boundary=rel\r\n\r\n" +
+			"--rel\r\n" + html + "--rel\r\n" + image + "--rel--\r\n--alt--\r\n" + pdf,
+	}
+	for name, raw := range shapes {
+		t.Run(name, func(t *testing.T) {
+			msg, err := Parse([]byte(raw))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if strings.TrimSpace(msg.Text) != "plain body" || !strings.Contains(msg.HTML, "cid:image001.png@01DD") {
+				t.Errorf("text %q html %q", msg.Text, msg.HTML)
+			}
+			if len(msg.Attachments) != 2 {
+				t.Fatalf("got %d attachments, want the picture and the pdf", len(msg.Attachments))
+			}
+			if img := msg.Attachments[0]; img.ContentID != "image001.png@01DD" || string(img.Content) != "hello" {
+				t.Errorf("picture = %+v", img)
+			}
+			if msg.Attachments[1].Filename != "a.pdf" {
+				t.Errorf("pdf = %+v", msg.Attachments[1])
+			}
+		})
+	}
+}
+
+// A picture marked inline with no Content-ID (Apple Mail does this for one
+// pasted between paragraphs) is still kept, as a plain attachment, rather than
+// being read as text.
+func TestParseInlineImageWithoutContentID(t *testing.T) {
+	raw := "From: a@example.com\r\nMIME-Version: 1.0\r\n" +
+		"Content-Type: multipart/mixed; boundary=mix\r\n\r\n" +
+		"--mix\r\nContent-Type: text/plain\r\n\r\nsee below\r\n" +
+		"--mix\r\nContent-Type: image/jpeg; name=\"photo.jpg\"\r\n" +
+		"Content-Disposition: inline; filename=\"photo.jpg\"\r\n" +
+		"Content-Transfer-Encoding: base64\r\n\r\naGVsbG8=\r\n" +
+		"--mix\r\nContent-Type: text/plain\r\n\r\nmore text\r\n--mix--\r\n"
+	msg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if strings.TrimSpace(msg.Text) != "see below" {
+		t.Errorf("text = %q", msg.Text)
+	}
+	if len(msg.Attachments) != 1 || msg.Attachments[0].Filename != "photo.jpg" ||
+		msg.Attachments[0].ContentID != "" || string(msg.Attachments[0].Content) != "hello" {
+		t.Fatalf("attachments = %+v", msg.Attachments)
 	}
 }
 
@@ -260,5 +386,57 @@ func TestParseAddressWithRawHighBytesIsValidUTF8(t *testing.T) {
 	}
 	if !utf8.ValidString(msg.From) {
 		t.Fatalf("from is not valid utf-8: %q", msg.From)
+	}
+}
+
+func TestParseKeepsReferences(t *testing.T) {
+	raw := "References: <a@x>\r\n\t<b@y>\r\nMessage-ID: <c@z>\r\nSubject: s\r\n\r\nbody"
+	msg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.References != "<a@x> <b@y>" {
+		t.Fatalf("References = %q", msg.References)
+	}
+	msg, err = Parse([]byte("Subject: s\r\n\r\nbody"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.References != "" {
+		t.Fatalf("References without header = %q", msg.References)
+	}
+}
+
+func TestFormatAddress(t *testing.T) {
+	cases := []struct {
+		name, addr, want string
+	}{
+		{"", "a@example.com", "a@example.com"},
+		{"Bob", "b@example.com", "Bob <b@example.com>"},
+		{"Jürgen Müller", "j@example.com", "Jürgen Müller <j@example.com>"},
+		{"Doe, John", "j@example.com", `"Doe, John" <j@example.com>`},
+		{"Team; Ops", "o@example.com", `"Team; Ops" <o@example.com>`},
+		{"a@b (via list)", "l@example.com", `"a@b (via list)" <l@example.com>`},
+		{`Say "hi" \o/`, "h@example.com", `"Say \"hi\" \\o/" <h@example.com>`},
+		{"Only Name", "", "Only Name"},
+	}
+	for _, c := range cases {
+		if got := FormatAddress(c.name, c.addr); got != c.want {
+			t.Errorf("FormatAddress(%q, %q) = %q, want %q", c.name, c.addr, got, c.want)
+		}
+	}
+}
+
+// a name with a comma stored unquoted reads back as two recipients when the
+// row is split for reply-all, so the stored list must quote it.
+func TestParseQuotesNameWithComma(t *testing.T) {
+	const raw = "Subject: hi\r\nFrom: a@example.com\r\n" +
+		"To: \"Doe, John\" <j@example.com>, me@example.com\r\n\r\nbody\r\n"
+	msg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if want := `"Doe, John" <j@example.com>, me@example.com`; msg.To != want {
+		t.Fatalf("to = %q, want %q", msg.To, want)
 	}
 }

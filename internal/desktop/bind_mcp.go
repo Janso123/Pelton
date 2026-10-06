@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -147,7 +148,39 @@ func (a *App) startMCPIfEnabled() {
 func (a *App) applyMCPState() error {
 	a.mcpMu.Lock()
 	defer a.mcpMu.Unlock()
+	return a.restartMCPLocked()
+}
 
+// applyProfileMCPState is applyMCPState for a profile switch. Profiles that
+// share settings ask for the same address and token, and a restart then only
+// drops every connected agent, so the running server is kept and just takes
+// the new profile's permissions, which it reads on every call.
+func (a *App) applyProfileMCPState() error {
+	a.mcpMu.Lock()
+	defer a.mcpMu.Unlock()
+	if a.mcp != nil && a.mcp.Running() && a.boolSetting(settingMCPEnabled, false) {
+		want := a.mcpConfig()
+		if want.Addr == a.mcpCfg.Addr && want.Token == a.mcpCfg.Token {
+			a.mcp.SetPermissions(want.Permissions)
+			return nil
+		}
+	}
+	return a.restartMCPLocked()
+}
+
+// mcpConfig is the server configuration the current settings ask for.
+func (a *App) mcpConfig() mcpserver.Config {
+	return mcpserver.Config{
+		Addr:        fmt.Sprintf("127.0.0.1:%d", a.mcpPort()),
+		Token:       a.mcpToken(),
+		Version:     a.version,
+		Permissions: a.mcpPermissions(),
+	}
+}
+
+// restartMCPLocked stops the server and starts it again from the settings
+// when it is enabled. The caller holds mcpMu.
+func (a *App) restartMCPLocked() error {
 	if a.mcp != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = a.mcp.Stop(ctx)
@@ -160,16 +193,11 @@ func (a *App) applyMCPState() error {
 	}
 
 	srv := mcpserver.NewWithWriter(&mcpMailbox{app: a}, &mcpWriter{app: a}, a.log)
-	cfg := mcpserver.Config{
-		Addr:        fmt.Sprintf("127.0.0.1:%d", a.mcpPort()),
-		Token:       a.mcpToken(),
-		Version:     a.version,
-		Permissions: a.mcpPermissions(),
-	}
+	cfg := a.mcpConfig()
 	if err := srv.Start(cfg); err != nil {
 		return err
 	}
-	a.mcp = srv
+	a.mcp, a.mcpCfg = srv, cfg
 	return nil
 }
 
@@ -207,7 +235,21 @@ func (m *mcpMailbox) ListAccounts(ctx context.Context) ([]mcpserver.Account, err
 	return out, nil
 }
 
+// inProfile reports whether accountID is one the active profile shows.
+func (a *App) inProfile(accountID int64) (bool, error) {
+	accounts, err := a.profileAccountIDs()
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(accounts, accountID), nil
+}
+
 func (m *mcpMailbox) ListFolders(ctx context.Context, accountID int64) ([]mcpserver.Folder, error) {
+	if ok, err := m.app.inProfile(accountID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, storage.ErrAccountNotFound
+	}
 	folders, err := m.app.store.ListFolders(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -220,6 +262,15 @@ func (m *mcpMailbox) ListFolders(ctx context.Context, accountID int64) ([]mcpser
 }
 
 func (m *mcpMailbox) ListMessages(ctx context.Context, folderID int64, limit int) ([]mcpserver.MessageSummary, error) {
+	folder, err := m.app.store.GetFolder(ctx, folderID)
+	if err != nil {
+		return nil, err
+	}
+	if ok, err := m.app.inProfile(folder.AccountID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, storage.ErrFolderNotFound
+	}
 	if limit <= 0 {
 		limit = mcpListLimit
 	}
@@ -238,6 +289,11 @@ func (m *mcpMailbox) GetMessage(ctx context.Context, id int64) (*mcpserver.Messa
 	msg, err := m.app.store.GetMessage(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if ok, err := m.app.inProfile(msg.AccountID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, storage.ErrMessageNotFound
 	}
 	out := mcpserver.Message{
 		MessageSummary: mcpSummary(*msg),
@@ -276,6 +332,14 @@ func (m *mcpMailbox) Search(ctx context.Context, params mcpserver.SearchParams) 
 	if q.Text == "" && q.From == "" && q.To == "" && q.Subject == "" {
 		return []mcpserver.MessageSummary{}, nil
 	}
+	accounts, err := m.app.profileAccountIDs()
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return []mcpserver.MessageSummary{}, nil
+	}
+	q.AccountIDs = accounts
 	hits, err := m.app.index.Search(q)
 	if err != nil {
 		return nil, err

@@ -245,6 +245,7 @@ export namespace desktop {
 	    email: string;
 	    name: string;
 	    useCount: number;
+	    sentCount: number;
 	    lastUsed: string;
 	    createdAt: string;
 	    contact: boolean;
@@ -258,6 +259,7 @@ export namespace desktop {
 	        this.email = source["email"];
 	        this.name = source["name"];
 	        this.useCount = source["useCount"];
+	        this.sentCount = source["sentCount"];
 	        this.lastUsed = source["lastUsed"];
 	        this.createdAt = source["createdAt"];
 	        this.contact = source["contact"];
@@ -1325,6 +1327,9 @@ export namespace desktop {
 	    smime: SMIMEDTO;
 	    toAddresses: string;
 	    ccAddresses: string;
+	    replyTo: string;
+	    messageIdHeader: string;
+	    references: string[];
 	    bodyPlain: string;
 	    bodyHtmlSafe: string;
 	    bodyQuote: string;
@@ -1368,6 +1373,9 @@ export namespace desktop {
 	        this.smime = this.convertValues(source["smime"], SMIMEDTO);
 	        this.toAddresses = source["toAddresses"];
 	        this.ccAddresses = source["ccAddresses"];
+	        this.replyTo = source["replyTo"];
+	        this.messageIdHeader = source["messageIdHeader"];
+	        this.references = source["references"];
 	        this.bodyPlain = source["bodyPlain"];
 	        this.bodyHtmlSafe = source["bodyHtmlSafe"];
 	        this.bodyQuote = source["bodyQuote"];
@@ -1914,6 +1922,8 @@ export namespace desktop {
 	    subject: string;
 	    hasAttachment: boolean;
 	    unreadOnly: boolean;
+	    folderId: number;
+	    view: string;
 	    sort: string;
 	
 	    static createFrom(source: any = {}) {
@@ -1932,6 +1942,8 @@ export namespace desktop {
 	        this.subject = source["subject"];
 	        this.hasAttachment = source["hasAttachment"];
 	        this.unreadOnly = source["unreadOnly"];
+	        this.folderId = source["folderId"];
+	        this.view = source["view"];
 	        this.sort = source["sort"];
 	    }
 	}
@@ -2286,7 +2298,7 @@ export namespace desktop {
 	    sendDelaySeconds: number;
 	    flagHighlight: string;
 	    showShortcutHints: boolean;
-	    harvestAddresses: boolean;
+	    addressLearning: string;
 	    showAccountEmail: boolean;
 	    alwaysLoadImages: boolean;
 	    blockTrackingPixels: boolean;
@@ -2377,7 +2389,7 @@ export namespace desktop {
 	        this.sendDelaySeconds = source["sendDelaySeconds"];
 	        this.flagHighlight = source["flagHighlight"];
 	        this.showShortcutHints = source["showShortcutHints"];
-	        this.harvestAddresses = source["harvestAddresses"];
+	        this.addressLearning = source["addressLearning"];
 	        this.showAccountEmail = source["showAccountEmail"];
 	        this.alwaysLoadImages = source["alwaysLoadImages"];
 	        this.blockTrackingPixels = source["blockTrackingPixels"];

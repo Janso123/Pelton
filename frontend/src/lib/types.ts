@@ -262,6 +262,12 @@ export interface PhishingReport {
 export interface MessageDetail extends MessageSummary {
   toAddresses: string
   ccAddresses: string
+  // replyTo is the Reply-To header, where a reply goes instead of fromAddress.
+  replyTo: string
+  // messageIdHeader and references are the original's Message-ID and References
+  // chain, which a reply turns into In-Reply-To and References.
+  messageIdHeader: string
+  references: string[]
   bodyPlain: string
   // bodyQuote is the message as plain text for a reply or forward to quote:
   // bodyPlain when the message has a text part, and the html rendered down to
@@ -435,9 +441,9 @@ export interface UIPrefs {
   // showShortcutHints toggles the keyboard shortcut shown beside a context-menu
   // entry that has one. On by default.
   showShortcutHints: boolean
-  // harvestAddresses keeps learning addresses from mail for compose
-  // autocomplete. off leaves only the contacts from a synced address book.
-  harvestAddresses: boolean
+  // addressLearning is what compose autocomplete learns from mail beyond the
+  // contacts in a synced address book.
+  addressLearning: AddressLearning
   // showAccountEmail shows the account email instead of its name in the sidebar.
   showAccountEmail: boolean
   // alwaysLoadImages disables remote-image blocking globally (off by default).
@@ -725,6 +731,8 @@ export interface AddressBookEntry {
   email: string
   name: string
   useCount: number
+  // sentCount is how many messages the user sent to the address.
+  sentCount: number
   lastUsed: string
   createdAt: string
 }
@@ -1029,6 +1037,13 @@ export type EditorMode = 'plaintext' | 'markdown' | 'wysiwyg'
 export type ThemePref = 'system' | 'light' | 'dark' | 'schedule'
 export type DensityPref = 'compact' | 'medium' | 'luxe'
 export type SelectAllScope = 'offer' | 'all' | 'loaded'
+
+/**
+ * What autocomplete learns from mail: nothing, the people written to, those
+ * plus trusted image senders and VIPs, or every sender except mailing lists
+ * and automated mailboxes.
+ */
+export type AddressLearning = 'off' | 'sent' | 'trusted' | 'all'
 
 // SearchSort is an order search results can actually come back in. The backend
 // takes one of these; 'auto' is never sent, it is resolved first.

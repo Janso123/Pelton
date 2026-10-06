@@ -5,7 +5,7 @@
 // source of truth.
 
 import { writable } from 'svelte/store'
-import type { UIPrefs, ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, SelectAllScope, SearchKind, SearchSortPref } from '../lib/types'
+import type { UIPrefs, AddressLearning, ThemePref, DensityPref, EditorMode, ViewsPlacement, CloseAction, LogLevel, SelectAllScope, SearchKind, SearchSortPref } from '../lib/types'
 import { getUIPrefs, setSetting, SettingKeys, systemColorScheme, setWindowTheme, getThemeApply } from '../lib/api'
 import { applyTheme, applyDensity, applyAccent, applyScale, applyReduceMotion, applyHandCursor, setThemeSchedule, applyUIFont, applyMonoFont, applyCorners, watchSystemTheme, setSystemSchemeOverride, resolveTheme } from '../theme/theme'
 import { applyUserTheme } from '../theme/usertheme'
@@ -29,7 +29,7 @@ const defaults: UIPrefs = {
   sendDelaySeconds: 0,
   flagHighlight: 'flag',
   showShortcutHints: true,
-  harvestAddresses: true,
+  addressLearning: 'sent',
   showAccountEmail: false,
   alwaysLoadImages: false,
   blockTrackingPixels: false,
@@ -610,11 +610,11 @@ export function setShortcutHints(value: boolean): void {
   void setSetting(SettingKeys.shortcutHints, String(value))
 }
 
-// setHarvestAddresses toggles learning addresses from mail for autocomplete.
-// Off, only contacts from a synced address book are offered.
-export function setHarvestAddresses(value: boolean): void {
-  prefs.update((p) => ({ ...p, harvestAddresses: value }))
-  void setSetting(SettingKeys.harvestAddresses, String(value))
+// setAddressLearning picks what autocomplete learns from mail. Off, only
+// contacts from a synced address book are offered.
+export function setAddressLearning(value: AddressLearning): void {
+  prefs.update((p) => ({ ...p, addressLearning: value }))
+  void setSetting(SettingKeys.addressLearning, value)
 }
 
 // setShowAccountEmail toggles showing the account email instead of its name.

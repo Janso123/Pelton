@@ -9,6 +9,12 @@ Search runs against an index of the mail already on your computer. Nothing is se
 
 Press ++cmd+f++ (macOS) or ++ctrl+f++ (Windows and Linux) to put the cursor in the search bar above the message list. Clear it with the **✕** button or by pressing ++backspace++ until the bar is empty, and the list goes back to the mailbox you were in.
 
+## Where it looks
+
+A search stays in the list you started it from. Searching from a folder looks in that folder only, and searching from a unified view such as **Unified Inbox** looks in the matching folder of every mailbox, so your inbox results are not crowded out by junk and the bin. The placeholder in the empty search bar names the list it will search. A saved view already spans every folder and searches all of them.
+
+To look somewhere else, add an `in:` filter (or `folder:`): `in:all` searches every folder, junk and bin included, and `in:` followed by a folder name searches that folder.
+
 ## What it matches
 
 A query is matched against the subject, the sender, the recipients and the message body at once. A hit in the subject or the sender ranks above a hit buried in a body, so the message you meant is usually first.
@@ -36,10 +42,22 @@ Beyond free text you can type filters. A filter becomes a chip as soon as you fi
 | `subject:` | Words in the subject |
 | `has:attachment` | Messages carrying at least one attachment |
 | `is:unread` | Messages you have not read |
+| `in:` or `folder:` | A folder, or `all` for every folder |
 | `after:` | Mail on or after a date |
 | `before:` | Mail on or before a date |
 
-Start typing a filter name and Pelton suggests the rest. Press ++tab++ to complete it, then type the value. A space or ++enter++ turns the finished filter into a chip.
+Click into the empty search bar and the filters are listed, minus the ones already applied. Start typing a filter name and the list narrows to it; press ++tab++ to complete it, then type the value. A space or ++enter++ turns the finished filter into a chip.
+
+Once a filter is typed, the list offers values for it:
+
+| After | Suggests |
+| --- | --- |
+| `from:`, `to:` | Matching addresses from your contacts and the mail you have exchanged |
+| `has:`, `is:` | `has:attachment`, `is:unread` |
+| `in:`, `folder:` | `in:all`, then your folders, the current mailbox's first |
+| `after:`, `before:` | **Pick a date…**, which opens the calendar |
+
+Use ++arrow-up++ and ++arrow-down++ to move through the list, ++enter++ or ++tab++ to take the highlighted entry, and ++escape++ to close it. Picking an address adds it as a chip straight away.
 
 Every filter is combined with **and**, so `from:jane invoice` finds mail from Jane that also mentions an invoice. Each filter can appear once; typing a second `from:` replaces the first. Remove a chip with its **✕**, or press ++backspace++ on an empty input to drop the last one.
 

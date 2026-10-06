@@ -68,6 +68,9 @@ type Message struct {
 	// nothing downstream can go back for them.
 	ReplyTo     string
 	AuthResults []string
+	// References is the References header as space-separated message ids ('' when
+	// there is none).
+	References string
 	// CharsetGuess names what the body was read as when the message declared no
 	// charset or one nothing knows, and is empty for mail that was right about
 	// itself. It is kept so the reader can be told the text was guessed at.
@@ -383,6 +386,7 @@ func parseBody(raw []byte, msg *Message) error {
 	msg.ListUnsubscribe = parsed.ListUnsubscribe
 	msg.ListUnsubscribePost = parsed.ListUnsubscribePost
 	msg.ReplyTo = parsed.ReplyTo
+	msg.References = parsed.References
 	msg.AuthResults = parsed.AuthResults
 	return nil
 }

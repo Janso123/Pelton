@@ -24,14 +24,21 @@ type Redactor struct {
 	values []string
 }
 
-// Add registers a secret. Empty values are ignored. Adding the same value twice
-// is a no-op, so callers can register on every load without growing the list.
+// minRedactLen is the shortest value worth redacting. A shorter one matches
+// inside ordinary words and would mangle every log line ("list accounts"
+// becoming "list [redacted]ccounts"), while a password that short is no secret
+// worth hiding from a log.
+const minRedactLen = 4
+
+// Add registers a secret. Values shorter than minRedactLen, empty ones
+// included, are ignored. Adding the same value twice is a no-op, so callers
+// can register on every load without growing the list.
 //
 // The escaped form is registered alongside the raw one: slog's text and json
 // handlers quote strings, so a password with a quote or a backslash reaches the
 // writer escaped and would not match its own bytes.
 func (r *Redactor) Add(secret string) {
-	if secret == "" {
+	if len(secret) < minRedactLen {
 		return
 	}
 	r.add(secret)

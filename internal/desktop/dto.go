@@ -186,10 +186,16 @@ type AttachmentDTO struct {
 // offer "load remote images".
 type MessageDetailDTO struct {
 	MessageSummaryDTO
-	ToAddresses  string `json:"toAddresses"`
-	CcAddresses  string `json:"ccAddresses"`
-	BodyPlain    string `json:"bodyPlain"`
-	BodyHTMLSafe string `json:"bodyHtmlSafe"`
+	ToAddresses string `json:"toAddresses"`
+	CcAddresses string `json:"ccAddresses"`
+	// ReplyTo is the Reply-To header, where a reply goes instead of From.
+	ReplyTo string `json:"replyTo"`
+	// MessageIDHeader and References are the original's Message-ID and
+	// References chain, which a reply turns into In-Reply-To and References.
+	MessageIDHeader string   `json:"messageIdHeader"`
+	References      []string `json:"references"`
+	BodyPlain       string   `json:"bodyPlain"`
+	BodyHTMLSafe    string   `json:"bodyHtmlSafe"`
 	// BodyQuote is the message as plain text for a reply or forward to quote.
 	// It is BodyPlain when the message has a text part, and the html rendered
 	// down to text when it does not, which is the case BodyPlain is empty for

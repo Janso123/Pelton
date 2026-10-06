@@ -1,6 +1,7 @@
 <script lang="ts">
   // the address book manager. it lists every harvested contact (from sent and
-  // received mail) with how often it has been used, and lets the user remove
+  // received mail) with how often the user wrote to it and how often it has
+  // been used, and lets the user remove
   // any of them. the book is capped and self-prunes; this is the manual override.
   import { onMount } from 'svelte'
   import { IconTrash, IconSearch } from '@tabler/icons-svelte'
@@ -68,6 +69,11 @@
           <span class="name">{e.name || e.email}</span>
           {#if e.name}<span class="addr">{e.email}</span>{/if}
         </div>
+        {#if e.sentCount > 0}
+          <span class="uses" title={$t('addressBook.timesSent')}>
+            {$t('addressBook.sentCount').replace('{n}', String(e.sentCount))}
+          </span>
+        {/if}
         <span class="uses" title={$t('addressBook.timesUsed')}>{e.useCount}×</span>
         {#if confirming === e.email}
           <div class="confirm">

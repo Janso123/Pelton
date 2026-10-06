@@ -651,6 +651,10 @@ export interface SearchRequest {
   subject: string
   hasAttachment: boolean
   unreadOnly: boolean
+  // the folder, or the unified view's folders, the search stays within. 0 and
+  // '' leave it open to every folder the profile shows.
+  folderId: number
+  view: string
   // the order results come back in, already resolved from the "automatic"
   // setting: the backend is told an order, never asked to guess one.
   sort: SearchSort
@@ -1317,7 +1321,7 @@ export const SettingKeys = {
   sendDelay: 'send_delay_seconds',
   flagHighlight: 'flag_highlight',
   shortcutHints: 'show_shortcut_hints',
-  harvestAddresses: 'harvest_addresses',
+  addressLearning: 'address_learning',
   accountEmail: 'show_account_email',
   onboarded: 'onboarding_complete',
   alwaysLoadImages: 'remote_images_always',

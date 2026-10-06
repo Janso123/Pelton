@@ -19,18 +19,42 @@ const (
 	settingRemoteMessages = "remote_allow_messages"
 )
 
-// remoteSenders returns the lowercased from-addresses the user trusts for remote
-// content.
+// remoteSenders returns the bare lowercased addresses the user trusts for remote
+// content. Lists saved before trust matched on the address alone hold the whole
+// "Name <addr>" field; those entries are read as their address.
 func (a *App) remoteSenders() []string {
-	var out []string
-	_ = a.store.GetJSON(a.ctx, settingRemoteSenders, &out)
+	var stored []string
+	_ = a.store.GetJSON(a.ctx, settingRemoteSenders, &stored)
+	out := make([]string, 0, len(stored))
+	for _, s := range stored {
+		if addr := trustAddress(s); addr != "" {
+			out = appendUnique(out, addr)
+		}
+	}
 	return out
 }
 
-// remoteDomains returns the lowercased sender domains the user trusts.
+// trustAddress is the address remote-content trust is keyed on: the one
+// address of a from field, bare and lowercased, or "" when the field names
+// several senders. Trusting one of several would let the others in, and
+// bareAddress alone would pick the last of them.
+func trustAddress(from string) string {
+	if strings.Count(from, "<") > 1 || (!strings.Contains(from, "<") && strings.Contains(from, ",")) {
+		return ""
+	}
+	return bareAddress(from)
+}
+
+// remoteDomains returns the lowercased sender domains the user trusts. Older
+// lists can hold a domain cut from "Name <addr>" with the closing bracket still
+// on it ("example.com>"); that is read as the domain.
 func (a *App) remoteDomains() []string {
-	var out []string
-	_ = a.store.GetJSON(a.ctx, settingRemoteDomains, &out)
+	var stored []string
+	_ = a.store.GetJSON(a.ctx, settingRemoteDomains, &stored)
+	out := make([]string, 0, len(stored))
+	for _, d := range stored {
+		out = appendUnique(out, strings.ToLower(strings.Trim(strings.TrimSpace(d), "<>")))
+	}
 	return out
 }
 
@@ -75,12 +99,14 @@ func (a *App) AllowRemoteForMessage(messageID int64) error {
 
 // remoteAutoAllow reports whether a message from fromAddress should render remote
 // content without prompting, because of the global setting, a trusted sender, or
-// a trusted sender domain.
+// a trusted sender domain. fromAddress may be "Name <addr>" or the bare address
+// (a JMAP stub stores the latter); only the address is compared, and a field
+// naming several senders is never trusted.
 func (a *App) remoteAutoAllow(fromAddress string) bool {
 	if a.boolSetting(settingRemoteAlways, false) {
 		return true
 	}
-	addr := strings.ToLower(strings.TrimSpace(fromAddress))
+	addr := trustAddress(fromAddress)
 	if addr == "" {
 		return false
 	}
@@ -103,7 +129,7 @@ func (a *App) TrustSenderImages(messageID int64) error {
 	if err != nil {
 		return err
 	}
-	addr := strings.ToLower(strings.TrimSpace(m.FromAddress))
+	addr := trustAddress(m.FromAddress)
 	if addr == "" {
 		return nil
 	}
@@ -121,7 +147,7 @@ func (a *App) AllowDomainImages(messageID int64) error {
 	if err != nil {
 		return err
 	}
-	domain := emailDomain(strings.ToLower(strings.TrimSpace(m.FromAddress)))
+	domain := emailDomain(trustAddress(m.FromAddress))
 	if domain == "" {
 		return nil
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -149,8 +150,14 @@ func (a *App) startAccountWorker(accountID int64) {
 }
 
 // startHeldAccountWorker is startAccountWorker for the caller holding the
-// account. The worker it starts runs while the hold is still in place.
+// account. The worker it starts runs while the hold is still in place. An
+// account that left the active profile while it was held (a profile edit
+// stops its worker) stays stopped; a lookup failure starts it, since a missed
+// sync is worse than a redundant one.
 func (a *App) startHeldAccountWorker(accountID int64) {
+	if ids, err := a.profileAccountIDs(); err == nil && !slices.Contains(ids, accountID) {
+		return
+	}
 	a.launchAccountWorker(accountID, true)
 }
 
@@ -1313,7 +1320,7 @@ func (a *App) afterRepairs(folder storage.Folder, ids []int64) {
 	if len(ids) == 0 {
 		return
 	}
-	a.log.Info("repaired cached mail with broken text", "folder", folder.Name, "count", len(ids))
+	a.log.Info("repaired cached mail", "folder", folder.Name, "count", len(ids))
 	a.emit(EventMailRepaired, MailRepairedEvent{
 		AccountID: folder.AccountID, FolderID: folder.ID, Count: len(ids),
 	})
@@ -1828,7 +1835,7 @@ func (a *App) schedulerEnded(accountID int64) <-chan struct{} {
 // account switches protocol it fetches nothing and returns nil, so the stub
 // shows.
 func (a *App) fetchMessageBodyOnDemand(m *storage.Message) error {
-	if m == nil || m.BodyComplete {
+	if m == nil || (m.BodyComplete && !a.needsRefetch(m.ID)) {
 		return nil
 	}
 	account, err := a.store.GetAccount(a.ctx, m.AccountID)
@@ -1871,6 +1878,11 @@ func (a *App) execIMAPOnDemandBodies(ctx context.Context, account storage.Accoun
 		res, err := engine.FetchBodies(ctx, folder, remote)
 		if err == nil {
 			a.announceNewBodies(folder, res)
+		}
+		if err == nil {
+			var repaired []int64
+			repaired, err = engine.RepairRemoteIDs(ctx, folder, remote)
+			a.afterRepairs(folder, repaired)
 		}
 		if err != nil && ctx.Err() == nil && !errors.Is(err, psync.ErrSoftPaused) && a.store != nil {
 			if still, nerr := a.store.RemoteIDsNeedingBody(ctx, folder.ID, remote); nerr == nil {

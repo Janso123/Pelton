@@ -30,8 +30,8 @@ func TestRedactorRemovesRegisteredSecrets(t *testing.T) {
 		},
 		{
 			name:    "overlapping secrets do not chop each other",
-			secrets: []string{"abc", "abcdef"},
-			in:      "token abcdef end",
+			secrets: []string{"abcd", "abcdefgh"},
+			in:      "token abcdefgh end",
 			want:    "token [redacted] end",
 		},
 		{
@@ -160,5 +160,21 @@ func TestParseLevelRoundTrip(t *testing.T) {
 	}
 	if got := ParseLevel("nonsense"); got != slog.LevelInfo {
 		t.Errorf("ParseLevel(nonsense) = %v, want info", got)
+	}
+}
+
+// TestShortSecretsAreNotRedacted: a one-letter password registered by a test
+// or a user must not turn every later log line into noise.
+func TestShortSecretsAreNotRedacted(t *testing.T) {
+	var r Redactor
+	for _, s := range []string{"a", "pw", "abc"} {
+		r.Add(s)
+	}
+	if got := r.Redact("list accounts"); got != "list accounts" {
+		t.Errorf("Redact() = %q, want it unchanged", got)
+	}
+	r.Add("hunter22")
+	if got := r.Redact("login hunter22 failed"); got != "login [redacted] failed" {
+		t.Errorf("Redact() = %q, want the long secret removed", got)
 	}
 }

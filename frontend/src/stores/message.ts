@@ -14,53 +14,105 @@ export const messageDetail = writable<AsyncState<MessageDetail>>(idle())
 // still being fetched in the background.
 export const bodyLoading = writable(false)
 
+// generation bumps whenever the pane switches message or closes. a getMessage
+// that resolves after a bump is stale and must not touch the pane.
+let generation = 0
+let bodySequence = 0
+let currentMessageId: number | null = null
+let initialLoadGeneration: number | null = null
+let pendingRefresh = false
+let detailSequence = 0
+
+/** Identifies one remote-body action in one opening of the detail pane. */
+export interface BodyRequest {
+  readonly id: number
+  readonly generation: number
+  readonly sequence: number
+}
+
+/** Starts a remote-body action only for the ready, displayed message. */
+export function beginBodyRequest(id: number): BodyRequest | null {
+  const state = get(messageDetail)
+  if (state.status !== 'ready' || state.data?.id !== id) return null
+  return { id, generation, sequence: ++bodySequence }
+}
+
+/** Checks whether navigation or a later remote action replaced this action. */
+export function isBodyRequestCurrent(request: BodyRequest): boolean {
+  const state = get(messageDetail)
+  return request.generation === generation && request.sequence === bodySequence &&
+    state.status === 'ready' && state.data?.id === request.id
+}
+
 function applyDetail(detail: MessageDetail): void {
   messageDetail.set(ready(detail))
   bodyLoading.set(detail.bodyComplete === false)
 }
 
-// loadMessage fetches the full message for the detail pane.
+/** Loads the selected detail and rereads once for updates received while opening. */
 export async function loadMessage(id: number): Promise<void> {
+  const gen = ++generation
+  currentMessageId = id
+  initialLoadGeneration = gen
+  pendingRefresh = false
+  const request = ++detailSequence
   const prev = get(messageDetail)
   if (prev.data?.id !== id) {
     messageDetail.update((s) => loading(s))
     bodyLoading.set(false)
   }
+  let succeeded = false
   try {
-    applyDetail(await getMessage(id))
+    const detail = await getMessage(id)
+    if (gen !== generation || request !== detailSequence) return
+    applyDetail(detail)
+    succeeded = true
   } catch (err) {
-    bodyLoading.set(false)
-    messageDetail.set(failed(errorMessage(err)))
+    if (gen === generation && request === detailSequence) {
+      bodyLoading.set(false)
+      messageDetail.set(failed(errorMessage(err)))
+    }
+  } finally {
+    if (gen === generation) initialLoadGeneration = null
   }
+  if (gen !== generation) return
+  const reread = succeeded && pendingRefresh
+  pendingRefresh = false
+  if (reread) await refreshMessage(id)
 }
 
-// refreshMessage reloads one open message after mail:updated without blanking
-// the pane or putting it back into the full-pane loading state.
+/** Refreshes the selected message after mail:updated without blanking the pane. */
 export async function refreshMessage(id: number): Promise<void> {
-  const prev = get(messageDetail)
-  if (prev.data?.id !== id) {
+  if (id !== currentMessageId) return
+  if (initialLoadGeneration === generation) {
+    pendingRefresh = true
     return
   }
+  if (get(messageDetail).data?.id !== id) return
+  const gen = generation
+  const request = ++detailSequence
   bodyLoading.set(true)
   try {
-    applyDetail(await getMessage(id))
+    const detail = await getMessage(id)
+    if (gen === generation && request === detailSequence) applyDetail(detail)
   } catch {
-    bodyLoading.set(false)
+    if (gen === generation && request === detailSequence) bodyLoading.set(false)
   }
 }
 
-// clearMessage empties the detail pane.
+/** Empties the pane and cancels any queued reread. */
 export function clearMessage(): void {
+  generation++
+  currentMessageId = null
+  initialLoadGeneration = null
+  pendingRefresh = false
   bodyLoading.set(false)
   messageDetail.set(idle())
 }
 
-// setBodyHtml swaps the rendered body, used after loading remote images.
-export function setBodyHtml(html: string): void {
-  messageDetail.update((s) => {
-    if (s.status !== 'ready' || !s.data) {
-      return s
-    }
-    return ready({ ...s.data, bodyHtmlSafe: html })
-  })
+/** Applies remote HTML only to its current action; returns whether it was applied. */
+export function setBodyHtml(request: BodyRequest, html: string): boolean {
+  if (!isBodyRequestCurrent(request)) return false
+  messageDetail.update((s) => ready({ ...s.data!, bodyHtmlSafe: html }))
+  return true
 }

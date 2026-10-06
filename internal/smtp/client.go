@@ -22,6 +22,7 @@ import (
 	gosmtp "github.com/emersion/go-smtp"
 
 	"github.com/peltonapp/Pelton/internal/certtrust"
+	"github.com/peltonapp/Pelton/internal/outbox"
 )
 
 const (
@@ -279,6 +280,13 @@ func (c *Client) Send(ctx context.Context, from string, to []string, raw []byte)
 		return fmt.Errorf("smtp: write message body: %w", err)
 	}
 	if err := w.Close(); err != nil {
+		// a reply from the server is a clear answer; anything else means the
+		// connection broke after the message was handed over, and the server
+		// may have accepted it.
+		var reply *gosmtp.SMTPError
+		if !errors.As(err, &reply) {
+			return fmt.Errorf("smtp: finalize message: %w: %w", outbox.ErrMaybeSent, err)
+		}
 		return fmt.Errorf("smtp: finalize message: %w", err)
 	}
 	return nil

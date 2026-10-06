@@ -303,9 +303,14 @@ export async function loadOlder(): Promise<void> {
   }
 }
 
+// SearchFolder is where a search runs: null for the folder or unified view the
+// list is showing, 'all' for every folder, or a folder id picked with in:.
+export type SearchFolder = number | 'all' | null
+
 // SearchFilter carries the structured constraints from the search chips: an
-// optional date window (0 on a side leaves it open), field-scoped terms, and
-// the attachment toggle. Free text is passed separately to runSearch.
+// optional date window (0 on a side leaves it open), field-scoped terms, the
+// attachment toggle and the folder scope. Free text is passed separately to
+// runSearch.
 export interface SearchFilter {
   afterUnix: number
   beforeUnix: number
@@ -314,6 +319,7 @@ export interface SearchFilter {
   subject: string
   hasAttachment: boolean
   unreadOnly: boolean
+  folder: SearchFolder
 }
 
 export const emptyFilter: SearchFilter = {
@@ -324,6 +330,28 @@ export const emptyFilter: SearchFilter = {
   subject: '',
   hasAttachment: false,
   unreadOnly: false,
+  folder: null,
+}
+
+// searchScope resolves a filter's folder against the list the search was
+// started from. Searching from the inbox used to run over every folder, so the
+// results were mostly junk and trash; by default a search now stays where it
+// was started, and in:all is how to widen it. A saved view is a search over
+// every folder already, so it stays unscoped.
+export function searchScope(folder: SearchFolder, sel: Selection | null): { folderId: number; view: string } {
+  if (typeof folder === 'number') {
+    return { folderId: folder, view: '' }
+  }
+  if (folder === 'all' || !sel) {
+    return { folderId: 0, view: '' }
+  }
+  if (sel.kind === 'folder') {
+    return { folderId: sel.folderId, view: '' }
+  }
+  if (sel.kind === 'view') {
+    return { folderId: 0, view: sel.view }
+  }
+  return { folderId: 0, view: '' }
 }
 
 // datesActive reports whether the filter carries a date window, which is what
@@ -333,7 +361,8 @@ function datesActive(f: SearchFilter): boolean {
 }
 
 // filterActive reports whether any chip constraint is set (used to decide
-// between the ranked search and the plain folder list).
+// between the ranked search and the plain folder list). The folder scope is not
+// one: on its own it narrows nothing the plain list does not already show.
 export function filterActive(f: SearchFilter): boolean {
   return (
     f.afterUnix > 0 ||
@@ -360,7 +389,38 @@ const searchPageSize = 200
 // fetched in the same order, or paging by offset would interleave two orders
 // and both duplicate and skip messages. Changing the sort re-runs the search
 // from the first page rather than appending to what is there.
-let currentSearch: { query: string; filter: SearchFilter; sort: SearchSort } | null = null
+//
+// The scope is resolved once too, against the list the search was started
+// from, so a later page cannot land in a different folder.
+let currentSearch: {
+  query: string
+  filter: SearchFilter
+  sort: SearchSort
+  scope: { folderId: number; view: string }
+} | null = null
+
+// isSearching is true while the list is a search result set.
+export function isSearching(): boolean {
+  return currentSearch !== null
+}
+
+// rerunSearch reads the current search again from its first page, for when the
+// rows changed underneath a result set. It is a no-op outside one.
+export async function rerunSearch(): Promise<void> {
+  if (currentSearch) {
+    await runSearch(currentSearch.query, currentSearch.filter)
+  }
+}
+
+// reloadList refreshes whatever the list is showing after a sync or repair
+// replaced rows underneath it: the search when there is one, else the selection.
+export async function reloadList(sel: Selection): Promise<void> {
+  if (isSearching()) {
+    await rerunSearch()
+  } else {
+    await loadList(sel)
+  }
+}
 
 // searchSortKind is the kind of search the active result set is, or null when
 // the list is not showing one. The sort menu needs it to know which preference
@@ -393,6 +453,7 @@ export function allMatchingIds(): Promise<MessageIDs> {
       subject: active.filter.subject,
       hasAttachment: active.filter.hasAttachment,
       unreadOnly: active.filter.unreadOnly,
+      ...active.scope,
       limit: 0,
       offset: 0,
       // the same order the list is in: the backend caps how many ids it
@@ -411,6 +472,7 @@ export function allMatchingIds(): Promise<MessageIDs> {
 function searchPage(
   query: string,
   filter: SearchFilter,
+  scope: { folderId: number; view: string },
   offset: number,
   sort: SearchSort,
 ): Promise<{ messages: MessageSummary[]; total: number }> {
@@ -423,6 +485,7 @@ function searchPage(
     subject: filter.subject,
     hasAttachment: filter.hasAttachment,
     unreadOnly: filter.unreadOnly,
+    ...scope,
     limit: searchPageSize,
     offset,
     sort,
@@ -438,7 +501,8 @@ export async function runSearch(query: string, filter: SearchFilter = emptyFilte
   const kind = searchKind(query, datesActive(filter))
   const sort = resolveSort(searchSortPref(get(prefs), kind), kind)
   searchSortKind.set(kind)
-  currentSearch = { query, filter, sort }
+  const scope = searchScope(filter.folder, currentSelection)
+  currentSearch = { query, filter, sort, scope }
   // the same generation guard every other loader here uses. Without it a search
   // that resolves after the list has moved on writes its results over whatever
   // is showing now: clearing the search bar fires both a query change and a
@@ -448,7 +512,7 @@ export async function runSearch(query: string, filter: SearchFilter = emptyFilte
   const generation = ++loadGeneration
   messageList.update((s) => loading(s))
   try {
-    const { messages, total } = await searchPage(query, filter, 0, sort)
+    const { messages, total } = await searchPage(query, filter, scope, 0, sort)
     if (generation !== loadGeneration) {
       return
     }
@@ -493,7 +557,7 @@ async function loadMoreSearch(): Promise<void> {
   // what stops it from launching the same page several times over.
   messageList.update((s) => loading(s))
   try {
-    const { messages, total } = await searchPage(active.query, active.filter, offset, active.sort)
+    const { messages, total } = await searchPage(active.query, active.filter, active.scope, offset, active.sort)
     messageList.update((s) => {
       // the status is 'loading' here (this function set it), so only the data
       // is checked: a newer query landing mid-flight is what must be discarded.

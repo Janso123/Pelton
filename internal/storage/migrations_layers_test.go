@@ -35,18 +35,18 @@ func TestMigrationsApplyFromMainAndFresh(t *testing.T) {
 				t.Fatalf("%s: accounts.%s missing after migrating (%v)", name, col, err)
 			}
 		}
-		// jmap-only adds 0042 on top of sync-core's 0037-0041 and nothing after them.
+		// ui-updates adds 0043-0044 on top of 0037-0042 and nothing after them.
 		applied, err := d.appliedMigrations(ctx)
 		if err != nil {
 			t.Fatalf("%s: applied migrations: %v", name, err)
 		}
-		for v := 37; v <= 42; v++ {
+		for v := 37; v <= 44; v++ {
 			if !applied[v] {
 				t.Errorf("%s: migration %d not applied", name, v)
 			}
 		}
 		for v := range applied {
-			if v > 42 {
+			if v > 44 {
 				t.Errorf("%s: unexpected migration %d", name, v)
 			}
 		}

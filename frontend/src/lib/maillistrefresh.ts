@@ -5,6 +5,8 @@ export interface MailNewListRefreshContext {
   syncPhase: SyncPhase
   // true when the user has scrolled beyond the first page of cached rows.
   paginated: boolean
+  // true while the list is a search result set.
+  searching: boolean
 }
 
 /**
@@ -14,6 +16,11 @@ export interface MailNewListRefreshContext {
  * preserves the loaded window.
  */
 export function shouldReplaceListOnMailNew(ctx: MailNewListRefreshContext): boolean {
+  // replacing a result set with the folder list would drop the search the user
+  // is reading, e.g. when opening a hit triggers a flag sync.
+  if (ctx.searching) {
+    return false
+  }
   if (ctx.syncPhase === 'bodies') {
     return false
   }

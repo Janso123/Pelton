@@ -77,8 +77,9 @@ func StoreFetched(ctx context.Context, store *storage.DB, log *slog.Logger, fold
 		ListUnsubscribe:     msg.ListUnsubscribe,
 		ListUnsubscribePost: msg.ListUnsubscribePost,
 
-		ReplyTo: msg.ReplyTo,
-		Auth:    storedAuth(msg.AuthResults),
+		ReplyTo:    msg.ReplyTo,
+		References: msg.References,
+		Auth:       storedAuth(msg.AuthResults),
 
 		SMIME: verifySignature(msg.Raw, msg.From),
 	}

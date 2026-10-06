@@ -50,16 +50,16 @@ type Attachment struct {
 
 // Fetched is a full message body returned by Adapter.Fetch.
 type Fetched struct {
-	RemoteID                                                                             string
-	LegacyUID                                                                            uint32 // IMAP adapter only; JMAP always zero
-	Flags                                                                                storage.Flag
-	Raw                                                                                  []byte
-	MessageID, Subject, From, To, Cc, Text, HTML, ListUnsubscribe, ReplyTo, CharsetGuess string
-	Date                                                                                 time.Time
-	Size                                                                                 int64
-	ListUnsubscribePost                                                                  bool
-	AuthResults                                                                          []string
-	Attachments                                                                          []Attachment
+	RemoteID                                                                                         string
+	LegacyUID                                                                                        uint32 // IMAP adapter only; JMAP always zero
+	Flags                                                                                            storage.Flag
+	Raw                                                                                              []byte
+	MessageID, Subject, From, To, Cc, Text, HTML, ListUnsubscribe, ReplyTo, References, CharsetGuess string
+	Date                                                                                             time.Time
+	Size                                                                                             int64
+	ListUnsubscribePost                                                                              bool
+	AuthResults                                                                                      []string
+	Attachments                                                                                      []Attachment
 }
 
 // RemoteMailbox identifies a mailbox for ListMessages and ListChanges.

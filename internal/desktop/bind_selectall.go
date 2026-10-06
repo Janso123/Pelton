@@ -97,6 +97,23 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 		return MessageIDsDTO{IDs: []int64{}}, nil
 	}
 
+	accounts, err := a.profileAccountIDs()
+	if err != nil {
+		return MessageIDsDTO{}, err
+	}
+	if len(accounts) == 0 {
+		return MessageIDsDTO{IDs: []int64{}}, nil
+	}
+	q.AccountIDs = accounts
+	folders, require, err := a.searchScope(req)
+	if err != nil {
+		return MessageIDsDTO{}, err
+	}
+	if folders != nil && len(folders) == 0 {
+		return MessageIDsDTO{IDs: []int64{}}, nil
+	}
+	q.FolderIDs = folders
+
 	res, err := a.index.Search(q)
 	if err != nil {
 		return MessageIDsDTO{}, err
@@ -107,7 +124,7 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 		// indexed ones, so they are applied here exactly as the result list
 		// applies them. A hit whose message is gone is skipped, which also covers
 		// stale index entries.
-		if req.HasAttachment || req.UnreadOnly {
+		if req.HasAttachment || req.UnreadOnly || require != 0 {
 			m, err := a.store.GetMessage(a.ctx, h.ID)
 			if err != nil {
 				continue
@@ -116,6 +133,9 @@ func (a *App) SearchMessageIDs(req SearchRequestDTO) (MessageIDsDTO, error) {
 				continue
 			}
 			if req.UnreadOnly && m.Flags.Has(storage.FlagSeen) {
+				continue
+			}
+			if require != 0 && !m.Flags.Has(require) {
 				continue
 			}
 		}

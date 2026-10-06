@@ -881,6 +881,13 @@ func (a *App) execJMAPOnDemandBodies(ctx context.Context, account storage.Accoun
 	if err == nil {
 		a.announceNewBodies(folder, res)
 	}
+	if err == nil {
+		// a failed repair fails the job, so the pane is not told the message
+		// changed and does not fetch it again in a loop.
+		var repaired []int64
+		repaired, err = engine.RepairRemoteIDs(ctx, folder, remote)
+		a.afterRepairs(folder, repaired)
+	}
 	return err
 }
 

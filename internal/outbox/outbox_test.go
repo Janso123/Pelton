@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -296,4 +297,47 @@ func findByID(t *testing.T, q *Queue, id int64) Message {
 	}
 	t.Fatalf("message %d not found", id)
 	return Message{}
+}
+
+// A send whose outcome is unknown (the connection dropped after the message
+// was handed over) must not be retried on its own: the recipient may already
+// have it, and a retry would deliver it twice.
+func TestMaybeSentIsNotRetried(t *testing.T) {
+	ctx := context.Background()
+	q, accountID := newTestQueue(t)
+
+	id, err := q.Enqueue(ctx, sampleMessage(accountID))
+	if err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+
+	tx := &maybeSentTransmitter{}
+	worker := NewWorker(q, tx)
+	for range 2 {
+		if err := worker.DrainOnce(ctx); err != nil {
+			t.Fatalf("drain: %v", err)
+		}
+	}
+
+	got := findByID(t, q, id)
+	if got.State != StateFailed {
+		t.Fatalf("state = %q, want %q", got.State, StateFailed)
+	}
+	if got.LastError != CauseMaybeSent {
+		t.Fatalf("last error = %q, want %q", got.LastError, CauseMaybeSent)
+	}
+	if got.Attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", got.Attempts)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("transmit calls = %d, want 1", tx.calls)
+	}
+}
+
+// maybeSentTransmitter always ends with an unknown outcome.
+type maybeSentTransmitter struct{ calls int }
+
+func (m *maybeSentTransmitter) Transmit(context.Context, Message) error {
+	m.calls++
+	return fmt.Errorf("smtp: finalize message: %w", ErrMaybeSent)
 }

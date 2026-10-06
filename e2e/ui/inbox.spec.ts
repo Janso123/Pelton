@@ -140,8 +140,8 @@ test('search, folders, and the seeded extremes', async ({ page }) => {
   await page.getByRole('button', { name: /^INBOX/ }).click()
   await expect(messageList(page).getByRole('option').first()).toBeVisible()
 
-  await page.getByRole('textbox', { name: 'Search mail' }).fill(manifest.aliceShortSubject)
-  await page.getByRole('textbox', { name: 'Search mail' }).press('Enter')
+  await page.getByRole('combobox', { name: 'Search mail' }).fill(manifest.aliceShortSubject)
+  await page.getByRole('combobox', { name: 'Search mail' }).press('Enter')
   const shortHit = page.getByRole('option', { name: new RegExp(manifest.aliceShortSubject) })
   const shortFound = await shortHit.isVisible().catch(() => false)
   timings['short subject in local search'] = shortFound ? 'found' : 'not in the sync window'
@@ -152,8 +152,8 @@ test('search, folders, and the seeded extremes', async ({ page }) => {
     await expect(page.getByText('No matching messages')).toBeVisible()
   }
 
-  await page.getByRole('textbox', { name: 'Search mail' }).fill(manifest.aliceLargeSubject)
-  await page.getByRole('textbox', { name: 'Search mail' }).press('Enter')
+  await page.getByRole('combobox', { name: 'Search mail' }).fill(manifest.aliceLargeSubject)
+  await page.getByRole('combobox', { name: 'Search mail' }).press('Enter')
   const largeHit = page.getByRole('option', { name: new RegExp(manifest.aliceLargeSubject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
   const largeFound = await largeHit.isVisible().catch(() => false)
   timings['large subject in local search'] = largeFound ? 'found' : 'not in the sync window'
@@ -163,7 +163,7 @@ test('search, folders, and the seeded extremes', async ({ page }) => {
     await expect(page.getByText(manifest.largePrefix)).toBeVisible({ timeout: 60_000 })
     timings['open large message ms'] = Date.now() - t0
   }
-  await page.getByRole('textbox', { name: 'Search mail' }).fill('')
+  await page.getByRole('combobox', { name: 'Search mail' }).fill('')
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: /^INBOX/ }).click()
 })

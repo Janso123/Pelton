@@ -87,13 +87,19 @@ func (a *App) GetMessage(id int64) (MessageDetailDTO, error) {
 	if err != nil {
 		return MessageDetailDTO{}, err
 	}
-	if !m.BodyComplete {
+	// a message marked for refetch (missing inline pictures, broken text) is
+	// shown as stored and fetched again now rather than at the next sync of its
+	// folder, with the body spinner on while that runs. Local Folders mail has
+	// no server, so it is shown as it is.
+	marked := m.BodyComplete && a.needsRefetch(id)
+	if !m.BodyComplete || marked {
 		detail, derr := a.messageDetailFromStored(id, m)
 		if derr != nil {
 			return MessageDetailDTO{}, derr
 		}
 		account, accErr := a.store.GetAccount(a.ctx, m.AccountID)
 		if accErr == nil && !account.Local {
+			detail.BodyComplete = false
 			if _, running := a.bodyFetches.LoadOrStore(id, struct{}{}); !running {
 				goSafe("on-demand body", func() {
 					defer a.bodyFetches.Delete(id)
@@ -154,16 +160,35 @@ func (a *App) fetchBodyForPane(id int64) {
 	a.emit(EventMailBodyFailed, MailBodyFailedEvent{MessageID: id})
 }
 
-// bodyStored reports whether a fetch left the message complete.
+// bodyStored reports whether a fetch left the message complete and no longer
+// marked for refetch.
 func (a *App) bodyStored(id int64) error {
 	m, err := a.store.GetMessage(a.ctx, id)
 	if err != nil {
 		return err
 	}
-	if !m.BodyComplete {
+	if !m.BodyComplete || a.needsRefetch(id) {
 		return errBodyNotStored
 	}
 	return nil
+}
+
+// needsRefetch reports whether a message is marked to be fetched again. A read
+// error counts as not marked: the stored copy is still shown.
+func (a *App) needsRefetch(id int64) bool {
+	marked, err := a.store.NeedsRefetch(a.ctx, id)
+	return err == nil && marked
+}
+
+// bracketMessageID puts the angle brackets back on a stored Message-ID. The
+// parser and the imap envelope both hand it over bare while References keeps
+// them, and a reply copies this value into In-Reply-To, where rfc 5322 requires
+// the brackets and where the compose side compares it against References.
+func bracketMessageID(id string) string {
+	if id == "" || strings.HasPrefix(id, "<") {
+		return id
+	}
+	return "<" + id + ">"
 }
 
 func (a *App) messageDetailFromStored(id int64, m *storage.Message) (MessageDetailDTO, error) {
@@ -185,6 +210,9 @@ func (a *App) messageDetailFromStored(id int64, m *storage.Message) (MessageDeta
 		MessageSummaryDTO: summary,
 		ToAddresses:       m.ToAddresses,
 		CcAddresses:       m.CcAddresses,
+		ReplyTo:           m.ReplyTo,
+		MessageIDHeader:   bracketMessageID(m.MessageID),
+		References:        append([]string{}, strings.Fields(m.References)...),
 		BodyPlain:         m.BodyPlain,
 		BodyQuote:         quoteText(m.BodyPlain, m.BodyHTML),
 		IsHTML:            m.BodyHTML != "",
@@ -245,10 +273,16 @@ func (a *App) GetMessageHTML(id int64, allowRemote, includeTrackers bool) (strin
 	if err != nil {
 		return "", err
 	}
-	if includeTrackers {
-		return a.renderHTMLWithTrackers(m.BodyHTML, atts), nil
+	// protected mail is stored as ciphertext; the html the reader is looking at
+	// came from opening it, so the re-render has to open it again.
+	body := m.BodyHTML
+	if opened, isHTML, state, _ := a.openProtected(*m); state == pgpStateOpen && isHTML {
+		body = opened
 	}
-	return a.renderHTML(m.BodyHTML, atts, allowRemote), nil
+	if includeTrackers {
+		return a.renderHTMLWithTrackers(body, atts), nil
+	}
+	return a.renderHTML(body, atts, allowRemote), nil
 }
 
 // renderHTML resolves inline cid images to data urls then sanitizes with the
@@ -332,7 +366,9 @@ func (a *App) inlineDataURLs(atts []storage.Attachment) map[string]string {
 		if err != nil {
 			continue
 		}
-		id := trimAngles(att.ContentID)
+		// cid: urls are matched lowercased (mailview.ResolveCIDs), and Outlook
+		// ids carry upper-case hex.
+		id := strings.ToLower(trimAngles(att.ContentID))
 		out[id] = fmt.Sprintf("data:%s;base64,%s", att.ContentType, base64.StdEncoding.EncodeToString(data))
 	}
 	return out

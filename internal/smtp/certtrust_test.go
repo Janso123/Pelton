@@ -19,6 +19,13 @@ import (
 // Dial and Close. It returns the port and the certificate's fingerprint.
 func selfSignedSubmission(t *testing.T) (int, string) {
 	t.Helper()
+	return selfSignedServer(t, serveSubmission)
+}
+
+// selfSignedServer is selfSignedSubmission with the per-connection script left
+// to the caller.
+func selfSignedServer(t *testing.T, serve func(net.Conn)) (int, string) {
+	t.Helper()
 	certServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	certServer.Close()
 	tlsConfig := certServer.TLS.Clone()
@@ -35,7 +42,7 @@ func selfSignedSubmission(t *testing.T) (int, string) {
 			if err != nil {
 				return
 			}
-			go serveSubmission(conn)
+			go serve(conn)
 		}
 	}()
 

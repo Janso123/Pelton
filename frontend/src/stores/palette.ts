@@ -114,6 +114,10 @@ export function requestMailSearch(text: string): void {
       subject: '',
       hasAttachment: false,
       unreadOnly: false,
+      // the palette is reached from anywhere, so it is not tied to the list on
+      // screen and searches every folder.
+      folderId: 0,
+      view: '',
       // always the best matches, whatever the list is sorted by: the palette
       // shows a handful of rows off a half-typed query, which is the one place
       // ranking is the only useful order.

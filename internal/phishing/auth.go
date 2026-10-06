@@ -51,32 +51,20 @@ func (a Auth) Stated() bool {
 	return a.SPF != "" || a.DKIM != "" || a.DMARC != ""
 }
 
-// ParseAuth reads every Authentication-Results header of a message into one
-// result. A message can carry several, added by each hop: the first is the one
-// the user's own server wrote and is the only one that can be trusted, so
-// later headers only fill in methods the first left unstated.
+// ParseAuth reads the topmost Authentication-Results header of a message. That
+// one is added by the user's own server on delivery; every header below it
+// arrived with the message and may have been written by the sender, so none of
+// them is allowed to add a result the server did not state. A server that adds
+// no header at all leaves the sender's own header on top, which nothing here
+// can tell apart from a real one.
 //
 // The format is RFC 8601: an authserv-id, then method=result pairs, each
 // optionally followed by property=value pairs.
 func ParseAuth(headers []string) Auth {
-	var out Auth
-	for _, header := range headers {
-		merge(&out, parseOne(header))
+	if len(headers) == 0 {
+		return Auth{}
 	}
-	return out
-}
-
-// merge fills only the fields the earlier headers left empty.
-func merge(dst *Auth, src Auth) {
-	if dst.SPF == "" {
-		dst.SPF, dst.SPFDomain = src.SPF, src.SPFDomain
-	}
-	if dst.DKIM == "" {
-		dst.DKIM, dst.DKIMDomain = src.DKIM, src.DKIMDomain
-	}
-	if dst.DMARC == "" {
-		dst.DMARC = src.DMARC
-	}
+	return parseOne(headers[0])
 }
 
 // parseOne reads a single Authentication-Results value.

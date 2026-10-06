@@ -258,6 +258,107 @@ func TestGetMessageJMAPReturnsPreviewBeforeBodyFetch(t *testing.T) {
 	}
 }
 
+// A complete message marked for refetch (missing inline pictures, broken text)
+// is refetched as soon as it is opened, with the body spinner on until then,
+// instead of showing the broken copy until the next sync of its folder.
+func TestGetMessageRefetchesMarkedMessage(t *testing.T) {
+	ctx, stopBackground := testContext(t)
+	defer stopBackground()
+
+	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.RunMigrations(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	accountID, err := db.CreateAccount(ctx, &storage.Account{Email: "reader@example.com", IMAPHost: "imap.example.com", IMAPPort: 993})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	folder := &storage.Folder{AccountID: accountID, Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"}
+	if _, err := db.CreateFolder(ctx, folder); err != nil {
+		t.Fatalf("create folder: %v", err)
+	}
+	const remoteID = "uid7"
+	msg := storage.Message{AccountID: accountID, FolderID: folder.ID, UID: 7, RemoteID: remoteID, BodyPlain: "caf\xe9"}
+	if _, err := db.InsertMessage(ctx, &msg); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	if n, err := db.MarkMangledMessages(ctx); err != nil || n != 1 {
+		t.Fatalf("mark: %d, %v", n, err)
+	}
+
+	adapter := &onDemandBodyAdapter{}
+	app := &App{ctx: ctx, store: db, log: slog.New(slog.DiscardHandler)}
+	app.ensureAccountScheduler(ctx, accountID)
+	done := make(chan struct{})
+	app.onDemandFetchForTest = func(jobCtx context.Context, _ storage.Account, f storage.Folder, remoteIDs []string) error {
+		defer close(done)
+		if len(remoteIDs) != 1 || remoteIDs[0] != remoteID {
+			t.Errorf("on-demand remote ids %v, want [%s]", remoteIDs, remoteID)
+		}
+		_, err := psync.NewEngine(adapter, db, nil).RepairRemoteIDs(jobCtx, f, remoteIDs)
+		return err
+	}
+	t.Cleanup(func() { app.onDemandFetchForTest = nil })
+
+	detail, err := app.GetMessage(msg.ID)
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if detail.BodyComplete {
+		t.Fatal("BodyComplete should be false while the refetch runs, so the spinner shows")
+	}
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("refetch did not run")
+	}
+
+	again, err := app.GetMessage(msg.ID)
+	if err != nil {
+		t.Fatalf("second GetMessage: %v", err)
+	}
+	if !again.BodyComplete || again.BodyPlain != "Full body text for reading pane" {
+		t.Fatalf("after refetch: complete=%v body=%q", again.BodyComplete, again.BodyPlain)
+	}
+}
+
+// Local Folders mail has no server to refetch from. A mark on it (the broken
+// text scan covers every account) must not turn on a spinner that nothing will
+// ever turn off.
+func TestGetMessageLocalMarkedMessageHasNoSpinner(t *testing.T) {
+	a := newAccountTestApp(t)
+	account, err := a.store.EnsureLocalAccount(a.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	folder, err := a.store.EnsureLocalFolder(a.ctx, account.ID, "Archive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := storage.Message{AccountID: account.ID, FolderID: folder.ID, UID: 1, BodyPlain: "caf\xe9"}
+	if _, err := a.store.InsertMessage(a.ctx, &m); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := a.store.MarkMangledMessages(a.ctx); err != nil || n != 1 {
+		t.Fatalf("mark: %d, %v", n, err)
+	}
+	a.onDemandFetchForTest = func(context.Context, storage.Account, storage.Folder, []string) error {
+		t.Error("a local message must not be fetched")
+		return nil
+	}
+	detail, err := a.GetMessage(m.ID)
+	if err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	if !detail.BodyComplete {
+		t.Fatal("a local message shows the body spinner, which never stops")
+	}
+}
+
 // bodyRetryHarness is a JMAP stub opened in the reading pane, with the protocol
 // fetch replaced and every event the app emits recorded.
 type bodyRetryHarness struct {

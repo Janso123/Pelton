@@ -8,7 +8,7 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { getMessage } from '../lib/api'
-import { bodyLoading, loadMessage, messageDetail, refreshMessage } from './message'
+import { beginBodyRequest, isBodyRequestCurrent, setBodyHtml, bodyLoading, clearMessage, loadMessage, messageDetail, refreshMessage } from './message'
 
 const fetchMessage = vi.mocked(getMessage)
 
@@ -36,6 +36,9 @@ function detail(id: number, over: Partial<MessageDetail> = {}): MessageDetail {
     smime: { status: '', signer: '', email: '', issuer: '', detail: '' },
     toAddresses: '',
     ccAddresses: '',
+    replyTo: '',
+    messageIdHeader: '',
+    references: [],
     bodyPlain: 'preview',
     bodyQuote: 'preview',
     bodyHtmlSafe: '',
@@ -55,6 +58,7 @@ function detail(id: number, over: Partial<MessageDetail> = {}): MessageDetail {
 }
 
 beforeEach(() => {
+  clearMessage()
   fetchMessage.mockReset()
   messageDetail.set(idle())
   bodyLoading.set(false)
@@ -63,21 +67,80 @@ beforeEach(() => {
 describe('refreshMessage', () => {
   it('keeps the preview on screen while the full body loads', async () => {
     const stub = detail(7)
-    messageDetail.set(ready(stub))
-    fetchMessage.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          setTimeout(() => resolve(detail(7, { bodyPlain: 'full text', bodyComplete: true })), 20)
-        }),
-    )
+    fetchMessage.mockResolvedValueOnce(stub)
+    await loadMessage(7)
+    fetchMessage.mockReset()
+    const full = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(full.promise)
 
-    void refreshMessage(7)
+    const refresh = refreshMessage(7)
     expect(get(messageDetail).data?.bodyPlain).toBe('preview')
     expect(get(bodyLoading)).toBe(true)
 
-    await vi.waitFor(() => expect(get(bodyLoading)).toBe(false))
+    full.resolve(detail(7, { bodyPlain: 'full text', bodyComplete: true }))
+    await refresh
+    expect(get(bodyLoading)).toBe(false)
     expect(get(messageDetail).data?.bodyPlain).toBe('full text')
     expect(get(messageDetail).status).toBe('ready')
+  })
+})
+
+// deferred hands back a promise and the function that resolves it, so a test
+// can let getMessage answer after the user has already moved on.
+function deferred<T>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (reason: unknown) => void } {
+  let resolve!: (v: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((r, j) => {
+    resolve = r
+    reject = j
+  })
+  return { promise, resolve, reject }
+}
+
+describe('stale responses', () => {
+  it('drops a refresh of A that lands after B was opened', async () => {
+    fetchMessage.mockResolvedValueOnce(detail(1))
+    await loadMessage(1)
+    fetchMessage.mockReset()
+    const late = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(late.promise)
+    const refresh = refreshMessage(1)
+
+    fetchMessage.mockResolvedValueOnce(detail(2, { bodyComplete: true }))
+    await loadMessage(2)
+
+    late.resolve(detail(1, { bodyComplete: true }))
+    await refresh
+    expect(get(messageDetail).data?.id).toBe(2)
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it('drops a refresh that lands after the pane was closed', async () => {
+    fetchMessage.mockResolvedValueOnce(detail(1))
+    await loadMessage(1)
+    fetchMessage.mockReset()
+    const late = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(late.promise)
+    const refresh = refreshMessage(1)
+
+    clearMessage()
+    late.resolve(detail(1, { bodyComplete: true }))
+    await refresh
+    expect(get(messageDetail).status).toBe('idle')
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it('drops a slow load of A that lands after B was opened', async () => {
+    const slow = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(slow.promise)
+    const first = loadMessage(1)
+
+    fetchMessage.mockResolvedValueOnce(detail(2, { bodyComplete: true }))
+    await loadMessage(2)
+
+    slow.resolve(detail(1))
+    await first
+    expect(get(messageDetail).data?.id).toBe(2)
   })
 })
 
@@ -86,5 +149,122 @@ describe('loadMessage', () => {
     fetchMessage.mockResolvedValue(detail(3))
     await loadMessage(3)
     expect(get(bodyLoading)).toBe(true)
+  })
+})
+
+
+describe('remote body requests', () => {
+  it('rejects requests for an unready or different message', () => {
+    expect(beginBodyRequest(1)).toBeNull()
+    messageDetail.set(ready(detail(1)))
+    expect(beginBodyRequest(2)).toBeNull()
+  })
+  it.each(['switch', 'close', 'reopen', 'return'] as const)('rejects remote HTML after %s', async (mode) => {
+    fetchMessage.mockImplementation(async (id) => detail(id, { bodyComplete: true, bodyHtmlSafe: `<p>${id}</p>` }))
+    await loadMessage(1)
+    const request = beginBodyRequest(1)!
+    if (mode === 'close' || mode === 'reopen') clearMessage()
+    else await loadMessage(2)
+    if (mode === 'reopen' || mode === 'return') await loadMessage(1)
+    const before = get(messageDetail)
+    expect(isBodyRequestCurrent(request)).toBe(false)
+    expect(setBodyHtml(request, '<p>old A</p>')).toBe(false)
+    expect(get(messageDetail)).toEqual(before)
+  })
+  it('accepts only the latest remote action in one pane', async () => {
+    fetchMessage.mockResolvedValue(detail(1, { bodyComplete: true }))
+    await loadMessage(1)
+    const older = beginBodyRequest(1)!
+    const newer = beginBodyRequest(1)!
+    expect(setBodyHtml(newer, '<p>latest</p>')).toBe(true)
+    expect(setBodyHtml(older, '<p>older</p>')).toBe(false)
+    expect(get(messageDetail).data?.bodyHtmlSafe).toBe('<p>latest</p>')
+  })
+})
+
+
+describe('detail update races', () => {
+  it.each([1, 2])('rereads B once after %i updates during its initial load', async (updates) => {
+    fetchMessage.mockResolvedValueOnce(detail(1, { bodyComplete: true }))
+    await loadMessage(1)
+    const first = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(first.promise)
+    const opening = loadMessage(2)
+    for (let i = 0; i < updates; i++) await refreshMessage(2)
+    fetchMessage.mockResolvedValueOnce(detail(2, { bodyPlain: 'complete B', bodyComplete: true }))
+
+    first.resolve(detail(2))
+    await opening
+    expect(fetchMessage).toHaveBeenCalledTimes(3)
+    expect(get(messageDetail).data).toMatchObject({ id: 2, bodyPlain: 'complete B' })
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it.each(['navigate', 'close'] as const)('cancels the queued reread after %s', async (action) => {
+    const first = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(first.promise)
+    const opening = loadMessage(2)
+    await refreshMessage(2)
+    if (action === 'navigate') {
+      fetchMessage.mockResolvedValueOnce(detail(3, { bodyComplete: true }))
+      await loadMessage(3)
+    } else clearMessage()
+    const calls = fetchMessage.mock.calls.length
+
+    first.resolve(detail(2))
+    await opening
+    expect(fetchMessage).toHaveBeenCalledTimes(calls)
+    if (action === 'navigate') expect(get(messageDetail).data?.id).toBe(3)
+    else expect(get(messageDetail).status).toBe('idle')
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it('retains the initial load error when an update was queued', async () => {
+    const first = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(first.promise)
+    const opening = loadMessage(2)
+    await refreshMessage(2)
+
+    first.reject(new Error('initial load failed'))
+    await opening
+    expect(fetchMessage).toHaveBeenCalledTimes(1)
+    expect(get(messageDetail)).toMatchObject({ status: 'error', error: 'initial load failed' })
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it('keeps the later refresh result when the older stub arrives last', async () => {
+    fetchMessage.mockResolvedValueOnce(detail(2))
+    await loadMessage(2)
+    const older = deferred<MessageDetail>()
+    const newer = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const firstRefresh = refreshMessage(2)
+    const secondRefresh = refreshMessage(2)
+
+    newer.resolve(detail(2, { bodyPlain: 'complete B', bodyComplete: true }))
+    await secondRefresh
+    older.resolve(detail(2))
+    await firstRefresh
+    expect(get(messageDetail).data?.bodyPlain).toBe('complete B')
+    expect(get(bodyLoading)).toBe(false)
+  })
+
+  it('keeps the newer refresh spinner when the older refresh fails', async () => {
+    fetchMessage.mockResolvedValueOnce(detail(2))
+    await loadMessage(2)
+    const older = deferred<MessageDetail>()
+    const newer = deferred<MessageDetail>()
+    fetchMessage.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const firstRefresh = refreshMessage(2)
+    const secondRefresh = refreshMessage(2)
+
+    older.reject(new Error('older refresh failed'))
+    await firstRefresh
+    expect(get(bodyLoading)).toBe(true)
+    expect(get(messageDetail).data?.bodyPlain).toBe('preview')
+    newer.resolve(detail(2, { bodyPlain: 'complete B', bodyComplete: true }))
+    await secondRefresh
+    expect(get(messageDetail).data?.bodyPlain).toBe('complete B')
+    expect(get(bodyLoading)).toBe(false)
   })
 })

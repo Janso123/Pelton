@@ -18,6 +18,7 @@
   let content: AttachmentContent | null = null
   let errorText = ''
   let lastKey = ''
+  let loadSeq = 0
   // pdf and image render from a Blob object url, not a data url: WKWebView and
   // WebView2 both show a blank page for a data:application/pdf iframe, but load a
   // blob: url fine. we revoke the previous url whenever it changes.
@@ -31,6 +32,7 @@
       void load()
     }
   } else {
+    loadSeq++
     lastKey = ''
     content = null
     errorText = ''
@@ -63,21 +65,35 @@
     if (!target) {
       return
     }
+    // a read that finishes after the reader opened something else (or closed
+    // the preview) belongs to nothing on screen and is dropped.
+    const seq = ++loadSeq
     loading = true
     content = null
     errorText = ''
     releaseUrl()
     try {
       const c = await readAttachment(target.messageId, target.attachment.id)
+      if (seq !== loadSeq) {
+        return
+      }
       content = c
       const k = previewKind(target.attachment.contentType, target.attachment.filename)
       if (c.data && (k === 'pdf' || k === 'image')) {
-        objectUrl = URL.createObjectURL(base64ToBlob(c.data, c.contentType))
+        // a pdf is often sent as application/octet-stream and recognized here by
+        // its name. The frame renders the blob by its type, so it has to say pdf
+        // or the frame stays blank.
+        const type = k === 'pdf' ? 'application/pdf' : c.contentType
+        objectUrl = URL.createObjectURL(base64ToBlob(c.data, type))
       }
     } catch (err) {
-      errorText = errorMessage(err)
+      if (seq === loadSeq) {
+        errorText = errorMessage(err)
+      }
     } finally {
-      loading = false
+      if (seq === loadSeq) {
+        loading = false
+      }
     }
   }
 

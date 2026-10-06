@@ -84,6 +84,7 @@ func (f *fakeJMAPAdapter) Fetch(_ context.Context, _ string, remoteIDs []string)
 			Text:        msg.Text,
 			HTML:        msg.HTML,
 			ReplyTo:     msg.ReplyTo,
+			References:  msg.References,
 			Date:        msg.Date,
 			Size:        msg.Size,
 			AuthResults: msg.AuthResults,

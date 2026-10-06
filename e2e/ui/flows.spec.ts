@@ -59,7 +59,10 @@ function stubSubject(email: string, minSize: number): string {
 }
 
 async function openAccountFolder(page: Page, account: string, folder: RegExp | string, waitMs = 10_000) {
-  const accountBtn = page.getByRole('button', { name: account, exact: true })
+  // the header's address menu is a button with the same name; take the sidebar one
+  const accountBtn = page
+    .locator('button.account-head')
+    .and(page.getByRole('button', { name: account, exact: true }))
   if ((await accountBtn.getAttribute('aria-expanded')) !== 'true') {
     await accountBtn.click()
   }
@@ -311,8 +314,8 @@ test('forced sync leaves Alice and Bob mail in place', async ({ page }) => {
 
 test('search a seeded subject, mark unread, switch folder, archive', async ({ page }) => {
   await openAccountFolder(page, 'alice@example.org', /^INBOX/)
-  await page.getByRole('textbox', { name: 'Search mail' }).fill(manifest.aliceSearchSubject)
-  await page.getByRole('textbox', { name: 'Search mail' }).press('Enter')
+  await page.getByRole('combobox', { name: 'Search mail' }).fill(manifest.aliceSearchSubject)
+  await page.getByRole('combobox', { name: 'Search mail' }).press('Enter')
   const hit = page.getByRole('option', { name: new RegExp(manifest.aliceSearchSubject) })
   const found = await hit.isVisible().catch(() => false)
   timings['search seeded subject'] = found ? 'found' : 'not in the local index yet'

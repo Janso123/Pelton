@@ -1,11 +1,14 @@
 // compose.ts manages open compose sessions. each session is a self-contained
 // draft the user is editing in a compose pane. reply and forward prefills build
 // the quoting and threading references from the original message; the backend
-// turns the references into the actual threading headers.
+// turns the references into the In-Reply-To and References headers.
 
 import { writable, get } from 'svelte/store'
 import type { EditorMode, MessageDetail, ComposeAttachment } from '../lib/types'
 import { getSetting, setSetting } from '../lib/api'
+import { formatAddress, parseAddressList } from '../lib/mailcompose'
+import { formatFullDate } from '../lib/format'
+import { escapeHtml, textToHtml } from '../lib/richtext'
 
 // the compose pane remembers whether the user last worked fullscreen or in the
 // small floating size, so new panes open at that size. persisted in the backend
@@ -130,19 +133,43 @@ export function openComposeWith(accountId: number, mode: EditorMode, prefill: Ma
   return session.id
 }
 
-// openReply prefills a reply. replyAll also carries the cc recipients. the quoted
-// body and threading references come from the original message.
+// openReply prefills a reply. A reply goes to Reply-To when the message has
+// one, otherwise to From; reply all adds the original To and Cc. The user's own
+// address and repeats are left out. Replying to one's own message (a follow-up
+// from Sent) goes to the original To instead, since the sender is the user.
+// In-Reply-To and References thread the
+// reply onto the original.
 export function openReply(detail: MessageDetail, mode: EditorMode, replyAll: boolean): number {
   const session = blankSession(detail.accountId, mode)
-  session.to = detail.fromAddress
-  if (replyAll && detail.ccAddresses) {
-    session.cc = detail.ccAddresses
-    session.showCc = true
+  const seen = new Set<string>([detail.accountEmail.toLowerCase()])
+  const pick = (raw: string): string =>
+    parseAddressList(raw)
+      .filter((a) => {
+        const key = a.email.toLowerCase()
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map(formatAddress)
+      .join(', ')
+  const primary = detail.replyTo || detail.fromAddress
+  const ownMessage = parseAddressList(primary)[0]?.email.toLowerCase() === detail.accountEmail.toLowerCase()
+  if (ownMessage) {
+    session.to = pick(detail.toAddresses)
+  } else {
+    session.to = replyAll ? pick(`${primary}, ${detail.toAddresses}`) : pick(primary)
+  }
+  if (replyAll) {
+    session.cc = pick(detail.ccAddresses)
+    session.showCc = session.cc !== ''
   }
   session.subject = withPrefix(detail.subject, 'Re:')
   session.body = quoteBody(detail, mode)
-  session.inReplyTo = messageIdRef(detail)
-  session.references = buildReferences(detail)
+  session.inReplyTo = detail.messageIdHeader
+  session.references =
+    detail.messageIdHeader && !detail.references.includes(detail.messageIdHeader)
+      ? [...detail.references, detail.messageIdHeader]
+      : [...detail.references]
   composeSessions.update((list) => [...list, session])
   return session.id
 }
@@ -202,15 +229,20 @@ function withPrefix(subject: string, prefix: string): string {
   return `${prefix} ${trimmed}`
 }
 
-// quoteBody builds a quoted reply body. plaintext and markdown both quote with
-// "> "; html mode is the stubbed editor so it also gets the plain quote.
+// quoteBody builds a quoted reply body. plaintext and markdown quote with "> ";
+// the rich editor reads html, so it gets the quote as a blockquote, nested
+// where the original quoted further.
 //
 // bodyQuote, not bodyPlain: an html-only message has no text part, so quoting
 // bodyPlain produced an empty reply (#239). The backend renders the html down
 // to text for this field, and falls back to it only when there is no text part
 // to prefer.
-function quoteBody(detail: MessageDetail, _mode: EditorMode): string {
-  const attribution = `On ${detail.date}, ${detail.fromName || detail.fromAddress} wrote:`
+function quoteBody(detail: MessageDetail, mode: EditorMode): string {
+  const date = formatFullDate(detail.date) || detail.date
+  const attribution = `On ${date}, ${detail.fromName || detail.fromAddress} wrote:`
+  if (mode === 'wysiwyg') {
+    return `<p></p><p>${escapeHtml(attribution)}</p><blockquote>${textToHtml(detail.bodyQuote)}</blockquote>`
+  }
   const quoted = detail.bodyQuote
     .split('\n')
     .map((line) => `> ${line}`)
@@ -218,29 +250,18 @@ function quoteBody(detail: MessageDetail, _mode: EditorMode): string {
   return `\n\n${attribution}\n${quoted}\n`
 }
 
-// forwardBody builds a forwarded message body with a header block.
-function forwardBody(detail: MessageDetail, _mode: EditorMode): string {
+// forwardBody builds a forwarded message body with a header block, as html in
+// the rich editor.
+function forwardBody(detail: MessageDetail, mode: EditorMode): string {
   const header = [
     '---------- Forwarded message ----------',
     `From: ${detail.fromName || ''} <${detail.fromAddress}>`,
-    `Date: ${detail.date}`,
+    `Date: ${formatFullDate(detail.date) || detail.date}`,
     `Subject: ${detail.subject}`,
     `To: ${detail.toAddresses}`,
   ].join('\n')
+  if (mode === 'wysiwyg') {
+    return `<p></p>${textToHtml(header)}${textToHtml(detail.bodyQuote)}`
+  }
   return `\n\n${header}\n\n${detail.bodyQuote}\n`
-}
-
-// messageIdRef would be the original Message-ID for threading. the detail dto
-// does not expose it directly today, so we leave it empty and rely on the
-// backend, which has the stored Message-ID, to fill threading on send.
-// TODO(backend): expose the original Message-ID in MessageDetailDTO so replies
-// thread precisely from the frontend reference too.
-function messageIdRef(_detail: MessageDetail): string {
-  return ''
-}
-
-// buildReferences returns the reference chain for threading. empty for the same
-// reason as messageIdRef above.
-function buildReferences(_detail: MessageDetail): string[] {
-  return []
 }

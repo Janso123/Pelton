@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/peltonapp/Pelton/internal/storage"
@@ -203,6 +204,10 @@ func (a *App) UpdateProfile(req ProfileRequest) (ProfileDTO, error) {
 	if err := a.store.UpdateProfile(a.ctx, *profile); err != nil {
 		return ProfileDTO{}, err
 	}
+	before, err := a.store.ProfileAccountIDs(a.ctx, profile.ID)
+	if err != nil {
+		return ProfileDTO{}, err
+	}
 	if err := a.store.SetProfileAccounts(a.ctx, profile.ID, req.AccountIDs); err != nil {
 		return ProfileDTO{}, err
 	}
@@ -215,9 +220,43 @@ func (a *App) UpdateProfile(req ProfileRequest) (ProfileDTO, error) {
 			return ProfileDTO{}, err
 		}
 		a.store.UseProfile(*profile, main.ID)
+		a.applyProfileSettings()
+		// the stored set, not the request: the store drops repeated ids, and
+		// a request id it ignored must not start a worker.
+		after, err := a.store.ProfileAccountIDs(a.ctx, profile.ID)
+		if err != nil {
+			return ProfileDTO{}, err
+		}
+		a.syncWorkersToAccounts(before, after)
 		a.emit(EventProfileChanged, nil)
 	}
 	return a.toProfileDTO(*profile)
+}
+
+// syncWorkersToAccounts stops the workers of accounts that left the active
+// profile and starts those of accounts that joined it. Without it a removed
+// account keeps syncing mail the profile no longer shows, and an added one
+// stays silent until restart.
+func (a *App) syncWorkersToAccounts(before, after []int64) {
+	for _, id := range before {
+		if !slices.Contains(after, id) {
+			a.stopAccountWorker(id)
+		}
+	}
+	for _, id := range after {
+		if slices.Contains(before, id) {
+			continue
+		}
+		// Local Folders has nothing to sync, as at startup.
+		account, err := a.store.GetAccount(a.ctx, id)
+		if err != nil {
+			a.log.Warn("start worker for account added to profile", "account", id, "err", err)
+			continue
+		}
+		if !account.Local {
+			a.startAccountWorker(id)
+		}
+	}
 }
 
 // DeleteProfile removes a profile and everything it owned. Its accounts and
@@ -273,15 +312,26 @@ func (a *App) SwitchProfile(id int64) error {
 	}
 	a.store.UseProfile(*profile, main.ID)
 
-	// the new profile's settings decide the log level, the menu language and
-	// everything else the backend reads at startup, so they are applied again
-	// here rather than left on the old profile's values.
-	a.applyLogSettings()
-	a.RebuildMenu()
+	a.applyProfileSettings()
 
 	a.emit(EventProfileChanged, nil)
 	goSafe("starting the profile's mail sync", a.runInitialSyncAndIdle)
 	return nil
+}
+
+// applyProfileSettings re-reads every per-profile setting the backend cached at
+// startup. The profile's settings decide the proxy, the MCP server (token,
+// port, permissions), the log level and the menu, so anything that changes
+// which settings the store resolves has to run this or the old values linger.
+// The proxy goes first so the profile's sync never dials around it.
+func (a *App) applyProfileSettings() {
+	a.loadProxy()
+	a.applyCharsetFallback()
+	if err := a.applyProfileMCPState(); err != nil {
+		a.log.Error("apply mcp settings for profile", "err", err)
+	}
+	a.applyLogSettings()
+	a.RebuildMenu()
 }
 
 // sessionCtx is the context for work that belongs to the profile the app is in:

@@ -108,12 +108,25 @@ export function answerPasswordPrompt(result: PasswordPromptResult): void {
   next()
 }
 
+// the round of prompts under way, if any. Every sync that ends asks for one, and
+// a second round starting while the first waits on the dialog would queue the
+// same accounts again.
+let round: Promise<void> | null = null
+
 /**
- * Asks about every account that has no stored password, one after another.
- * Accounts the user dismissed or already skipped this session are left alone:
- * they keep their marker instead.
+ * Asks about every account that has no stored password or whose password the
+ * server refused, one after another. Accounts the user dismissed or already
+ * skipped this session are left alone: they keep their marker instead. A call
+ * while a round is under way joins it rather than starting another.
  */
-export async function promptForMissingPasswords(): Promise<void> {
+export function promptForMissingPasswords(): Promise<void> {
+  round ??= askAboutMissing().finally(() => {
+    round = null
+  })
+  return round
+}
+
+async function askAboutMissing(): Promise<void> {
   for (const account of await refreshMissingPasswords()) {
     if (dismissed.has(account.id) || skipped.has(account.id)) {
       continue
