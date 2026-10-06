@@ -3,8 +3,11 @@ package desktop
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/peltonapp/Pelton/internal/certtrust"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
@@ -25,7 +28,7 @@ var errCertNotPresented = errors.New("pelton: the server no longer presents that
 // UntrustedCertDTO is a server certificate that failed verification, laid out
 // for the user to review before trusting it (#446).
 type UntrustedCertDTO struct {
-	// Server is "imap" or "smtp", Host and Port where it was presented.
+	// Server is "imap", "smtp" or "jmap", Host and Port where it was presented.
 	Server string `json:"server"`
 	Host   string `json:"host"`
 	Port   int    `json:"port"`
@@ -45,9 +48,11 @@ type UntrustedCertDTO struct {
 
 // ConnectionTestDTO is the result of a connection test that reached the
 // servers. Untrusted lists certificates that stopped it; empty means the test
-// logged in.
+// logged in, and the embedded JMAP probe fields say whether the server also
+// offers JMAP.
 type ConnectionTestDTO struct {
 	Untrusted []UntrustedCertDTO `json:"untrusted"`
+	TestConnectionResult
 }
 
 // CAFileDTO is a CA file the user picked: its PEM text, which the wizard sends
@@ -130,6 +135,17 @@ func (a *App) checkSMTPTLS(cfg psmtp.Config) error {
 	return client.Close()
 }
 
+// urlPort is u's port, or the scheme's default.
+func urlPort(u *url.URL) int {
+	if p, err := strconv.Atoi(u.Port()); err == nil {
+		return p
+	}
+	if u.Scheme == "http" || u.Scheme == "ws" {
+		return 80
+	}
+	return 443
+}
+
 // ProbeAccountCertificates reports the certificates an account's servers
 // present that its trust does not cover. The sync failure dialog and the
 // mailbox editor call it to show what changed before offering to trust it.
@@ -141,26 +157,71 @@ func (a *App) ProbeAccountCertificates(accountID int64) ([]UntrustedCertDTO, err
 	if err != nil {
 		return nil, err
 	}
-	return a.probeAccount(*account)
+	return a.probeAccount(*account, account.Protocol)
 }
 
-// probeAccount builds the account's server configs, credentials left out since
-// the handshake does not need them.
-func (a *App) probeAccount(account storage.Account) ([]UntrustedCertDTO, error) {
+// ProbeAccountCertificatesFor is ProbeAccountCertificates for the servers
+// protocol ("imap" or "jmap") would use, so the editor can show the JMAP
+// server's certificate before switching an IMAP mailbox over. For a mailbox
+// not on JMAP yet the JMAP server is looked for along its route with its own
+// credentials, which reach it only once its certificate verifies.
+func (a *App) ProbeAccountCertificatesFor(accountID int64, protocol string) ([]UntrustedCertDTO, error) {
+	if err := a.ready(); err != nil {
+		return nil, err
+	}
+	protocol = normalizeProtocol(protocol)
+	if !knownProtocol(protocol) {
+		return nil, fmt.Errorf("pelton: unsupported protocol %q", protocol)
+	}
+	account, err := a.store.GetAccount(a.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return a.probeAccount(*account, protocol)
+}
+
+// probeAccount checks the servers protocol would use for account, credentials
+// left out where the handshake does not need them. A JMAP mailbox connects to
+// nothing but its JMAP server, so that is the one checked. One with no session
+// yet (restored without its password) is looked for the way its first sync
+// will look for it.
+func (a *App) probeAccount(account storage.Account, protocol string) ([]UntrustedCertDTO, error) {
+	if normalizeProtocol(protocol) == "jmap" && (normalizeProtocol(account.Protocol) != "jmap" || account.JMAPSessionURL == "") {
+		return a.probeJMAPCertificates(account)
+	}
 	dial, err := a.accountDial(account)
 	if err != nil {
 		return nil, err
 	}
 	trust := accountTrust(account)
+	if normalizeProtocol(protocol) == "jmap" {
+		return a.jmapPresentedCert(account, trust, dial)
+	}
 	return a.probeCertificates(
 		pimap.Config{Host: account.IMAPHost, Port: account.IMAPPort, TLS: imapTLSMode(account.IMAPTLS), Trust: trust, Dial: dial},
 		psmtp.Config{Host: account.SMTPHost, Port: account.SMTPPort, TLS: smtpTLSMode(account.SMTPTLS), Trust: trust, Dial: dial},
 	), nil
 }
 
+// presentedCert reports whether one of the servers protocol would use for
+// account presents fp right now.
+func (a *App) presentedCert(account storage.Account, protocol, fp string) (bool, error) {
+	untrusted, err := a.probeAccount(account, protocol)
+	if err != nil {
+		return false, err
+	}
+	for _, u := range untrusted {
+		if u.Fingerprint == fp {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // TrustAccountCertificate trusts one certificate for an account. It checks the
 // servers again first and only pins a certificate one of them presents right
-// now, so what gets trusted is always what the user was just shown.
+// now, so what gets trusted is always what the user was just shown. The
+// servers checked are the account's own, then those of the other protocol.
 func (a *App) TrustAccountCertificate(accountID int64, fingerprint string) error {
 	if err := a.ready(); err != nil {
 		return err
@@ -170,19 +231,26 @@ func (a *App) TrustAccountCertificate(accountID int64, fingerprint string) error
 		return err
 	}
 	fp := certtrust.NormalizeFingerprint(fingerprint)
-	untrusted, err := a.probeAccount(*account)
+	// the servers the mailbox uses now, then the ones a protocol switch would
+	// move it to: the editor shows the JMAP certificate before switching.
+	current := normalizeProtocol(account.Protocol)
+	other := "jmap"
+	if current == "jmap" {
+		other = "imap"
+	}
+	presented, err := a.presentedCert(*account, current, fp)
 	if err != nil {
 		return err
 	}
-	presented := false
-	for _, u := range untrusted {
-		if u.Fingerprint == fp {
-			presented = true
-			break
-		}
-	}
 	if !presented {
-		return errCertNotPresented
+		// on an IMAP mailbox this runs a JMAP discovery: bounded by the probe
+		// timeout, along the mailbox's route, and sending its credentials only
+		// to a server whose certificate verified. Not reaching the other
+		// protocol's servers (no JMAP there, no credentials) means they did not
+		// present it either.
+		if presented, _ = a.presentedCert(*account, other, fp); !presented {
+			return errCertNotPresented
+		}
 	}
 	return a.store.SetAccountCertTrust(a.ctx, accountID, certtrust.AddPin(account.TrustedCerts, fp), account.CAPEM)
 }

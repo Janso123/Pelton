@@ -50,6 +50,8 @@ const account: Account = {
   exportNameTemplate: '',
   pgpDefault: '',
   passwordPromptDismissed: false,
+  protocol: 'jmap',
+  jmapSessionUrl: '',
   trustedCerts: [],
   caSubjects: [],
   proxy: blankAccountProxy(),

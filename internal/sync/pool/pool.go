@@ -1,5 +1,5 @@
 // Package pool limits how many sync sessions or sync HTTP requests one account
-// may run at once. Sending stays outside this pool;
+// may run at once. Sending and the JMAP push socket stay outside this pool;
 // callers simply never Acquire for that work. IMAP IDLE does check out a Live
 // slot: it is one of the N sync sessions, not an extra connection.
 //

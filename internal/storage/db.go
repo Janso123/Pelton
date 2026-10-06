@@ -145,6 +145,22 @@ func (d *DB) Path() string {
 	return d.path
 }
 
+// PoolStats reports the connection pool's state: how many connections are in
+// use and how often and how long callers waited for one.
+func (d *DB) PoolStats() sql.DBStats {
+	return d.sql.Stats()
+}
+
+// WALSize is the size in bytes of the database's write-ahead log, or -1 when
+// it cannot be read.
+func (d *DB) WALSize() int64 {
+	fi, err := os.Stat(d.path + "-wal")
+	if err != nil {
+		return -1
+	}
+	return fi.Size()
+}
+
 // maxOpenConns caps the connection pool. One writer at a time is all sqlite
 // allows whatever this is set to; the rest of the ceiling is for readers, and
 // keeping it small keeps the queue for the write lock short and predictable.

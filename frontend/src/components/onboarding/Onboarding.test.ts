@@ -60,6 +60,7 @@ function account(overrides: Record<string, unknown> = {}) {
     exportNameTemplate: '',
     pgpDefault: '',
     passwordPromptDismissed: false,
+    protocol: 'imap',
     ...overrides,
   }
 }
@@ -79,7 +80,12 @@ beforeEach(() => {
   document.documentElement.setAttribute('data-reduce-motion', '')
   api.startAccountSync.mockResolvedValue(undefined)
   api.addPasswordAccount.mockResolvedValue(account())
-  api.testConnection.mockResolvedValue({ untrusted: [] })
+  api.testConnection.mockResolvedValue({
+    jmapAvailable: true,
+    jmapWebSocket: false,
+    jmapSessionURL: '',
+    jmapMailAccountID: '',
+  })
 })
 
 async function addMailboxThroughOnboarding(user: ReturnType<typeof userEvent.setup>) {
@@ -91,15 +97,16 @@ async function addMailboxThroughOnboarding(user: ReturnType<typeof userEvent.set
   }
 
   await user.click(screen.getByRole('button', { name: /Add a mailbox/i }))
-  await user.click(screen.getByRole('button', { name: /Other \(IMAP \/ SMTP\)/i }))
+  await user.click(screen.getByRole('button', { name: /Other \(IMAP\/JMAP \/ SMTP\)/i }))
   await user.type(screen.getByLabelText(/^Email$/i), 'user@example.com')
   await user.type(screen.getByLabelText(/^Password$/i), 'secret')
-  const imap = screen.getByLabelText(/IMAP host/i)
+  const imap = screen.getByLabelText(/IMAP\/JMAP host/i)
   await user.clear(imap)
   await user.type(imap, 'imap.example.com')
   await user.click(screen.getByRole('button', { name: /Test connection/i }))
   await waitFor(() => expect(api.testConnection).toHaveBeenCalled())
   await user.click(screen.getByRole('button', { name: /^Add mailbox$/i }))
+  await user.click(await screen.findByRole('button', { name: /^Keep IMAP$/i }))
 }
 
 describe('Onboarding mailbox step', () => {

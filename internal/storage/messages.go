@@ -40,7 +40,7 @@ type Message struct {
 	FolderID  int64
 	// UID is the stable imap identifier, never a sequence number, and is unique
 	// within its folder for a given UIDVALIDITY. RemoteID is the opaque server
-	// id (imap stores the decimal uid). Rows from an adapter without uids keep
+	// id (imap stores the decimal uid; jmap stores the Email id). JMAP rows keep
 	// UID at 0 even when RemoteID looks numeric.
 	UID         uint32
 	RemoteID    string
@@ -468,8 +468,8 @@ func (d *DB) MessageIDByRemoteID(ctx context.Context, folderID int64, remoteID s
 // that still lack a body (body_complete = 0), newest first. limit > 0 first
 // takes the folder's limit newest rows and then keeps the incomplete ones, so
 // bodies stay within the X newest messages and do not creep older on each
-// call. limit <= 0 returns every incomplete row. Once a folder's stubs exist,
-// this is the source of its body-fetch targets.
+// call. limit <= 0 returns every incomplete row. JMAP stores stubs for the
+// whole list, so this is the source of body-fetch targets once stubs exist.
 func (d *DB) RemoteIDsNeedingBodyNewest(ctx context.Context, folderID int64, limit int) ([]string, error) {
 	query, args := remoteIDsNeedingBodyNewestQuery(folderID, limit)
 	out, err := d.queryAll(ctx, func(r *sql.Rows) (string, error) {

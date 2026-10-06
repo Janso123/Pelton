@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -33,4 +34,17 @@ func openDBThrough(t *testing.T, maxVersion int) *DB {
 		t.Fatalf("use active profile: %v", err)
 	}
 	return db
+}
+
+func applyMigrationVersion(ctx context.Context, db *DB, version int) error {
+	migrations, err := loadMigrations()
+	if err != nil {
+		return err
+	}
+	for _, m := range migrations {
+		if m.version == version {
+			return db.applyMigration(ctx, m)
+		}
+	}
+	return fmt.Errorf("storage: migration %d not found", version)
 }

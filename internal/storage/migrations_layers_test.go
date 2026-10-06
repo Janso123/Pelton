@@ -29,18 +29,24 @@ func TestMigrationsApplyFromMainAndFresh(t *testing.T) {
 				t.Fatalf("%s: folders.%s missing after migrating (%v)", name, col, err)
 			}
 		}
-		// sync-core adds 0037-0041 on top of main and nothing after them.
+		for _, col := range []string{"protocol", "jmap_session_url", "jmap_mail_account_id"} {
+			var n int
+			if err := d.sql.QueryRowContext(ctx, `SELECT count(*) FROM pragma_table_info('accounts') WHERE name = ?`, col).Scan(&n); err != nil || n != 1 {
+				t.Fatalf("%s: accounts.%s missing after migrating (%v)", name, col, err)
+			}
+		}
+		// jmap-only adds 0042 on top of sync-core's 0037-0041 and nothing after them.
 		applied, err := d.appliedMigrations(ctx)
 		if err != nil {
 			t.Fatalf("%s: applied migrations: %v", name, err)
 		}
-		for v := 37; v <= 41; v++ {
+		for v := 37; v <= 42; v++ {
 			if !applied[v] {
 				t.Errorf("%s: migration %d not applied", name, v)
 			}
 		}
 		for v := range applied {
-			if v > 41 {
+			if v > 42 {
 				t.Errorf("%s: unexpected migration %d", name, v)
 			}
 		}

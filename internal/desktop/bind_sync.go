@@ -127,8 +127,8 @@ func (rt *accountSync) stop() {
 }
 
 // accountWorkerKey marks a worker's context with its account id. Every sync
-// call made under it (initial sync, IDLE and its follow-ups) counts as the
-// worker's own; see ensureAccountSync.
+// call made under it (initial sync, IDLE, JMAP watch and its push follow-ups)
+// counts as the worker's own; see ensureAccountSync.
 type accountWorkerKey struct{}
 
 // workerOwns reports whether ctx belongs to the account's worker.
@@ -139,7 +139,7 @@ func workerOwns(ctx context.Context, accountID int64) bool {
 
 // startAccountWorker cancels any existing worker for the account, then starts
 // a fresh sync and idle/watch loop under the profile session. While the
-// account is held (removal) it does nothing: the holder
+// account is held (protocol switch, removal) it does nothing: the holder
 // starts the worker itself when it is done, with startHeldAccountWorker.
 func (a *App) startAccountWorker(accountID int64) {
 	if held, _ := a.syncBlock(accountID); held {
@@ -189,7 +189,7 @@ func (a *App) launchAccountWorker(accountID int64, holder bool) {
 			return
 		}
 		// The scheduler owns this account's sync jobs until the worker exits.
-		// Stop is the hard cancel for shutdown and removal.
+		// Stop is the hard cancel for shutdown, protocol switch and removal.
 		rt, err = a.ensureAccountSync(ctx, account.ID)
 		if err != nil {
 			return
@@ -213,9 +213,9 @@ func (a *App) idleAfterInbox(accountID int64, startIdle func()) func() {
 	}
 }
 
-// stopAccountWorkerTimeout is how long account removal (and similar) wait for
-// an account worker to exit after cancel. A stuck IMAP FETCH must not freeze
-// the settings forever. Tests shorten it.
+// stopAccountWorkerTimeout is how long SwitchProtocol (and similar) wait for an
+// account worker to exit after cancel. A stuck IMAP FETCH must not freeze the
+// settings JMAP toggle forever. Tests shorten it.
 var stopAccountWorkerTimeout = 5 * time.Second
 
 // stopAccountWorker cancels and joins the worker for one account, if any.
@@ -373,7 +373,7 @@ func (t *accountTransmitter) Transmit(ctx context.Context, m outbox.Message) err
 	// note: the worker emits EventOutboxChanged via WithOnChange after the state
 	// is persisted, so we must not emit here (that fired before markSent and left
 	// the ui stuck on "sending").
-	// SMTP stays outside the sync pool and pause
+	// SMTP and JMAP EmailSubmission stay outside the sync pool and pause
 	// nothing: background sync keeps running while mail is sent. Never
 	// Acquire a slot here.
 	account, err := t.app.store.GetAccount(ctx, m.AccountID)
@@ -401,7 +401,7 @@ func (a *App) appendToSent(account storage.Account, raw []byte) (string, error) 
 		return "", err
 	}
 	// the account's lock (which replaced the process-wide syncMu) serializes
-	// this with its mailbox mutations and account removal, so the append
+	// this with its mailbox mutations and a protocol switch, so the append
 	// never races a teardown of the account's sessions.
 	lock := a.accountLock(account.ID)
 	lock.Lock()
@@ -416,6 +416,25 @@ func (a *App) appendToSent(account storage.Account, raw []byte) (string, error) 
 	}
 	defer func() { _ = client.Logout() }()
 	return client.AppendToSent(raw)
+}
+
+// sentMailboxRemoteID returns the remote id of the account's Sent folder, or
+// empty when none is classified as sent (Submit then returns ErrNoSentMailbox).
+func (a *App) sentMailboxRemoteID(ctx context.Context, accountID int64) (string, error) {
+	folders, err := a.store.ListFolders(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	for _, f := range folders {
+		if folderRole(f) != roleSent {
+			continue
+		}
+		if f.RemoteID != "" {
+			return f.RemoteID, nil
+		}
+		return f.IMAPPath, nil
+	}
+	return "", nil
 }
 
 // runInitialSyncAndIdle syncs every account once, then parks each on idle.
@@ -443,11 +462,14 @@ func (a *App) runInitialSyncAndIdle() {
 
 // TriggerSync syncs all accounts on demand (the ui refresh action). It returns a
 // clear error only when no account could be synced for lack of credentials.
+// Manual sync still runs for a JMAP account whose WebSocket push is healthy;
+// only the timed auto-sync pass skips that account.
 func (a *App) TriggerSync() error {
 	return a.syncListedAccounts(nil, true)
 }
 
-// runAutoSyncPass is one tick of timed auto-sync.
+// runAutoSyncPass is one tick of timed auto-sync. A JMAP account with a healthy
+// WebSocket is left out; IMAP and a JMAP account without push still sync.
 func (a *App) runAutoSyncPass() error {
 	return a.syncListedAccounts(a.autoSyncAccount, false)
 }
@@ -536,11 +558,12 @@ func (a *App) syncAccountCtx(ctx context.Context, account storage.Account, manua
 	}
 	err := a.syncAccountOnceCtx(ctx, account)
 	if ctx.Err() != nil {
-		// Aborted for removal or shutdown, not a sync failure.
+		// Aborted for a protocol switch or shutdown, not a sync failure.
 		return ctx.Err()
 	}
 	if errors.Is(err, errAccountSyncHeld) {
-		// The account is being removed or was just removed.
+		// The account is switching protocol or was just removed; the switch
+		// starts its own sync when it is done.
 		return nil
 	}
 	a.noteSyncOutcome(account.ID, err)
@@ -554,8 +577,9 @@ func (a *App) syncAccountCtx(ctx context.Context, account storage.Account, manua
 	return err
 }
 
-// syncAccountOnceCtx syncs one account on demand. It enqueues a live job:
-// newest mail, not a fresh stub/body campaign, and not a process-wide lock.
+// syncAccountOnceCtx syncs one account on demand. Both protocols enqueue a
+// live job: newest mail, not a fresh stub/body campaign, and not a
+// process-wide lock. The JMAP body campaign is syncJMAPInitial.
 func (a *App) syncAccountOnceCtx(ctx context.Context, account storage.Account) error {
 	return a.protocolFor(account).manualSync(ctx, account)
 }
@@ -602,9 +626,9 @@ func (a *App) syncFolders(ctx context.Context, adapter psync.Adapter, accountID 
 	stopBeat := a.startProgressHeartbeat(ctx, accountID)
 	defer stopBeat()
 
-	// a driver that locks per folder lets ReleaseLock yield between body
-	// batches. The lock is this account's only; other accounts never wait on
-	// it. IMAP manual sync is one live pool job and does not hold it.
+	// JMAP still locks per folder so ReleaseLock can yield between body batches.
+	// The lock is this account's only; other accounts never wait on it. IMAP
+	// manual sync is one live pool job and does not hold it.
 	lockPerFolder := false
 	lock := a.accountLock(accountID)
 	if acc, err := a.store.GetAccount(a.ctx, accountID); err == nil && a.protocolFor(*acc).lockPerFolder() {
@@ -769,7 +793,7 @@ func (a *App) syncFolderAndAnnounce(ctx context.Context, engine *psync.Engine, f
 	})
 }
 
-// idleLoop parks one account on imap idle and re-syncs when the
+// idleLoop parks one account on imap idle or a JMAP watch and re-syncs when the
 // server reports activity, reconnecting with a short backoff and exiting on
 // worker or app shutdown.
 func (a *App) idleLoop(ctx context.Context, account storage.Account) {
@@ -1055,7 +1079,11 @@ func (a *App) newSyncEngine(adapter psync.Adapter, accountID int64) *psync.Engin
 		server = adapter.Addr()
 	}
 	engine.OnProgress = func(p psync.FolderProgress) {
-		a.emitSyncProgress(accountID, email, server, a.accountTally(accountID).record(p))
+		counts := a.accountTally(accountID).record(p)
+		if a.syncProgressPhaseValue(accountID) == SyncPhaseBodies {
+			counts.Phase = SyncPhaseBodies
+		}
+		a.emitSyncProgress(accountID, email, server, counts)
 	}
 	if trash, ok := a.findTrashFolder(accountID); ok {
 		engine.TrashRemoteID = trash.RemoteID
@@ -1102,6 +1130,9 @@ func (a *App) closeProgress(accountID int64) {
 // emitSyncProgress sends one progress event. It is the only place the event is
 // built, so the folder line and the message counts can never disagree.
 func (a *App) emitSyncProgress(accountID int64, email, server string, c syncCounts) {
+	if c.Phase == "" {
+		c.Phase = a.syncProgressPhaseValue(accountID)
+	}
 	ev := SyncProgressEvent{
 		AccountID: accountID, AccountEmail: email, Server: server,
 		Folder: c.Folder, Done: c.Done, Total: c.Total,
@@ -1141,7 +1172,7 @@ const (
 // several left nothing behind but a log line, and logging is off by default
 // (#322).
 func (a *App) noteSyncOutcome(accountID int64, err error) {
-	// A cancel is how stop, removal and shutdown end a sync on
+	// A cancel is how stop, protocol switch and shutdown end a sync on
 	// purpose. It says nothing about the account's health, so it is neither a
 	// failure to show nor a throttle signal. Real network errors are not
 	// Canceled and are still recorded.
@@ -1486,6 +1517,24 @@ func scheduleSyncRetry(ctx context.Context, attempt int, enqueue func()) {
 	}()
 }
 
+// withSyncSlot checks one sync-pool slot out around fn. Send and the JMAP
+// WebSocket do not use it. A job the scheduler already started must not call
+// it again: that job is holding the slot.
+func (a *App) withSyncSlot(ctx context.Context, accountID int64, kind pool.Kind, fn func() error) error {
+	if _, err := a.ensureAccountScheduler(ctx, accountID); err != nil {
+		return err
+	}
+	rt := a.accountSync(accountID)
+	if rt == nil || rt.pool == nil {
+		return errors.New("pelton: no sync pool")
+	}
+	if err := rt.pool.Acquire(ctx, kind); err != nil {
+		return err
+	}
+	defer rt.pool.Release(kind)
+	return fn()
+}
+
 // announceNewBodies tells the ui about bodies a background fetch stored and
 // starts the follow-up work (notification, search index, unread counts).
 func (a *App) announceNewBodies(folder storage.Folder, res psync.FolderSyncResult) {
@@ -1535,22 +1584,21 @@ func (a *App) ensureAccountScheduler(ctx context.Context, accountID int64) (*syn
 // profile session, not ctx: callers pass the context of one sync run, and a
 // scheduler bound to it would die with that run and leave the next run waiting
 // on a queue nobody serves. Hard stops come from stopAccountScheduler (worker
-// exit, removal) and from the session ending. An app with no
+// exit, protocol switch, removal) and from the session ending. An app with no
 // ctx (bare test fixtures) falls back to ctx.
 //
-// While the account is held (removal) or after it was removed it returns
-// errAccountSyncHeld and starts nothing, so no sync job of the account can
-// begin. The one exception is a call under the account's live worker context:
-// a holder that starts a worker again (startHeldAccountWorker) does so before
-// it lets go of the hold, and every sync call of that worker has to get
-// through, not only its first.
+// While the account is held (protocol switch) or after it was removed it
+// returns errAccountSyncHeld and starts nothing, so no sync job of the account
+// can begin. The one exception is a call under the account's live worker
+// context: the switch starts the new worker before it lets go of the hold,
+// and every sync call of that worker has to get through, not only its first.
 // A cancelled worker's calls (the old worker exiting late) are refused, and a
 // removed account is refused for everyone.
 func (a *App) ensureAccountSync(ctx context.Context, accountID int64) (*accountSync, error) {
 	owner := workerOwns(ctx, accountID)
 	for {
 		a.syncsMu.Lock()
-		// Checked under syncsMu: holdAccountSync runs before the holder stops
+		// Checked under syncsMu: holdAccountSync runs before the switch stops
 		// the scheduler, which takes syncsMu, so a runtime started just before
 		// the hold is the one that stop removes.
 		held, removed := a.syncBlock(accountID)
@@ -1606,8 +1654,8 @@ func (a *App) accountSync(accountID int64) *accountSync {
 }
 
 // stopAccountScheduler hard-stops and forgets whatever scheduler the account
-// has now. Only paths that own the account's whole runtime call it:
-// stopAccountWorker, tests.
+// has now. Only paths that own the account's whole runtime call it: protocol
+// switch, stopAccountWorker, tests.
 func (a *App) stopAccountScheduler(accountID int64) {
 	a.syncsMu.Lock()
 	rt := a.syncs[accountID]
@@ -1754,7 +1802,7 @@ func (a *App) enqueueLiveAndWait(ctx context.Context, accountID int64, kind sync
 	case err := <-done:
 		return err
 	case <-ended:
-		// A removal that stopped the scheduler under this job is
+		// A switch or removal that stopped the scheduler under this job is
 		// not a failure of the job.
 		if held, _ := a.syncBlock(accountID); held {
 			return errAccountSyncHeld
@@ -1777,7 +1825,7 @@ func (a *App) schedulerEnded(accountID int64) <-chan struct{} {
 
 // fetchMessageBodyOnDemand runs a P0 live job that fetches one stub's body.
 // The list row stays on failure; GetMessage surfaces the error. While the
-// account is being removed it fetches nothing and returns nil, so the stub
+// account switches protocol it fetches nothing and returns nil, so the stub
 // shows.
 func (a *App) fetchMessageBodyOnDemand(m *storage.Message) error {
 	if m == nil || m.BodyComplete {
@@ -1799,7 +1847,8 @@ func (a *App) fetchMessageBodyOnDemand(m *storage.Message) error {
 		return a.runOnDemandBodyFetch(jobCtx, *account, *folder)
 	})
 	if errors.Is(err, errAccountSyncHeld) {
-		// Being removed: the stub stays on screen until the account goes.
+		// Switching protocol: the stub stays on screen, and the switch is about
+		// to replace it anyway.
 		return nil
 	}
 	return err
@@ -1924,6 +1973,9 @@ func (a *App) runIMAPManualSync(ctx context.Context, account storage.Account) er
 	a.emit(EventSyncState, SyncStateEvent{Running: true})
 	defer a.emit(EventSyncState, SyncStateEvent{Running: false})
 	return a.enqueueLiveAndWait(ctx, account.ID, syncsched.JobManualSync, 0, nil, func(jobCtx context.Context) error {
+		if a.protocolSwitchedSince(jobCtx, account) {
+			return nil
+		}
 		return a.withIMAPSession(jobCtx, account, func(client mailClient) error {
 			if err := a.ensureFolders(client, account.ID); err != nil {
 				return err
@@ -1931,6 +1983,23 @@ func (a *App) runIMAPManualSync(ctx context.Context, account storage.Account) er
 			return a.syncFolders(jobCtx, pimap.NewAdapter(client), account.ID)
 		})
 	})
+}
+
+// protocolSwitchedSince reports whether account was loaded before a protocol
+// switch that has finished since. TriggerSync lists the accounts once and
+// syncs them in turn, and scroll backfill and a limit raise load the account
+// and its folders before they queue, so a job can reach the scheduler with the
+// old protocol; it must not sync with it. Jobs are refused while the account
+// is held, except those under the worker the switch starts itself with
+// startHeldAccountWorker. That worker starts once SwitchAccountProtocol has
+// returned and loads the account then, so in both cases the stored protocol is
+// settled when this reads it.
+func (a *App) protocolSwitchedSince(ctx context.Context, account storage.Account) bool {
+	if a.store == nil {
+		return false
+	}
+	cur, err := a.store.GetAccount(ctx, account.ID)
+	return err == nil && cur.Protocol != account.Protocol
 }
 
 // imapStepStats collects body and floor results from one initial sync step.
@@ -2047,7 +2116,7 @@ func (a *App) finishIMAPFolder(ctx context.Context, engine *psync.Engine, folder
 }
 
 // withIMAPSession connects, logs in, and closes. The session is checked out
-// for this job only (connect-on-acquire) and closed if account removal
+// for this job only (connect-on-acquire) and closed if a protocol switch
 // aborts that account's in-flight work. It does not take the account lock.
 func (a *App) withIMAPSession(ctx context.Context, account storage.Account, fn func(mailClient) error) error {
 	cfg, err := a.resolveIMAP(account)

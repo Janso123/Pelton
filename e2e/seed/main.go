@@ -1,10 +1,10 @@
-// Seed fills alice and bob inboxes over IMAP APPEND.
+// Seed fills alice and bob inboxes over plain HTTP JMAP.
 // Each inbox receives messages from the other account. The corpus is not committed.
 package main
 
 import (
-	"crypto/tls"
-	"crypto/x509"
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -12,20 +12,24 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/emersion/go-imap/v2"
-	"github.com/emersion/go-imap/v2/imapclient"
+	"github.com/Janso123/go-jmap"
+	"github.com/Janso123/go-jmap/core"
+	"github.com/Janso123/go-jmap/mail"
+	"github.com/Janso123/go-jmap/mail/email"
+	"github.com/Janso123/go-jmap/mail/mailbox"
+
+	_ "github.com/Janso123/go-jmap/core"
 )
 
 const (
-	// imapAddr is Stalwart's IMAPS port. Its certificate is issued for
-	// 127.0.0.1 by the e2e CA in certs/.
-	imapAddr = "127.0.0.1:993"
-	fiveMB   = 5 * 1024 * 1024
-	// appendWindow is how many APPENDs are in flight at once.
-	appendWindow = 32
+	// Discover and the JMAP client require the session document to share the
+	// https://127.0.0.1 origin. Stalwart advertises that origin when no
+	// STALWART_PUBLIC_URL is set.
+	sessionURL = "https://127.0.0.1/.well-known/jmap"
+	inlineMax  = 32 * 1024
+	fiveMB     = 5 * 1024 * 1024
 )
 
 // perInbox is 6,400 for the Playwright suite. E2E_SEED_PER_INBOX lowers it
@@ -54,13 +58,16 @@ type manifest struct {
 }
 
 func main() {
+	ctx := context.Background()
 	alice := account{name: "alice", email: "alice@example.org", secret: "alice-e2e"}
 	bob := account{name: "bob", email: "bob@example.org", secret: "bob-e2e"}
 
-	aliceC := login(alice)
-	defer aliceC.Close()
-	bobC := login(bob)
-	defer bobC.Close()
+	aliceC := login(ctx, alice)
+	bobC := login(ctx, bob)
+	aliceID := primary(aliceC)
+	bobID := primary(bobC)
+	aliceInbox := inboxID(ctx, aliceC, aliceID)
+	bobInbox := inboxID(ctx, bobC, bobID)
 
 	rng := rand.New(rand.NewSource(1))
 	man := manifest{
@@ -71,9 +78,9 @@ func main() {
 	}
 
 	fmt.Println("seeding alice inbox from bob")
-	man.AliceShortSubject, man.AliceLargeSubject, man.AliceSearchSubject = seedInbox(aliceC, alice, bob.email, rng)
+	man.AliceShortSubject, man.AliceLargeSubject, man.AliceSearchSubject = seedInbox(ctx, aliceC, aliceID, alice.email, bob.email, aliceInbox, rng)
 	fmt.Println("seeding bob inbox from alice")
-	seedInbox(bobC, bob, alice.email, rng)
+	seedInbox(ctx, bobC, bobID, bob.email, alice.email, bobInbox, rng)
 
 	out := filepath.Join(moduleE2E(), "manifest.json")
 	raw, err := json.MarshalIndent(man, "", "  ")
@@ -86,38 +93,51 @@ func main() {
 	fmt.Println("wrote", out)
 }
 
-// login opens an IMAPS session as a. The e2e CA is added to the system roots,
-// so seeding works before the CA is trusted system-wide too.
-func login(a account) *imapclient.Client {
-	roots, err := x509.SystemCertPool()
-	if err != nil {
-		roots = x509.NewCertPool()
-	}
-	if pem, err := os.ReadFile(filepath.Join(moduleE2E(), "certs", "ca.crt")); err == nil {
-		roots.AppendCertsFromPEM(pem)
-	}
-	c, err := imapclient.DialTLS(imapAddr, &imapclient.Options{
-		TLSConfig: &tls.Config{RootCAs: roots, ServerName: "127.0.0.1"},
-	})
-	if err != nil {
-		fatal(fmt.Errorf("%s connect: %w", a.name, err))
-	}
-	if err := c.Login(a.email, a.secret).Wait(); err != nil {
-		fatal(fmt.Errorf("%s login: %w", a.name, err))
+func login(ctx context.Context, a account) *jmap.Client {
+	c := jmap.NewClient(sessionURL, jmap.WithBasic(a.email, a.secret), jmap.WithTimeout(2*time.Minute))
+	if err := c.Authenticate(ctx); err != nil {
+		fatal(fmt.Errorf("%s session: %w", a.name, err))
 	}
 	return c
 }
 
-// seedInbox appends perInbox messages to owner's INBOX, sent as fromEmail.
-func seedInbox(c *imapclient.Client, owner account, fromEmail string, rng *rand.Rand) (shortSub, largeSub, searchSub string) {
-	var inFlight []*imapclient.AppendCommand
-	wait := func(keep int) {
-		for len(inFlight) > keep {
-			if _, err := inFlight[0].Wait(); err != nil {
-				fatal(fmt.Errorf("append: %w", err))
-			}
-			inFlight = inFlight[1:]
+func primary(c *jmap.Client) jmap.ID {
+	id, err := c.PrimaryAccount(mail.URI)
+	if err != nil {
+		fatal(err)
+	}
+	return id
+}
+
+func inboxID(ctx context.Context, c *jmap.Client, accountID jmap.ID) jmap.ID {
+	resp, err := jmap.Call[*mailbox.GetResponse](ctx, c, &mailbox.Get{Account: accountID})
+	if err != nil {
+		fatal(err)
+	}
+	for _, mb := range resp.List {
+		role, ok := mb.Role.Value()
+		if ok && role == mailbox.RoleInbox {
+			return mb.ID
 		}
+	}
+	fatal(fmt.Errorf("inbox missing"))
+	return ""
+}
+
+// seedInbox creates perInbox messages in the recipient inbox, sent as fromEmail.
+// The client must be the recipient: Email/set writes into that account.
+func seedInbox(ctx context.Context, owner *jmap.Client, ownerID jmap.ID, ownerEmail, fromEmail string, box jmap.ID, rng *rand.Rand) (shortSub, largeSub, searchSub string) {
+	batchMax := max(min(maxInSet(owner), 24), 1)
+
+	var pending []*email.Email
+	var pendingSizes []int
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		createBatch(ctx, owner, ownerID, pending)
+		pending = pending[:0]
+		pendingSizes = pendingSizes[:0]
 	}
 
 	for i := range perInbox {
@@ -132,38 +152,74 @@ func seedInbox(c *imapclient.Client, owner account, fromEmail string, rng *rand.
 			searchSub = subject
 		}
 		when := randomWhen(rng)
-		raw := message(i, owner, fromEmail, subject, when, bodyText(i, size))
-		cmd := c.Append("INBOX", int64(len(raw)), &imap.AppendOptions{Time: when})
-		if _, err := cmd.Write(raw); err != nil {
-			fatal(fmt.Errorf("append write: %w", err))
+		msg := &email.Email{
+			MailboxIDs: map[jmap.ID]bool{box: true},
+			From:       jmap.Some([]*mail.Address{{Email: fromEmail}}),
+			To:         jmap.Some([]*mail.Address{{Email: ownerEmail}}),
+			Subject:    jmap.Some(subject),
+			ReceivedAt: jmap.UTCDatePtr(when),
+			SentAt:     jmap.Some(jmap.Date(when)),
 		}
-		if err := cmd.Close(); err != nil {
-			fatal(fmt.Errorf("append close: %w", err))
+		body := bodyText(i, size)
+		if size <= inlineMax {
+			msg.BodyValues = map[string]*email.BodyValue{"1": {Value: body}}
+			msg.TextBody = []*email.BodyPart{{
+				PartID: jmap.Some("1"),
+				Type:   "text/plain",
+			}}
+			pending = append(pending, msg)
+			pendingSizes = append(pendingSizes, size)
+			if len(pending) >= batchMax || requestBytes(pendingSizes) > 4*1024*1024 {
+				flush()
+			}
+		} else {
+			flush()
+			blobID := upload(ctx, owner, ownerID, body)
+			msg.TextBody = []*email.BodyPart{{
+				BlobID: jmap.Some(blobID),
+				Type:   "text/plain",
+			}}
+			createBatch(ctx, owner, ownerID, []*email.Email{msg})
 		}
-		inFlight = append(inFlight, cmd)
-		wait(appendWindow)
 		if (i+1)%200 == 0 {
 			fmt.Printf("  %d/%d\n", i+1, perInbox)
 		}
 	}
-	wait(0)
+	flush()
 	return shortSub, largeSub, searchSub
 }
 
-// message is one plain-text RFC 5322 message from fromEmail to owner.
-func message(i int, owner account, fromEmail, subject string, when time.Time, body string) []byte {
-	var b strings.Builder
-	fmt.Fprintf(&b, "From: <%s>\r\n", fromEmail)
-	fmt.Fprintf(&b, "To: <%s>\r\n", owner.email)
-	fmt.Fprintf(&b, "Subject: %s\r\n", subject)
-	fmt.Fprintf(&b, "Date: %s\r\n", when.Format(time.RFC1123Z))
-	fmt.Fprintf(&b, "Message-ID: <seed-%s-%d@example.org>\r\n", owner.name, i)
-	b.WriteString("MIME-Version: 1.0\r\n")
-	b.WriteString("Content-Type: text/plain; charset=us-ascii\r\n")
-	b.WriteString("Content-Transfer-Encoding: 7bit\r\n")
-	b.WriteString("\r\n")
-	b.WriteString(body)
-	return []byte(b.String())
+func createBatch(ctx context.Context, c *jmap.Client, accountID jmap.ID, msgs []*email.Email) {
+	create := make(map[jmap.ID]*email.Email, len(msgs))
+	for i, m := range msgs {
+		create[jmap.ID(fmt.Sprintf("m%d", i))] = m
+	}
+	resp, err := jmap.Call[*email.SetResponse](ctx, c, &email.Set{
+		Account: accountID,
+		Create:  jmap.Some(create),
+	})
+	if err != nil {
+		fatal(err)
+	}
+	if nc, ok := resp.NotCreated.Value(); ok && len(nc) > 0 {
+		for id, e := range nc {
+			fatal(fmt.Errorf("notCreated %s: %+v", id, e))
+		}
+	}
+	if len(resp.Created) != len(msgs) {
+		fatal(fmt.Errorf("created %d of %d", len(resp.Created), len(msgs)))
+	}
+}
+
+func upload(ctx context.Context, c *jmap.Client, accountID jmap.ID, body string) jmap.ID {
+	up, err := c.Upload(ctx, accountID, bytes.NewReader([]byte(body)), "text/plain")
+	if err != nil {
+		fatal(err)
+	}
+	if up == nil || up.ID == "" {
+		fatal(fmt.Errorf("empty blob upload"))
+	}
+	return up.ID
 }
 
 func bodySize(i int) int {
@@ -188,21 +244,17 @@ func bodyText(i, size int) string {
 	}
 	prefix := ""
 	if i == 1 {
-		prefix = "LARGE-BODY-MARKER\r\n"
+		prefix = "LARGE-BODY-MARKER\n"
 	}
 	if len(prefix) > size {
 		return prefix[:size]
 	}
-	unit := []byte("abcdefghijklmnopqrstuvwxyz\r\n")
+	unit := []byte("abcdefghijklmnopqrstuvwxyz\n")
 	buf := make([]byte, size)
 	copy(buf, prefix)
 	for n := len(prefix); n < size; {
 		c := copy(buf[n:], unit)
 		n += c
-	}
-	// a cut can leave a lone CR; end on a letter instead
-	if buf[size-1] == '\r' {
-		buf[size-1] = 'z'
 	}
 	return string(buf)
 }
@@ -232,6 +284,22 @@ func randomSubject(rng *rand.Rand) string {
 func randomWhen(rng *rand.Rand) time.Time {
 	span := end.Sub(start)
 	return start.Add(time.Duration(rng.Int63n(int64(span))))
+}
+
+func requestBytes(sizes []int) int {
+	n := 0
+	for _, s := range sizes {
+		n += s
+	}
+	return n
+}
+
+func maxInSet(c *jmap.Client) int {
+	cap, ok := c.Session.Capabilities[jmap.CoreURI].(*core.Core)
+	if !ok || cap.MaxObjectsInSet == 0 {
+		return 16
+	}
+	return int(cap.MaxObjectsInSet)
 }
 
 func moduleE2E() string {

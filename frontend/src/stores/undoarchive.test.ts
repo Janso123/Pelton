@@ -14,15 +14,23 @@ describe('undo of a move', () => {
   })
 
   it('looks for the message in the folder the action put it in', () => {
-    recordArchived(summary, { messageId: '<a@x>', destFolderId: 9, originalFolderId: 2, exportPath: '', exportError: '' })
+    recordArchived(summary, { messageId: '<a@x>', remoteId: '', destFolderId: 9, originalFolderId: 2, exportPath: '', exportError: '' })
 
     expect(triggerUndoArchive()).toBe(true)
 
-    expect(unarchiveMessage).toHaveBeenCalledWith('<a@x>', 9, 2)
+    expect(unarchiveMessage).toHaveBeenCalledWith('<a@x>', '', 9, 2)
   })
 
-  it('has nothing to undo for a message with no Message-ID', () => {
-    recordArchived(summary, { messageId: '', destFolderId: 9, originalFolderId: 2, exportPath: '', exportError: '' })
+  it('records a JMAP message that has no Message-ID', () => {
+    recordArchived(summary, { messageId: '', remoteId: 'E1', destFolderId: 9, originalFolderId: 2, exportPath: '', exportError: '' })
+
+    expect(triggerUndoArchive()).toBe(true)
+
+    expect(unarchiveMessage).toHaveBeenCalledWith('', 'E1', 9, 2)
+  })
+
+  it('has nothing to undo for a message that cannot be found again', () => {
+    recordArchived(summary, { messageId: '', remoteId: '', destFolderId: 9, originalFolderId: 2, exportPath: '', exportError: '' })
 
     expect(triggerUndoArchive()).toBe(false)
   })

@@ -14,9 +14,9 @@ import (
 // Send is off-pool and pauses nothing: a pending outbox message must not
 // soft-pause any account's background sync.
 func TestPendingOutboxPausesNoAccount(t *testing.T) {
-	a := newHoldTestApp(t)
-	idA, _ := seedHoldAccount(t, a, "a@example.test")
-	idB, _ := seedHoldAccount(t, a, "b@example.test")
+	a := newJMAPSwitchTestApp(t)
+	idA, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
+	idB, _ := seedSwitchAccount(t, a, "b@example.test", "imap")
 	a.queue = outbox.NewQueue(a.store)
 	if _, err := a.store.InsertOutbox(a.ctx, storage.OutboxRow{AccountID: idA, EnvelopeFrom: "a@example.test", Recipients: "x@y.test", Raw: []byte("raw"), State: "queued"}); err != nil {
 		t.Fatal(err)
@@ -41,8 +41,8 @@ func TestPendingOutboxPausesNoAccount(t *testing.T) {
 // job soft-pauses background after the in-flight chunk, runs, and background
 // resumes. The chunk is never aborted.
 func TestLiveJobSoftPausesBackgroundWhenThrottledToOne(t *testing.T) {
-	a := newHoldTestApp(t)
-	id, _ := seedHoldAccount(t, a, "a@example.test")
+	a := newJMAPSwitchTestApp(t)
+	id, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
 	a.ensureAccountScheduler(a.ctx, id)
 	art := a.accountSync(id)
 	art.pool.SetConfigured(3)
@@ -118,9 +118,9 @@ func TestLiveJobSoftPausesBackgroundWhenThrottledToOne(t *testing.T) {
 
 // A live job on account A (effective N=1) pauses only A's scheduler.
 func TestLiveJobOnOneAccountLeavesOtherUnpaused(t *testing.T) {
-	a := newHoldTestApp(t)
-	idA, _ := seedHoldAccount(t, a, "a@example.test")
-	idB, _ := seedHoldAccount(t, a, "b@example.test")
+	a := newJMAPSwitchTestApp(t)
+	idA, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
+	idB, _ := seedSwitchAccount(t, a, "b@example.test", "imap")
 	a.ensureAccountScheduler(a.ctx, idA)
 	a.ensureAccountScheduler(a.ctx, idB)
 	rtA, rtB := a.accountSync(idA), a.accountSync(idB)
@@ -142,8 +142,8 @@ func TestLiveJobOnOneAccountLeavesOtherUnpaused(t *testing.T) {
 
 // At effective N>=2 a live job reserves a slot and pauses nothing.
 func TestLiveJobAtEffectiveTwoDoesNotPause(t *testing.T) {
-	a := newHoldTestApp(t)
-	id, _ := seedHoldAccount(t, a, "a@example.test")
+	a := newJMAPSwitchTestApp(t)
+	id, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
 	a.ensureAccountScheduler(a.ctx, id)
 	rt := a.accountSync(id)
 	rt.pool.SetConfigured(3)

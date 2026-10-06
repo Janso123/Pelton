@@ -20,7 +20,7 @@ func TestMessageBodyStatesFiltersByDateAndPendingDelete(t *testing.T) {
 	if err := db.RunMigrations(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	accountID, err := db.CreateAccount(ctx, &Account{Email: "a@b.test"})
+	accountID, err := db.CreateAccount(ctx, &Account{Email: "a@b.test", Protocol: "jmap"})
 	if err != nil {
 		t.Fatalf("account: %v", err)
 	}

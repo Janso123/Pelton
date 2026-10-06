@@ -104,9 +104,9 @@ frontend test suite yet, verify UI changes manually via `make run`.
 ## End-to-end tests
 
 `e2e/` holds a Playwright suite that drives the real UI against a Stalwart
-mail server in Docker. It covers onboarding with two IMAP mailboxes, sending
-between them, scrolling and backfilling a 6,400-message inbox, search and
-select all.
+mail server in Docker. It covers onboarding with an IMAP mailbox, a JMAP
+mailbox, sending between the two, scrolling and backfilling a 6,400-message
+inbox, search, select all, and switching a mailbox between IMAP and JMAP.
 See [`e2e/README.md`](https://github.com/peltonapp/Pelton/blob/main/e2e/README.md)
 for the details.
 

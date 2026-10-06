@@ -48,6 +48,8 @@ export namespace desktop {
 	    exportNameTemplate: string;
 	    pgpDefault: string;
 	    passwordPromptDismissed: boolean;
+	    protocol: string;
+	    jmapSessionUrl: string;
 	    syncMaxParallel?: number;
 	    trustedCerts: string[];
 	    caSubjects: string[];
@@ -78,6 +80,8 @@ export namespace desktop {
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
+	        this.protocol = source["protocol"];
+	        this.jmapSessionUrl = source["jmapSessionUrl"];
 	        this.syncMaxParallel = source["syncMaxParallel"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caSubjects = source["caSubjects"];
@@ -155,6 +159,7 @@ export namespace desktop {
 	    provider: string;
 	    clientId: string;
 	    clientSecret: string;
+	    protocol: string;
 	    trustedCerts: string[];
 	    caPem: string;
 	    proxy: AccountProxyDTO;
@@ -180,6 +185,7 @@ export namespace desktop {
 	        this.provider = source["provider"];
 	        this.clientId = source["clientId"];
 	        this.clientSecret = source["clientSecret"];
+	        this.protocol = source["protocol"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caPem = source["caPem"];
 	        this.proxy = this.convertValues(source["proxy"], AccountProxyDTO);
@@ -345,6 +351,7 @@ export namespace desktop {
 	    messageId: string;
 	    originalFolderId: number;
 	    destFolderId: number;
+	    remoteId: string;
 	    exportPath: string;
 	    exportError: string;
 	
@@ -357,6 +364,7 @@ export namespace desktop {
 	        this.messageId = source["messageId"];
 	        this.originalFolderId = source["originalFolderId"];
 	        this.destFolderId = source["destFolderId"];
+	        this.remoteId = source["remoteId"];
 	        this.exportPath = source["exportPath"];
 	        this.exportError = source["exportError"];
 	    }
@@ -611,6 +619,10 @@ export namespace desktop {
 	}
 	export class ConnectionTestDTO {
 	    untrusted: UntrustedCertDTO[];
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ConnectionTestDTO(source);
@@ -619,6 +631,10 @@ export namespace desktop {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.untrusted = this.convertValues(source["untrusted"], UntrustedCertDTO);
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1615,6 +1631,26 @@ export namespace desktop {
 	        this.error = source["error"];
 	    }
 	}
+	export class PendingAccount {
+	    id: string;
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PendingAccount(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
+	    }
+	}
 	export class PendingMailtoDTO {
 	    present: boolean;
 	    draft: MailtoDraft;
@@ -2016,6 +2052,24 @@ export namespace desktop {
 		    }
 		    return a;
 		}
+	}
+	export class TestConnectionResult {
+	    jmapAvailable: boolean;
+	    jmapWebSocket: boolean;
+	    jmapSessionURL: string;
+	    jmapMailAccountID: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestConnectionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.jmapAvailable = source["jmapAvailable"];
+	        this.jmapWebSocket = source["jmapWebSocket"];
+	        this.jmapSessionURL = source["jmapSessionURL"];
+	        this.jmapMailAccountID = source["jmapMailAccountID"];
+	    }
 	}
 	export class ThemeApplyDTO {
 	    id: string;

@@ -24,8 +24,8 @@ func (c imapCursor) String() string {
 }
 
 // parseCursor reads a token written by imapCursor.String. Anything else,
-// including an empty token or another adapter's state token, is not a
-// cursor.
+// including an empty token or a JMAP state left over from a protocol switch,
+// is not a cursor.
 func parseCursor(s string) (imapCursor, bool) {
 	rest, ok := strings.CutPrefix(s, cursorPrefix)
 	if !ok {

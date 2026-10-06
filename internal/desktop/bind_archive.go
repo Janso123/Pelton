@@ -8,9 +8,10 @@ import (
 )
 
 // ArchiveUndoDTO carries what undo needs to move a message back: the folder it
-// came from, the folder the action put it in, and its stable rfc Message-ID (the
-// moved copy has a new UID). MessageID is empty when the message had no
-// Message-ID header, in which case undo is not possible.
+// came from, the folder the action put it in, and how to find it there. An IMAP
+// move gives the message a new UID, so it is found by its rfc Message-ID; a JMAP
+// email keeps its id, so RemoteID finds it. Undo is not possible when MessageID
+// is empty (IMAP) or RemoteID is empty (JMAP).
 // ExportPath is the .eml copy written by the account's export-on-archive
 // option, empty when the option is off. ExportError explains why no copy was
 // written when one was expected; the archive itself still succeeded, so the ui
@@ -19,6 +20,7 @@ type ArchiveUndoDTO struct {
 	MessageID        string `json:"messageId"`
 	OriginalFolderID int64  `json:"originalFolderId"`
 	DestFolderID     int64  `json:"destFolderId"`
+	RemoteID         string `json:"remoteId"`
 	ExportPath       string `json:"exportPath"`
 	ExportError      string `json:"exportError"`
 }
@@ -109,6 +111,7 @@ func (a *App) finishMove(m *storage.Message, source, dest storage.Folder, accoun
 		MessageID:        m.MessageID,
 		OriginalFolderID: source.ID,
 		DestFolderID:     dest.ID,
+		RemoteID:         m.RemoteID,
 		ExportPath:       path,
 		ExportError:      exportError,
 	}, nil
@@ -146,9 +149,10 @@ func exportMeta(m *storage.Message) mailexport.Meta {
 }
 
 // UnarchiveMessage undoes an archive or move: it moves the message from
-// fromFolderID, where the action put it, back to originalFolderID. The move gave
-// the message a new uid, so it is found by its rfc Message-ID.
-func (a *App) UnarchiveMessage(rfcMessageID string, fromFolderID, originalFolderID int64) error {
+// fromFolderID, where the action put it, back to originalFolderID. A JMAP
+// email keeps its id across moves, so remoteID finds it; an IMAP move gives the
+// message a new uid, so it is found by its rfc Message-ID.
+func (a *App) UnarchiveMessage(rfcMessageID, remoteID string, fromFolderID, originalFolderID int64) error {
 	if err := a.ready(); err != nil {
 		return err
 	}
@@ -167,7 +171,7 @@ func (a *App) UnarchiveMessage(rfcMessageID string, fromFolderID, originalFolder
 	if err != nil {
 		return err
 	}
-	return a.protocolFor(*account).moveBack(rfcMessageID, *from, *dest, *account)
+	return a.protocolFor(*account).moveBack(rfcMessageID, remoteID, *from, *dest, *account)
 }
 
 // findArchiveFolder returns the account's archive-role folder, or an error when

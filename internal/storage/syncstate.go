@@ -204,8 +204,8 @@ func (d *DB) SetFolderSyncFloorUID(ctx context.Context, folderID int64, uid uint
 }
 
 // folderHasOlderOnServer is true when the folder's newest-first sync window
-// still leaves mail on the server. IMAP usually sets sync_floor_uid; an adapter
-// without numeric ids uses sync_floor_id and keeps sync_floor_uid at zero.
+// still leaves mail on the server. IMAP usually sets sync_floor_uid; JMAP uses
+// sync_floor_id and keeps sync_floor_uid at zero.
 func folderHasOlderOnServer(floorUID uint32, floorID string) bool {
 	return floorUID > 0 || floorID != ""
 }
@@ -225,8 +225,8 @@ func (d *DB) FolderHasOlderOnServer(ctx context.Context, folderID int64) (bool, 
 
 // AnyFolderHasOlder reports whether any of the given folders still has messages
 // on the server below its sync floor, i.e. whether a backfill would fetch
-// anything. An empty list is false. IMAP floors use sync_floor_uid; opaque
-// floors use a non-empty sync_floor_id.
+// anything. An empty list is false. IMAP floors use sync_floor_uid; JMAP floors
+// use a non-empty sync_floor_id.
 func (d *DB) AnyFolderHasOlder(ctx context.Context, folderIDs []int64) (bool, error) {
 	if len(folderIDs) == 0 {
 		return false, nil

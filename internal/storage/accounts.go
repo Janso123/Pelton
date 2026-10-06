@@ -63,6 +63,11 @@ type Account struct {
 	// no server behind it. Sync, idle and the mailbox backup all skip it, and
 	// its Email is LocalAccountEmail rather than a real address.
 	Local bool
+	// Protocol is "imap" or "jmap". JMAPSessionURL and JMAPMailAccountID are
+	// set only for jmap accounts; they stay empty on imap.
+	Protocol          string
+	JMAPSessionURL    string
+	JMAPMailAccountID string
 	// SyncMaxParallel overrides the global parallel-sync setting for this
 	// account. Nil means use the global value. The caller clamps it to the
 	// allowed range before storing.
@@ -133,7 +138,7 @@ const accountColumns = `a.id, a.email, a.display_name, a.username, a.imap_host, 
        coalesce(o.position, 0), a.is_local,
        a.export_on_archive, a.export_dir, a.export_subfolders, a.export_name_template,
        a.pgp_default, a.password_prompt_dismissed, a.local_label, a.use_local_label,
-       a.sync_max_parallel,
+       a.protocol, a.jmap_session_url, a.jmap_mail_account_id, a.sync_max_parallel,
        a.trusted_certs, a.ca_pem,
        a.proxy_mode, a.proxy_scheme, a.proxy_host, a.proxy_port, a.proxy_username,
        a.proxy_contacts_global, a.proxy_oauth_global`
@@ -155,17 +160,23 @@ func (d *DB) CreateAccount(ctx context.Context, a *Account) (int64, error) {
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
+	protocol := a.Protocol
+	if protocol == "" {
+		protocol = "imap"
+	}
 
 	const query = `
 INSERT INTO accounts (email, display_name, username, imap_host, imap_port, smtp_host, smtp_port, imap_tls, smtp_tls, created_at, is_local, local_label, use_local_label, trusted_certs, ca_pem,
-                      proxy_mode, proxy_scheme, proxy_host, proxy_port, proxy_username, proxy_contacts_global, proxy_oauth_global)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                      proxy_mode, proxy_scheme, proxy_host, proxy_port, proxy_username, proxy_contacts_global, proxy_oauth_global,
+                      protocol, jmap_session_url, jmap_mail_account_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	p := a.Proxy
 	res, err := d.sql.ExecContext(ctx, query,
 		a.Email, a.DisplayName, a.Username, a.IMAPHost, a.IMAPPort, a.SMTPHost, a.SMTPPort,
 		a.IMAPTLS, a.SMTPTLS, formatTime(created), boolToInt(a.Local),
 		a.LocalLabel, boolToInt(a.UseLocalLabel), joinLines(a.TrustedCerts), a.CAPEM,
-		p.Mode, p.Scheme, p.Host, p.Port, p.Username, boolToInt(p.ContactsUseGlobal), boolToInt(p.OAuthUseGlobal))
+		p.Mode, p.Scheme, p.Host, p.Port, p.Username, boolToInt(p.ContactsUseGlobal), boolToInt(p.OAuthUseGlobal),
+		protocol, a.JMAPSessionURL, a.JMAPMailAccountID)
 	if err != nil {
 		return 0, fmt.Errorf("storage: insert account %q: %w", a.Email, err)
 	}
@@ -175,12 +186,174 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	}
 	a.ID = id
 	a.CreatedAt = created
+	a.Protocol = protocol
 	// an account nobody can see would be invisible mail, so it joins the profile
 	// that created it. Other profiles opt in from the profile editor.
 	if err := d.AddAccountToProfiles(ctx, id, []int64{d.ScopedProfileID()}); err != nil {
 		return 0, err
 	}
 	return id, nil
+}
+
+// UpdateAccountProtocol stores the mail protocol and JMAP session fields for an
+// account. protocol must be "imap" or "jmap".
+func (d *DB) UpdateAccountProtocol(ctx context.Context, id int64, protocol, sessionURL, mailAccountID string) error {
+	if protocol != "imap" && protocol != "jmap" {
+		return fmt.Errorf("storage: unsupported account protocol %q", protocol)
+	}
+	if protocol == "imap" {
+		sessionURL, mailAccountID = "", ""
+	}
+	const query = `
+UPDATE accounts
+SET protocol = ?, jmap_session_url = ?, jmap_mail_account_id = ?
+WHERE id = ?`
+	res, err := d.sql.ExecContext(ctx, query, protocol, sessionURL, mailAccountID, id)
+	if err != nil {
+		return fmt.Errorf("storage: update account %d protocol: %w", id, err)
+	}
+	return requireOneRow(res, ErrAccountNotFound)
+}
+
+// SetAccountJMAPSession stores the session URL and mail account id a JMAP
+// account found on connect. It changes only an account that is still JMAP, so
+// a lookup that finishes after a switch to IMAP cannot switch it back; such an
+// account reports ErrAccountNotFound.
+func (d *DB) SetAccountJMAPSession(ctx context.Context, id int64, sessionURL, mailAccountID string) error {
+	const query = `
+UPDATE accounts
+SET jmap_session_url = ?, jmap_mail_account_id = ?
+WHERE id = ? AND protocol = 'jmap'`
+	res, err := d.sql.ExecContext(ctx, query, sessionURL, mailAccountID, id)
+	if err != nil {
+		return fmt.Errorf("storage: set account %d jmap session: %w", id, err)
+	}
+	return requireOneRow(res, ErrAccountNotFound)
+}
+
+// switchDeleteBatch is how many messages one cache-clearing transaction
+// removes. Each message drags FTS and attachment rows with it, so a few hundred
+// keeps the SQLite write lock held for milliseconds instead of seconds.
+const switchDeleteBatch = 300
+
+// switchBatchPause is the gap between batches.
+const switchBatchPause = 15 * time.Millisecond
+
+// SwitchAccountProtocol clears the account's cached mail and then switches its
+// protocol/session fields. Address books are never touched.
+//
+// Deleting thousands of messages (with FTS and attachment rows) in one
+// transaction held the write lock long enough for other writers to hit
+// SQLITE_BUSY, so the work is split:
+//
+//  1. a short transaction resets the folders' sync cursors and floors, so if
+//     the app dies in step 2 the half-emptied old-protocol cache syncs again
+//     as a first sync, within the initial limit;
+//  2. messages go in batches, each in its own transaction with that batch's
+//     attachment directories staged aside and removed after commit;
+//  3. a short final transaction updates the protocol and deletes the (now
+//     empty) folders, staging whatever is left of the account's attachment dir.
+//
+// The protocol changes only in step 3, after every old row is gone, so a crash
+// can never leave old-protocol messages under new-protocol folders. Nothing
+// here stops other writers: the caller must keep the account's sync from
+// running throughout, or rows written between the batches keep the loop in
+// step 2 going.
+//
+// onBatch, when not nil, runs after each committed batch of step 2, so the
+// caller can tell a long delete that is moving from one that is stuck.
+func (d *DB) SwitchAccountProtocol(ctx context.Context, accountID int64, protocol, sessionURL, mailAccountID string, onBatch func()) error {
+	if protocol != "imap" && protocol != "jmap" {
+		return fmt.Errorf("storage: unsupported account protocol %q", protocol)
+	}
+	if protocol == "imap" {
+		sessionURL, mailAccountID = "", ""
+	}
+	if _, err := d.GetAccount(ctx, accountID); err != nil {
+		return err
+	}
+	if _, err := d.sql.ExecContext(ctx, `
+UPDATE folders SET last_seen_uid = 0, uid_validity = 0, state_token = '', sync_initialized = 0,
+  sync_floor_uid = 0, sync_floor_id = '', last_full_sync_at = NULL
+WHERE account_id = ?`, accountID); err != nil {
+		return fmt.Errorf("storage: reset folder sync state for account %d: %w", accountID, err)
+	}
+	if err := d.deleteAccountMessagesInBatches(ctx, accountID, onBatch); err != nil {
+		return err
+	}
+	return d.withStagedAccountCache(ctx, accountID, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+UPDATE accounts
+SET protocol = ?, jmap_session_url = ?, jmap_mail_account_id = ?
+WHERE id = ?`, protocol, sessionURL, mailAccountID, accountID)
+		if err != nil {
+			return fmt.Errorf("storage: update account %d protocol: %w", accountID, err)
+		}
+		if err := requireOneRow(res, ErrAccountNotFound); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM folders WHERE account_id = ?`, accountID); err != nil {
+			return fmt.Errorf("storage: delete folders for account %d: %w", accountID, err)
+		}
+		return nil
+	})
+}
+
+// deleteAccountMessagesInBatches removes every cached message of an account,
+// switchDeleteBatch at a time, each batch with its attachment files. onBatch,
+// if set, runs after each batch commits.
+func (d *DB) deleteAccountMessagesInBatches(ctx context.Context, accountID int64, onBatch func()) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		ids, err := d.accountMessageIDs(ctx, accountID, switchDeleteBatch)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		err = d.withStagedMessageDirs(ctx, accountID, ids, func(tx *sql.Tx) error {
+			args := make([]any, len(ids))
+			for i, id := range ids {
+				args[i] = id
+			}
+			q := `DELETE FROM messages WHERE id IN (?` + strings.Repeat(",?", len(ids)-1) + `)`
+			if _, err := tx.ExecContext(ctx, q, args...); err != nil {
+				return fmt.Errorf("storage: delete message batch for account %d: %w", accountID, err)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		if onBatch != nil {
+			onBatch()
+		}
+		// SQLite's busy handler polls rather than queues, so back-to-back
+		// transactions would starve another connection's writer. Pause so it
+		// can take the lock between batches.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(switchBatchPause):
+		}
+	}
+}
+
+func (d *DB) accountMessageIDs(ctx context.Context, accountID int64, limit int) ([]int64, error) {
+	ids, err := d.queryAll(ctx, func(r *sql.Rows) (int64, error) {
+		var id int64
+		if err := r.Scan(&id); err != nil {
+			return 0, fmt.Errorf("storage: scan message id: %w", err)
+		}
+		return id, nil
+	}, `SELECT id FROM messages WHERE account_id = ? LIMIT ?`, accountID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("storage: list messages of account %d: %w", accountID, err)
+	}
+	return ids, nil
 }
 
 // GetAccount returns one account by id, or ErrAccountNotFound.
@@ -391,7 +564,7 @@ func scanAccount(row rowScanner) (*Account, error) {
 		&a.SMTPHost, &a.SMTPPort, &a.IMAPTLS, &a.SMTPTLS, &created, &a.Position, &local,
 		&exportOn, &a.ExportDir, &a.ExportSubfolders, &a.ExportNameTemplate,
 		&a.PGPDefault, &dismissed, &a.LocalLabel, &useLabel,
-		&syncParallel,
+		&a.Protocol, &a.JMAPSessionURL, &a.JMAPMailAccountID, &syncParallel,
 		&trusted, &a.CAPEM,
 		&a.Proxy.Mode, &a.Proxy.Scheme, &a.Proxy.Host, &a.Proxy.Port, &a.Proxy.Username,
 		&contacts, &oauth); err != nil {

@@ -66,10 +66,10 @@ async function throughOnboarding(page: Page) {
 }
 
 async function fillOtherAccount(page: Page, email: string, password: string) {
-  await page.getByRole('button', { name: 'Other (IMAP / SMTP)' }).click()
+  await page.getByRole('button', { name: 'Other (IMAP/JMAP / SMTP)' }).click()
   await page.getByRole('textbox', { name: 'Email', exact: true }).fill(email)
   await page.getByRole('textbox', { name: 'Password', exact: true }).fill(password)
-  await page.getByRole('textbox', { name: 'IMAP host' }).fill('127.0.0.1')
+  await page.getByRole('textbox', { name: 'IMAP/JMAP host' }).fill('127.0.0.1')
   await page.getByRole('textbox', { name: 'SMTP host' }).fill('127.0.0.1')
   await expect(page.getByRole('spinbutton', { name: 'Port' }).first()).toHaveValue('993')
   await expect(page.getByRole('spinbutton', { name: 'Port' }).nth(1)).toHaveValue('465')
@@ -82,15 +82,6 @@ async function fillOtherAccount(page: Page, email: string, password: string) {
     .click()
 }
 
-// accountInbox is the INBOX under one account in the sidebar: with Alice and
-// Bob both on IMAP, a bare INBOX name matches both.
-function accountInbox(page: Page, email: string): Locator {
-  return page
-    .locator('section.account')
-    .filter({ has: page.getByRole('button', { name: email, exact: true }) })
-    .getByRole('button', { name: /^INBOX/ })
-}
-
 function messageList(page: Page): Locator {
   return page.getByRole('listbox', { name: 'Messages' })
 }
@@ -100,6 +91,7 @@ test('onboarding, liability, and Alice as IMAP', async ({ page }) => {
   await throughOnboarding(page)
   await page.getByRole('button', { name: 'Add a mailbox Sign in to an account by hand' }).click()
   await fillOtherAccount(page, 'alice@example.org', 'alice-e2e')
+  await page.getByRole('button', { name: 'Keep IMAP' }).click()
   const started = Date.now()
   await page.getByRole('button', { name: 'Start using Pelton' }).click()
   const list = messageList(page)
@@ -176,7 +168,7 @@ test('search, folders, and the seeded extremes', async ({ page }) => {
   await page.getByRole('button', { name: /^INBOX/ }).click()
 })
 
-test('Alice sends, Bob replies, Alice sees it', async ({ page }) => {
+test('Alice sends, Bob uses JMAP, Bob replies, Alice sees it', async ({ page }) => {
   // Unique per run: a reused Stalwart keeps mail from earlier runs.
   const subject = `e2e alice to bob ${Date.now()}`
   await page.getByRole('button', { name: 'Compose' }).click()
@@ -200,11 +192,12 @@ test('Alice sends, Bob replies, Alice sees it', async ({ page }) => {
   await page.keyboard.press('Meta+m')
   await page.getByRole('button', { name: 'Add a mailbox Sign in to an account by hand' }).click()
   await fillOtherAccount(page, 'bob@example.org', 'bob-e2e')
+  await page.getByRole('button', { name: 'Use JMAP' }).click()
   // the wizard stays open on the folder picker; nothing syncs until it is answered.
   await page.getByRole('button', { name: 'Sync everything' }).click()
   await page.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page.getByRole('button', { name: 'bob@example.org' })).toBeVisible({ timeout: 30_000 })
-  await accountInbox(page, 'bob@example.org').click()
+  await page.getByRole('button', { name: 'Inbox', exact: true }).click()
   const arrived = page.getByRole('option', { name: new RegExp(subject) })
   await expect(arrived).toBeVisible({ timeout: 90_000 })
   await arrived.click()
@@ -218,7 +211,7 @@ test('Alice sends, Bob replies, Alice sees it', async ({ page }) => {
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Compose message' })).toBeHidden({ timeout: 30_000 })
 
-  await accountInbox(page, 'alice@example.org').click()
+  await page.getByRole('button', { name: /^INBOX/ }).click()
   await expect(page.getByRole('option', { name: new RegExp(`Re: ${subject}`) })).toBeVisible({ timeout: 90_000 })
   timings['bob server inbox count'] = manifest.bobCount
 })

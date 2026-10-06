@@ -65,7 +65,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
 
     await userEvent.type(screen.getByLabelText('Email'), 'me@example.org')
     await userEvent.tab()
-    await typeInto(screen.getByLabelText('IMAP host'), '127.0.0.1')
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), '127.0.0.1')
     await typeInto(ports()[0], '1143')
     await typeInto(screen.getByLabelText('SMTP host'), '127.0.0.2')
     await typeInto(ports()[1], '1025')
@@ -74,7 +74,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     await d.promise
     await tick()
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('127.0.0.1')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('127.0.0.1')
     expect(ports()[0]).toHaveValue(1143)
     expect(screen.getByLabelText('SMTP host')).toHaveValue('127.0.0.2')
     expect(ports()[1]).toHaveValue(1025)
@@ -91,12 +91,12 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     await typeInto(email, 'me@new.example')
     await userEvent.tab()
     second.resolve(discovered('new.example'))
-    await vi.waitFor(() => expect(screen.getByLabelText('IMAP host')).toHaveValue('imap.new.example'))
+    await vi.waitFor(() => expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('imap.new.example'))
     first.resolve(discovered('old.example'))
     await first.promise
     await tick()
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('imap.new.example')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('imap.new.example')
     expect(screen.getByLabelText('SMTP host')).toHaveValue('smtp.new.example')
   })
 
@@ -106,11 +106,11 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
 
     await userEvent.type(screen.getByLabelText('Email'), 'me@example.org')
     await userEvent.tab()
-    await typeInto(screen.getByLabelText('IMAP host'), '127.0.0.1')
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), '127.0.0.1')
     d.resolve(discovered('example.org'))
     await vi.waitFor(() => expect(screen.getByLabelText('SMTP host')).toHaveValue('smtp.example.org'))
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('127.0.0.1')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('127.0.0.1')
   })
 
   it('keeps a passed connection test valid when discovery lands after it', async () => {
@@ -119,7 +119,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
 
     await userEvent.type(screen.getByLabelText('Email'), 'me@example.org')
     await userEvent.tab()
-    await typeInto(screen.getByLabelText('IMAP host'), '127.0.0.1')
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), '127.0.0.1')
     await typeInto(screen.getByLabelText('SMTP host'), '127.0.0.1')
     await userEvent.type(screen.getByLabelText('Password'), 'mail-pass')
     await userEvent.click(screen.getByRole('button', { name: 'Test connection' }))
@@ -135,7 +135,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
   it('keeps servers typed before the email was entered', async () => {
     api.discoverConfig.mockResolvedValue(discovered('example.org'))
 
-    await typeInto(screen.getByLabelText('IMAP host'), '127.0.0.1')
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), '127.0.0.1')
     await typeInto(screen.getByLabelText('SMTP host'), '127.0.0.2')
     await userEvent.type(screen.getByLabelText('Email'), 'me@example.org')
     await userEvent.tab()
@@ -143,7 +143,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     await tick()
     await tick()
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('127.0.0.1')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('127.0.0.1')
     expect(screen.getByLabelText('SMTP host')).toHaveValue('127.0.0.2')
   })
 
@@ -154,7 +154,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     await userEvent.type(email, 'me@example.org')
     await userEvent.tab()
     await vi.waitFor(() => expect(screen.getByLabelText('SMTP host')).toHaveValue('smtp.example.org'))
-    await typeInto(screen.getByLabelText('IMAP host'), '127.0.0.1')
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), '127.0.0.1')
     await typeInto(screen.getByLabelText('SMTP host'), '127.0.0.1')
     await userEvent.type(screen.getByLabelText('Password'), 'mail-pass')
     await userEvent.click(screen.getByRole('button', { name: 'Test connection' }))
@@ -166,7 +166,7 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     await tick()
     await tick()
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('127.0.0.1')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('127.0.0.1')
     expect(screen.getByLabelText('SMTP host')).toHaveValue('127.0.0.1')
     expect(screen.getByText('Connection works.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Add mailbox' })).toBeEnabled()
@@ -178,12 +178,12 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
 
     await userEvent.type(screen.getByLabelText('Email'), 'me@example.org')
     await userEvent.tab()
-    await typeInto(screen.getByLabelText('IMAP host'), 'x')
-    await userEvent.clear(screen.getByLabelText('IMAP host'))
+    await typeInto(screen.getByLabelText('IMAP/JMAP host'), 'x')
+    await userEvent.clear(screen.getByLabelText('IMAP/JMAP host'))
     d.resolve(discovered('example.org'))
     await vi.waitFor(() => expect(screen.getByLabelText('SMTP host')).toHaveValue('smtp.example.org'))
 
-    expect(screen.getByLabelText('IMAP host')).toHaveValue('')
+    expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('')
   })
 
   it('fills untouched fields on a later discovery', async () => {
@@ -192,11 +192,11 @@ describe('late autodiscovery in the add-mailbox wizard', () => {
     const email = screen.getByLabelText('Email')
     await userEvent.type(email, 'me@old.example')
     await userEvent.tab()
-    await vi.waitFor(() => expect(screen.getByLabelText('IMAP host')).toHaveValue('imap.old.example'))
+    await vi.waitFor(() => expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('imap.old.example'))
     await typeInto(email, 'me@new.example')
     await userEvent.tab()
 
-    await vi.waitFor(() => expect(screen.getByLabelText('IMAP host')).toHaveValue('imap.new.example'))
+    await vi.waitFor(() => expect(screen.getByLabelText('IMAP/JMAP host')).toHaveValue('imap.new.example'))
     expect(screen.getByLabelText('SMTP host')).toHaveValue('smtp.new.example')
   })
 })

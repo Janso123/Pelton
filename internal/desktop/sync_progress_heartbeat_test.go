@@ -94,9 +94,9 @@ func TestProgressHeartbeatIsPerAccount(t *testing.T) {
 // A run parked in one step keeps its line alive, and nothing running follows
 // the closing event once the run ends.
 func TestIMAPRunHeartbeatKeepsProgressAlive(t *testing.T) {
-	a := newHoldTestApp(t)
+	a := newJMAPSwitchTestApp(t)
 	a.progressHeartbeatEvery = 5 * time.Millisecond
-	id, _ := seedHoldAccount(t, a, "a@example.test")
+	id, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
 	acc, err := a.store.GetAccount(a.ctx, id)
 	if err != nil {
 		t.Fatal(err)

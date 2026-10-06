@@ -76,10 +76,11 @@
     for (const target of targets) {
       try {
         const undo = await moveMessage(target.id, folder.id)
-        if (undo.messageId) {
+        if (undo.messageId || undo.remoteId) {
           undone.push({
             summary: target,
             messageId: undo.messageId,
+            remoteId: undo.remoteId,
             fromFolderId: undo.destFolderId,
             originalFolderId: undo.originalFolderId,
           })

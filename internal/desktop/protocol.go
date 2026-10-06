@@ -2,7 +2,6 @@ package desktop
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
@@ -11,9 +10,9 @@ import (
 	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
-// mailProtocol is the protocol-specific half of syncing and changing a
-// mailbox. imapProtocol is the only driver; call sites go through
-// protocolFor rather than calling the IMAP code directly.
+// mailProtocol is what differs between an IMAP and a JMAP account. Each
+// method holds the two halves of what used to be an
+// `if account.Protocol == "jmap"` branch at a call site.
 type mailProtocol interface {
 	// manualSync refreshes the newest mail on the live slot (syncAccountOnceCtx).
 	manualSync(ctx context.Context, account storage.Account) error
@@ -30,7 +29,7 @@ type mailProtocol interface {
 	// firstSync is the worker's first pass: watch, initial sync, due reconcile.
 	// It returns when the first pass is done; the worker then waits for ctx.
 	firstSync(ctx context.Context, account storage.Account)
-	// watch parks the account on imap idle until ctx ends.
+	// watch parks the account on imap idle or a JMAP watch until ctx ends.
 	watch(ctx context.Context, account storage.Account)
 	// needsTimedSync reports whether timed auto-sync should touch the account.
 	needsTimedSync(accountID int64) bool
@@ -45,11 +44,12 @@ type mailProtocol interface {
 	// transmit sends one queued outbox message for the account.
 	transmit(ctx context.Context, account storage.Account, m outbox.Message) error
 	// moveMessage moves a cached message to dest on the server, then drops the
-	// local row (the core of archive and move). The driver takes the account
-	// lock itself, so callers must not hold it.
+	// local row (the core of archive and move). The IMAP driver takes the
+	// account lock itself and the JMAP driver takes it through
+	// withAccountAdapter, so callers must not hold it.
 	moveMessage(m *storage.Message, source, dest storage.Folder, account storage.Account) (ArchiveUndoDTO, error)
 	// moveBack undoes a move: from is where the action put the message.
-	moveBack(rfcMessageID string, from, dest storage.Folder, account storage.Account) error
+	moveBack(rfcMessageID, remoteID string, from, dest storage.Folder, account storage.Account) error
 	// source fetches a message's raw RFC 822 source.
 	source(m storage.Message, folder storage.Folder, account storage.Account) (string, error)
 	// setColor reflects a colour change onto the server. Failures are logged only.
@@ -62,7 +62,8 @@ type mailProtocol interface {
 	// checkPassword tries a typed password against the server without storing
 	// it. A refusal and an unreachable server are results, not errors.
 	checkPassword(account storage.Account, password string) PasswordCheckDTO
-	// routeServers is the servers a route test connects to.
+	// routeServers is the servers a route test connects to: requested (imap
+	// and smtp) for imap, the session server alone for JMAP.
 	routeServers(account storage.Account, requested []routeServer) ([]routeServer, error)
 	// discoverFolders lists the server's mailboxes into folder rows.
 	discoverFolders(ctx context.Context, account storage.Account) error
@@ -83,25 +84,24 @@ type routeServer struct {
 	port int
 }
 
-// imapProtocol carries the App so its methods can use its store, logger,
-// locks and test hooks.
+// imapProtocol and jmapProtocol carry the App so their methods can use its
+// store, logger, locks and test hooks.
 type imapProtocol struct{ a *App }
+type jmapProtocol struct{ a *App }
 
 // protocolFor returns the driver for the account's mail protocol.
-func (a *App) protocolFor(storage.Account) mailProtocol {
+func (a *App) protocolFor(account storage.Account) mailProtocol {
+	if normalizeProtocol(account.Protocol) == "jmap" {
+		return jmapProtocol{a}
+	}
 	return imapProtocol{a}
 }
 
 // knownProtocol reports whether p names a protocol Pelton can use.
 func knownProtocol(p string) bool {
-	return normalizeProtocol(p) == "imap"
-}
-
-// normalizeProtocol lowercases p and trims it; empty means imap.
-func normalizeProtocol(p string) string {
-	p = strings.TrimSpace(strings.ToLower(p))
-	if p == "" {
-		return "imap"
+	switch normalizeProtocol(p) {
+	case "imap", "jmap":
+		return true
 	}
-	return p
+	return false
 }

@@ -68,8 +68,8 @@ func localView(states []storage.MessageState) ([]LocalMessage, map[string]storag
 }
 
 // storedGeneration is the decimal form of a folder's uid_validity, or "" when
-// the folder has never recorded one (including an empty generation stored as
-// 0).
+// the folder has never recorded one (including JMAP's empty generation stored
+// as 0).
 func storedGeneration(uidValidity uint32) string {
 	if uidValidity == 0 {
 		return ""

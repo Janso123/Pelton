@@ -79,11 +79,11 @@ type Folder struct {
 	// this exists for. It stays in the sidebar, since hiding it would make the
 	// setting impossible to find again.
 	SyncExcluded bool
-	// RemoteID is the stable server id for the mailbox: the imap path for IMAP.
-	// StateToken is the delta cursor after a successful snapshot: the IMAP
-	// CONDSTORE cursor (empty without CONDSTORE). SyncFloorID is an opaque
-	// newest-window boundary for an adapter without numeric ids (empty when
-	// nothing older remains). SyncInitialized
+	// RemoteID is the stable server id for the mailbox: the imap path for IMAP,
+	// the JMAP Mailbox id for JMAP. StateToken is the delta cursor after a
+	// successful snapshot: the JMAP Email state, or the IMAP CONDSTORE cursor
+	// (empty without CONDSTORE). SyncFloorID is the opaque newest-window
+	// boundary for JMAP (empty when nothing older remains). SyncInitialized
 	// distinguishes a first sync from an already-synced empty folder.
 	RemoteID        string
 	StateToken      string
@@ -150,7 +150,7 @@ WHERE id = ?`
 	return nil
 }
 
-// SetFolderStateToken stores the adapter's delta cursor for a folder after a
+// SetFolderStateToken stores the JMAP Email state token for a folder after a
 // successful snapshot.
 func (d *DB) SetFolderStateToken(ctx context.Context, id int64, token string) error {
 	res, err := d.sql.ExecContext(ctx,
@@ -171,7 +171,7 @@ func (d *DB) SetFolderFullSyncAt(ctx context.Context, id int64, at time.Time) er
 	return requireOneRow(res, ErrFolderNotFound)
 }
 
-// SetFolderSyncWindow writes the opaque sync floor and whether the folder
+// SetFolderSyncWindow writes the opaque JMAP sync floor and whether the folder
 // has completed an initial sync. It does not touch sync_floor_uid.
 func (d *DB) SetFolderSyncWindow(ctx context.Context, id int64, floorID string, initialized bool) error {
 	res, err := d.sql.ExecContext(ctx,
@@ -257,7 +257,7 @@ func (d *DB) SetFolderUIDValidity(ctx context.Context, id int64, uidValidity uin
 }
 
 // RenameFolder updates a folder's display name and imap path. A remote id that
-// is the imap path (IMAP) follows the new path; any other remote id is kept. It
+// is the imap path (IMAP) follows the new path; a JMAP Mailbox id is kept. It
 // does not touch the folder's children: the caller renames the subtree, since
 // only it knows the server's delimiter (see RenameFolderSubtree).
 func (d *DB) RenameFolder(ctx context.Context, id int64, name, imapPath string) error {

@@ -132,7 +132,7 @@ test('scroll Alice and Bob in jumps through the virtual list', async ({ page }) 
   let previousTop = ''
   for (const target of [
     { account: 'alice@example.org', folder: /^INBOX/ },
-    { account: 'bob@example.org', folder: /^INBOX/ },
+    { account: 'bob@example.org', folder: /^Inbox/ },
   ]) {
     await openAccountFolder(page, target.account, target.folder)
     const list = messageList(page)
@@ -219,12 +219,50 @@ async function setMessageLimit(page: Page, index: number, label: string) {
   await expect(parallel).toHaveAttribute('aria-valuetext', parallelBefore)
 }
 
+test('open a stub whose body was not prefetched at the 100 limit', async ({ page }) => {
+  test.setTimeout(45_000)
+  await openAccountFolder(page, 'bob@example.org', /^Inbox/)
+  const list = messageList(page)
+  let subject = ''
+  let sawLoading = false
+  for (let step = 6; step <= 24 && !subject; step++) {
+    await jump(list, step / 24)
+    await page.waitForTimeout(150)
+    const blob = (await list.getByRole('option').allInnerTexts()).join('\n').replace(/'/g, "''")
+    const hit = sql(
+      `SELECT subject FROM messages WHERE body_complete = 0 AND length(subject) >= 4 ` +
+        `AND instr('${blob}', subject) > 0 ORDER BY length(subject) DESC LIMIT 1`,
+    )
+    if (!hit) continue
+    subject = hit
+    sawLoading = await list.evaluate(async (el, wanted) => {
+      const opt = [...(el as HTMLElement).querySelectorAll('[role=option]')].find((row) =>
+        row.textContent?.includes(wanted),
+      )
+      if (!opt) return false
+      ;(opt as HTMLElement).click()
+      for (let n = 0; n < 40; n++) {
+        await new Promise((r) => setTimeout(r, 50))
+        if (document.body.innerText.includes('Loading message') || document.querySelector('.body-loading')) return true
+      }
+      return false
+    }, subject)
+  }
+  expect(subject, 'a visible row should still be a stub while the folder limit is 100').not.toBe('')
+  timings['stub subject'] = subject
+  timings['stub showed loading'] = sawLoading ? 'Loading message' : 'no spinner'
+  expect(sawLoading, 'opening a stub should show Loading message').toBe(true)
+  await expect(page.getByRole('heading', { name: subject })).toBeVisible({ timeout: 20_000 })
+  const stillLoading = await page.locator('.body-loading').isVisible().catch(() => false)
+  timings['stub after open'] = stillLoading ? 'still Loading message' : 'body arrived'
+})
+
 test('All on Messages to sync per folder fetches bodies past 100', async ({ page }) => {
   test.setTimeout(120_000)
   await openSettingsSection(page, 'Sync & power')
   await setMessageLimit(page, 1, '100')
   await closeSettings(page)
-  await openAccountFolder(page, 'bob@example.org', /^INBOX/)
+  await openAccountFolder(page, 'bob@example.org', /^Inbox/)
   const before = completeBodies('bob@example.org')
   try {
     await openSettingsSection(page, 'Sync & power')
@@ -259,7 +297,7 @@ test('All on Messages to sync per folder fetches bodies past 100', async ({ page
 test('forced sync leaves Alice and Bob mail in place', async ({ page }) => {
   for (const target of [
     { account: 'alice@example.org', folder: /^INBOX/ },
-    { account: 'bob@example.org', folder: /^INBOX/ },
+    { account: 'bob@example.org', folder: /^Inbox/ },
   ]) {
     await openAccountFolder(page, target.account, target.folder)
     const before = await countMessages(page)
@@ -296,7 +334,8 @@ test('search a seeded subject, mark unread, switch folder, archive', async ({ pa
   timings['mark unread'] = 'invoked Mark as unread or the u shortcut'
 
   await page.getByRole('button', { name: 'Sent Items' }).first().click()
-  await openAccountFolder(page, 'alice@example.org', /^INBOX/)
+  await page.getByRole('button', { name: /^INBOX/ }).click()
+  await expect(messageList(page).getByRole('option').first()).toBeVisible()
 
   const victim = (await messageList(page).getByRole('option').nth(4).innerText()).slice(0, 40)
   await messageList(page).getByRole('option').nth(4).click()
@@ -314,7 +353,7 @@ test('second compose while a message is open, and switch accounts', async ({ pag
   await page.getByRole('button', { name: 'Close compose' }).click()
 
   // The account headers toggle; openAccountFolder expands only when collapsed.
-  await openAccountFolder(page, 'bob@example.org', /^INBOX/)
+  await openAccountFolder(page, 'bob@example.org', /^Inbox/)
   await expect(messageList(page).getByRole('option').first()).toContainText('alice@example.org')
   await openAccountFolder(page, 'alice@example.org', /^INBOX/)
   await expect(messageList(page).getByRole('option').first()).toContainText('bob@example.org')
@@ -334,7 +373,7 @@ test('select all on Alice selects the loaded page, not only the DOM rows', async
 })
 
 test('select all on Bob selects the loaded page, not only the DOM rows', async ({ page }) => {
-  await openAccountFolder(page, 'bob@example.org', /^INBOX/)
+  await openAccountFolder(page, 'bob@example.org', /^Inbox/)
   const dom = await messageList(page).getByRole('option').count()
   await page.getByRole('checkbox', { name: 'Select all' }).click()
   const label = page.getByText(/\d+ selected/)
@@ -344,4 +383,57 @@ test('select all on Bob selects the loaded page, not only the DOM rows', async (
   await expect(page.getByText(/All \d+ loaded messages are selected/)).toBeVisible()
   await page.getByRole('button', { name: 'Clear selection' }).click()
   await expect(label).toBeHidden()
+})
+
+async function openAccountEdit(page: Page, email: string) {
+  await openSettingsSection(page, 'Accounts')
+  await page.getByRole('button', { name: `Edit ${email}` }).click()
+  const editor = page.getByRole('dialog', { name: email })
+  await expect(editor).toBeVisible()
+  await expect(editor.getByText('Server changes take effect the next time Pelton connects.')).toBeVisible()
+  await expect(editor.getByPlaceholder('Leave blank to keep the saved password')).toHaveValue('')
+  return editor
+}
+
+async function flipProtocol(page: Page, email: string, folder: RegExp) {
+  const editor = await openAccountEdit(page, email)
+  const toggle = editor.getByRole('switch', { name: 'Use JMAP for mail and send' })
+  await expect(toggle).toBeEnabled({ timeout: 20_000 })
+  await toggle.click()
+  const error = editor.locator('p.err')
+  if (await error.isVisible().catch(() => false)) {
+    throw new Error(`protocol switch refused: ${await error.innerText()}`)
+  }
+  const unavailable = editor.getByText('JMAP is not available on this server')
+  if (await unavailable.isVisible().catch(() => false)) {
+    throw new Error('JMAP is not available on this server')
+  }
+  await expect(editor.getByText('Switching protocol…')).toBeHidden({ timeout: 30_000 })
+  await editor.getByRole('button', { name: 'Close', exact: true }).click()
+  await closeSettings(page)
+  await page.getByRole('button', { name: 'Sync now' }).click()
+  // A fresh JMAP stub list of a ~6400-message inbox takes a while to land.
+  await openAccountFolder(page, email, folder, 60_000)
+  // The switch empties the folder, so "No messages here" shows until the first
+  // stubs land; only an inbox that stays empty is a failure.
+  const row = messageList(page).getByRole('option').first()
+  try {
+    await row.waitFor({ timeout: 60_000 })
+  } catch {
+    throw new Error('inbox stayed on No messages here after Sync now')
+  }
+  await row.click()
+  await expect(page.getByRole('button', { name: 'Reply', exact: true })).toBeVisible()
+}
+
+test('Alice switches IMAP to JMAP and back', async ({ page }) => {
+  test.setTimeout(150_000)
+  await flipProtocol(page, 'alice@example.org', /^INBOX/)
+  await flipProtocol(page, 'alice@example.org', /^INBOX/)
+})
+
+test('Bob switches JMAP to IMAP and back', async ({ page }) => {
+  test.setTimeout(150_000)
+  await flipProtocol(page, 'bob@example.org', /^Inbox/)
+  await flipProtocol(page, 'bob@example.org', /^Inbox/)
 })

@@ -185,7 +185,7 @@ func TestGetMessageOnDemandBody(t *testing.T) {
 	}
 }
 
-func TestGetMessageStubReturnsPreviewBeforeBodyFetch(t *testing.T) {
+func TestGetMessageJMAPReturnsPreviewBeforeBodyFetch(t *testing.T) {
 	ctx, stopBackground := testContext(t)
 	defer stopBackground()
 
@@ -199,7 +199,8 @@ func TestGetMessageStubReturnsPreviewBeforeBodyFetch(t *testing.T) {
 	}
 
 	accountID, err := db.CreateAccount(ctx, &storage.Account{
-		Email: "reader@example.com",
+		Email:    "reader@example.com",
+		Protocol: "jmap",
 	})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
@@ -257,7 +258,7 @@ func TestGetMessageStubReturnsPreviewBeforeBodyFetch(t *testing.T) {
 	}
 }
 
-// bodyRetryHarness is a stub opened in the reading pane, with the protocol
+// bodyRetryHarness is a JMAP stub opened in the reading pane, with the protocol
 // fetch replaced and every event the app emits recorded.
 type bodyRetryHarness struct {
 	app   *App
@@ -282,7 +283,7 @@ func newBodyRetryHarness(t *testing.T, fetch func(attempt int, jobCtx context.Co
 	if err := db.RunMigrations(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	accountID, err := db.CreateAccount(ctx, &storage.Account{Email: "reader@example.com"})
+	accountID, err := db.CreateAccount(ctx, &storage.Account{Email: "reader@example.com", Protocol: "jmap"})
 	if err != nil {
 		t.Fatalf("create account: %v", err)
 	}

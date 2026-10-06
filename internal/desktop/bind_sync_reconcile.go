@@ -178,10 +178,14 @@ func (a *App) reconcilePause(accountID int64) func() bool {
 
 // execFullReconcile re-lists one folder in full. The bodies that found, up to
 // the body limit, are left to a background body job, so a live job does not
-// wait for them. A folder that was deleted or excluded meanwhile is skipped.
+// wait for them. A folder that was deleted, excluded or whose account
+// switched protocol meanwhile is skipped.
 func (a *App) execFullReconcile(ctx context.Context, account storage.Account, folder storage.Folder) error {
 	if a.fullReconcileForTest != nil {
 		return a.fullReconcileForTest(ctx, account, folder)
+	}
+	if a.protocolSwitchedSince(ctx, account) {
+		return nil
 	}
 	fresh, err := a.store.GetFolder(ctx, folder.ID)
 	if errors.Is(err, storage.ErrFolderNotFound) {
@@ -271,6 +275,9 @@ func (a *App) enqueueReconcileBodies(ctx context.Context, account storage.Accoun
 		FolderID:  folder.ID,
 		RemoteIDs: ids,
 		Run: func(jobCtx context.Context) error {
+			if a.protocolSwitchedSince(jobCtx, account) {
+				return nil
+			}
 			err := a.protocolFor(account).reconcileBodies(jobCtx, account, folder)
 			if errors.Is(err, psync.ErrSoftPaused) && jobCtx.Err() == nil {
 				return err
@@ -307,9 +314,9 @@ var dueReconcileInterval = time.Hour
 
 // runDueReconcileLoop queues the due full folder checks of every running
 // account each dueReconcileInterval until the app shuts down. Timed auto-sync
-// queues them after each pass, but it does not run at all when switched off,
-// so without this an account would only be checked at startup or on manual
-// Sync. Like auto-sync
+// queues them after each pass, but it leaves out a JMAP account with healthy
+// push and does not run at all when switched off, so without this such an
+// account would only be checked at startup or on manual Sync. Like auto-sync
 // it does nothing in low-power mode.
 func (a *App) runDueReconcileLoop() {
 	ticker := time.NewTicker(dueReconcileInterval)
@@ -329,8 +336,8 @@ func (a *App) runDueReconcileLoop() {
 }
 
 // enqueueDueReconcileRunning queues the due folder checks of every account of
-// the active profile that has a running worker and is not held for removal.
-// A folder already queued is skipped by enqueueFullReconcile.
+// the active profile that has a running worker and is not held for a protocol
+// switch or removal. A folder already queued is skipped by enqueueFullReconcile.
 func (a *App) enqueueDueReconcileRunning() {
 	accounts, err := a.store.ListAccounts(a.ctx)
 	if err != nil {

@@ -1,8 +1,9 @@
 // undoarchive.ts keeps a small stack of recently archived messages so a global
 // cmd+z can move the last archive or move back to where it came from. the action
 // moves the message on the server and drops the local row, so undo re-locates it
-// in the folder it went to by its rfc Message-ID, and moves it back. a message
-// with no Message-ID cannot be undone (rare), so it is not recorded.
+// in the folder it went to, by its rfc Message-ID (IMAP) or remote id (JMAP),
+// and moves it back. a message with neither cannot be undone (rare), so it is
+// not recorded.
 //
 // One entry is one action, not one message, so archiving a selection of eleven
 // is undone in one press.
@@ -16,6 +17,7 @@ import { toastInfo, toastError, errorMessage } from './toast'
 interface ArchivedMessage {
   summary: MessageSummary
   messageId: string
+  remoteId: string
   // the folder the action put the message in.
   fromFolderId: number
   originalFolderId: number
@@ -24,15 +26,16 @@ interface ArchivedMessage {
 const archived = writable<ArchivedMessage[][]>([])
 
 // recordArchived remembers a just-archived message so it can be moved back. A
-// message with no Message-ID cannot be found again and is skipped.
+// message the server gave no way to find again is skipped.
 export function recordArchived(summary: MessageSummary, undo: ArchiveUndo): void {
-  if (!undo.messageId) {
+  if (!undo.messageId && !undo.remoteId) {
     return
   }
   recordArchivedBatch([
     {
       summary,
       messageId: undo.messageId,
+      remoteId: undo.remoteId,
       fromFolderId: undo.destFolderId,
       originalFolderId: undo.originalFolderId,
     },
@@ -61,7 +64,7 @@ export function triggerUndoArchive(): boolean {
     let failure = ''
     for (const entry of last) {
       try {
-        await unarchiveMessage(entry.messageId, entry.fromFolderId, entry.originalFolderId)
+        await unarchiveMessage(entry.messageId, entry.remoteId, entry.fromFolderId, entry.originalFolderId)
       } catch (err) {
         failure = errorMessage(err)
       }

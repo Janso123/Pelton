@@ -273,7 +273,7 @@ func TestListMetaOnlyForMessagesBecomingStubs(t *testing.T) {
 }
 
 // rejectingAdapter is a server that refuses every flag change, like IMAP
-// STORE on a read-only mailbox.
+// STORE on a read-only mailbox or JMAP notUpdated: forbidden.
 type rejectingAdapter struct{ *deltaAdapter }
 
 func (rejectingAdapter) SetFlags(context.Context, string, string, storage.Flag) error {

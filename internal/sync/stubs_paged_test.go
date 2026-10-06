@@ -9,7 +9,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/storage"
 )
 
-// pagedFakeAdapter is an adapter that hands the engine its list in
+// pagedFakeAdapter is a JMAP-like adapter that hands the engine its list in
 // pages. afterPage runs synchronously after each onPage call, before
 // ListMessagesPaged returns, so a test can inspect the store mid-list.
 type pagedFakeAdapter struct {
@@ -43,7 +43,7 @@ func (a *pagedFakeAdapter) ListMessagesPaged(ctx context.Context, box RemoteMail
 			return nil, "", "", a.listErr
 		}
 	}
-	// a paged adapter may report no generation.
+	// JMAP has no generation.
 	return headers, token, "", nil
 }
 
@@ -66,7 +66,7 @@ func sortedPresent(t *testing.T, db *storage.DB, folderID int64) []string {
 	return out
 }
 
-// A full paged list must store stubs as each page arrives, not only after the
+// A full JMAP list must store stubs as each page arrives, not only after the
 // whole mailbox is listed. Reconcile still runs once at the end and owns
 // deletes.
 func TestSyncFolderStubsPagedStoresStubsPerPage(t *testing.T) {
@@ -199,7 +199,7 @@ func TestSyncFolderStubsPagedOnlyWithFullList(t *testing.T) {
 	}
 }
 
-// Scroll backfill can run with FullList set, but a backfill lowers the floor
+// JMAP scroll backfill runs with FullList set, but a backfill lowers the floor
 // by one page instead of clearing it. Page inserts there would store rows
 // below the new floor, out of step with the stored floor and HasOlder.
 func TestSyncFolderStubsBackfillDoesNotPageInsert(t *testing.T) {

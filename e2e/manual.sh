@@ -79,8 +79,8 @@ Stalwart is ready. Add any of these in Pelton under "Other" (or in any mail clie
   carol@example.org    carol-e2e   empty
   dave@example.org     dave-e2e    empty
 
-  IMAP host  127.0.0.1   993 (TLS)
-  SMTP host  127.0.0.1   465 (TLS)
+  IMAP/JMAP host  127.0.0.1   IMAP 993 (TLS), JMAP https://127.0.0.1
+  SMTP host       127.0.0.1   465 (TLS)
 
 Mail between @example.org accounts is delivered locally, so you can send from
 one mailbox and read it in another.

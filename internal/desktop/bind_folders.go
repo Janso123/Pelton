@@ -180,8 +180,8 @@ func (a *App) RenameFolder(id int64, name string) error {
 		return err
 	}
 
-	// a driver whose remote id is not the path keeps the stored path; IMAP
-	// rewrites it.
+	// JMAP: when imap_path equals remote_id the adapter keeps the same id, so
+	// do not rewrite the path to a hierarchical name. IMAP keeps path rewriting.
 	if a.protocolFor(*account).renameKeepsPath(*folder, remoteID) {
 		return a.store.RenameFolder(a.ctx, id, name, folder.IMAPPath)
 	}

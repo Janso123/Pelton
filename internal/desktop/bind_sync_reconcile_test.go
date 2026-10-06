@@ -44,7 +44,7 @@ func TestClampFullReconcileDays(t *testing.T) {
 }
 
 // reconcileTestApp is an App with a store, one account and its folders.
-func reconcileTestApp(t *testing.T, folders ...storage.Folder) (*App, storage.Account, []storage.Folder) {
+func reconcileTestApp(t *testing.T, protocol string, folders ...storage.Folder) (*App, storage.Account, []storage.Folder) {
 	t.Helper()
 	ctx, stop := testContext(t)
 	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
@@ -58,7 +58,7 @@ func reconcileTestApp(t *testing.T, folders ...storage.Folder) (*App, storage.Ac
 	if err := db.RunMigrations(ctx); err != nil {
 		t.Fatal(err)
 	}
-	id, err := db.CreateAccount(ctx, &storage.Account{Email: "user@example.com"})
+	id, err := db.CreateAccount(ctx, &storage.Account{Email: "user@example.com", Protocol: protocol})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func reconcileTestApp(t *testing.T, folders ...storage.Folder) (*App, storage.Ac
 }
 
 func TestEnqueueFullReconcileDedupsPerFolder(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "jmap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
 	release := make(chan struct{})
 	var mu sync.Mutex
 	calls := map[int64]int{}
@@ -107,7 +107,7 @@ func TestEnqueueFullReconcileDedupsPerFolder(t *testing.T) {
 }
 
 func TestEnqueueDueReconcileSkipsFreshFolders(t *testing.T) {
-	a, account, folders := reconcileTestApp(t,
+	a, account, folders := reconcileTestApp(t, "imap",
 		storage.Folder{Name: "INBOX", IMAPPath: "INBOX"},
 		storage.Folder{Name: "Fresh", IMAPPath: "Fresh"},
 	)
@@ -136,7 +136,7 @@ func TestEnqueueDueReconcileSkipsFreshFolders(t *testing.T) {
 }
 
 func TestReconcilePauseYieldsOnlyToLiveAtNOne(t *testing.T) {
-	a, account, _ := reconcileTestApp(t)
+	a, account, _ := reconcileTestApp(t, "jmap")
 	if err := a.store.SetInt(a.ctx, settingSyncMaxParallel, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func holdLiveJob(t *testing.T, rt *accountSync) func() {
 }
 
 func TestReconcilePauseIgnoresLiveAtNTwo(t *testing.T) {
-	a, account, _ := reconcileTestApp(t)
+	a, account, _ := reconcileTestApp(t, "jmap")
 	if err := a.store.SetInt(a.ctx, settingSyncMaxParallel, 2); err != nil {
 		t.Fatal(err)
 	}
@@ -206,8 +206,8 @@ func TestReconcilePauseIgnoresLiveAtNTwo(t *testing.T) {
 }
 
 func TestManualSyncDoesNotWaitForReconcile(t *testing.T) {
-	a, account, _ := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
-	useFake(t, a, account.ID, &fakeIMAP{})
+	a, account, _ := reconcileTestApp(t, "jmap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+	a.jmapManualSyncForTest = func(context.Context, storage.Account) error { return nil }
 	started := make(chan struct{})
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -234,10 +234,10 @@ func TestManualSyncDoesNotWaitForReconcile(t *testing.T) {
 	}
 }
 
-// reconcileRecorder points the account's manual sync at an empty fake server
-// and reports every folder a full reconcile ran for.
-func reconcileRecorder(t *testing.T, a *App, accountID int64) <-chan int64 {
-	useFake(t, a, accountID, &fakeIMAP{})
+// reconcileRecorder makes the account's manual sync a no-op and reports every
+// folder a full reconcile ran for.
+func reconcileRecorder(a *App) <-chan int64 {
+	a.jmapManualSyncForTest = func(context.Context, storage.Account) error { return nil }
 	got := make(chan int64, 8)
 	a.fullReconcileForTest = func(_ context.Context, _ storage.Account, f storage.Folder) error {
 		got <- f.ID
@@ -246,20 +246,10 @@ func reconcileRecorder(t *testing.T, a *App, accountID int64) <-chan int64 {
 	return got
 }
 
-// unchangedIMAP is a CONDSTORE server on which nothing changed since
-// unchangedIMAPCursor, so a sync of a folder holding that cursor lists nothing.
-type unchangedIMAP struct{ fakeIMAP }
-
-const unchangedIMAPCursor = "v1:9:100:51:50"
-
-func (*unchangedIMAP) Select(mailbox string) (*pimap.Mailbox, error) {
-	return &pimap.Mailbox{Name: mailbox, UIDValidity: 9, HighestModSeq: 100, UIDNext: 51, NumMessages: 50}, nil
-}
-
 // Timed auto-sync never queues every folder, only those whose last full
 // check is older than the setting, so the interval holds without a restart.
 func TestAutoSyncPassQueuesOnlyDueReconcile(t *testing.T) {
-	a, account, folders := reconcileTestApp(t,
+	a, _, folders := reconcileTestApp(t, "jmap",
 		storage.Folder{Name: "INBOX", IMAPPath: "INBOX"},
 		storage.Folder{Name: "Fresh", IMAPPath: "Fresh"},
 	)
@@ -270,18 +260,7 @@ func TestAutoSyncPassQueuesOnlyDueReconcile(t *testing.T) {
 	if err := a.store.SetFolderFullSyncAt(a.ctx, folders[1].ID, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	// a clean full list stamps the folder as checked, so the timed sync has to
-	// find nothing changed through its CONDSTORE cursor, as a synced folder does.
-	for _, f := range folders {
-		if err := a.store.SetFolderStateToken(a.ctx, f.ID, unchangedIMAPCursor); err != nil {
-			t.Fatal(err)
-		}
-		if err := a.store.SetFolderSyncWindow(a.ctx, f.ID, "", true); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got := reconcileRecorder(t, a, account.ID)
-	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return &unchangedIMAP{}, nil }
+	got := reconcileRecorder(a)
 	if err := a.runAutoSyncPass(); err != nil {
 		t.Fatalf("auto-sync pass: %v", err)
 	}
@@ -306,8 +285,8 @@ func TestUserSyncQueuesReconcile(t *testing.T) {
 		"SyncAccountNow": func(a *App, acc storage.Account) error { return a.SyncAccountNow(acc.ID) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
-			got := reconcileRecorder(t, a, account.ID)
+			a, account, folders := reconcileTestApp(t, "jmap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+			got := reconcileRecorder(a)
 			if err := run(a, account); err != nil {
 				t.Fatalf("sync: %v", err)
 			}
@@ -345,7 +324,7 @@ func verifyEvents(a *App, accountID int64) func() []SyncProgressEvent {
 // Stopping the scheduler mid-sweep cancels the running check and drops the
 // queued ones, so nothing would ever close the line: the stop has to.
 func TestVerifyLineClosesWhenSchedulerStopsMidSweep(t *testing.T) {
-	a, account, folders := reconcileTestApp(t,
+	a, account, folders := reconcileTestApp(t, "jmap",
 		storage.Folder{Name: "INBOX", IMAPPath: "INBOX"},
 		storage.Folder{Name: "Archive", IMAPPath: "Archive"},
 	)
@@ -382,7 +361,7 @@ func TestVerifyLineClosesWhenSchedulerStopsMidSweep(t *testing.T) {
 
 // The last check to finish closes the line.
 func TestVerifyLineClosesAfterLastReconcile(t *testing.T) {
-	a, account, folders := reconcileTestApp(t,
+	a, account, folders := reconcileTestApp(t, "jmap",
 		storage.Folder{Name: "INBOX", IMAPPath: "INBOX"},
 		storage.Folder{Name: "Archive", IMAPPath: "Archive"},
 	)
@@ -426,7 +405,7 @@ func TestVerifyLineClosesAfterLastReconcile(t *testing.T) {
 // separate line, so neither its events nor its close may replace or clear
 // what the heartbeat re-sends.
 func TestVerifyEventsLeaveTheHeartbeatLineAlone(t *testing.T) {
-	a, account, _ := reconcileTestApp(t)
+	a, account, _ := reconcileTestApp(t, "imap")
 	a.emitSyncProgress(account.ID, account.Email, "", syncCounts{Folder: "INBOX"})
 	a.emitSyncProgress(account.ID, account.Email, "", syncCounts{Folder: "Archive", Phase: SyncPhaseVerify})
 	a.emitSyncProgress(account.ID, account.Email, "", syncCounts{Phase: SyncPhaseVerify})
@@ -442,7 +421,7 @@ func TestVerifyEventsLeaveTheHeartbeatLineAlone(t *testing.T) {
 // The check shows only its own calm line. The engine's per-folder progress
 // would open a normal sync line (spinner, bar) that nothing closes.
 func TestFullReconcileEmitsNoSyncLine(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
 	useFake(t, a, account.ID, &fakeIMAP{})
 	var mu sync.Mutex
 	var lines []SyncProgressEvent
@@ -492,7 +471,7 @@ func (*oneMailIMAP) FetchMessages(uids []imap.UID, fn func(imap.UID, *pimap.Mess
 // A message the background check heals into Inbox is old mail the user may
 // never have read. It goes into the list, but raises no new-mail notification.
 func TestFullReconcileAnnouncesHealedMailWithoutNotifying(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
 	if err := a.store.SetBool(a.ctx, settingNotifyNewMail, true); err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +531,7 @@ func (c *recordingOneMailIMAP) FetchMessages(uids []imap.UID, fn func(imap.UID, 
 // body job, which soft-pauses for live work, so an opened message does not
 // wait for them.
 func TestFullReconcileQueuesBodiesAsBackgroundJob(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
 	useFake(t, a, account.ID, &fakeIMAP{})
 	client := &recordingOneMailIMAP{fetched: make(chan []imap.UID, 4)}
 	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
@@ -588,7 +567,7 @@ func TestFullReconcileQueuesBodiesAsBackgroundJob(t *testing.T) {
 // A folder check hands its bodies to a background job. A second check of the
 // folder must not queue another one beside the job still waiting.
 func TestReconcileBodyJobsDedupPerFolder(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
 	useFake(t, a, account.ID, &fakeIMAP{})
 	client := &recordingOneMailIMAP{fetched: make(chan []imap.UID, 4)}
 	var sessions atomic.Int32
@@ -655,12 +634,13 @@ func runningWorker(a *App, accountID int64) {
 	a.workers[accountID] = &accountWorker{cancel: func() {}, done: make(chan struct{})}
 }
 
-// Timed auto-sync, which is what queues due checks, can be switched off. The
-// hourly check has to queue them on its own.
+// A JMAP account with healthy push is left out of timed auto-sync, which is
+// what queues due checks. The hourly check has to queue them on its own.
 func TestDueReconcileLoopQueuesWithoutAutoSync(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "jmap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
 	runningWorker(a, account.ID)
-	got := reconcileRecorder(t, a, account.ID)
+	a.setJMAPPushHealthy(account.ID, true)
+	got := reconcileRecorder(a)
 	old := dueReconcileInterval
 	dueReconcileInterval = 10 * time.Millisecond
 	t.Cleanup(func() { dueReconcileInterval = old })
@@ -676,11 +656,11 @@ func TestDueReconcileLoopQueuesWithoutAutoSync(t *testing.T) {
 	}
 }
 
-// A held account (removal) and one without a running worker
+// A held account (protocol switch, removal) and one without a running worker
 // get no check, and no scheduler is started for them either.
 func TestDueReconcileSkipsHeldAndStoppedAccounts(t *testing.T) {
-	a, account, _ := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
-	reconcileRecorder(t, a, account.ID)
+	a, account, _ := reconcileTestApp(t, "jmap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX"})
+	reconcileRecorder(a)
 
 	a.enqueueDueReconcileRunning()
 	if a.accountSync(account.ID) != nil {
@@ -723,10 +703,8 @@ func (c *gatedListIMAP) FetchAllFlags() ([]pimap.MessageHeader, error) {
 // cursor it read before the delta's newer ones. It waits for a list already
 // running instead.
 func TestFullReconcileWaitsForRunningList(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
 	useFake(t, a, account.ID, &fakeIMAP{})
-	// the check queues a body job after it; stop it before the password goes.
-	t.Cleanup(func() { a.stopAccountScheduler(account.ID) })
 	client := &gatedListIMAP{firstIn: make(chan struct{}), gate: make(chan struct{})}
 	close(client.gate)
 	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
@@ -772,10 +750,8 @@ func TestFullReconcileWaitsForRunningList(t *testing.T) {
 // A list asked for while the full check runs is not lost: it runs right after
 // the check, so the newest flags and cursor are the ones stored last.
 func TestFullReconcileRunsCoalescedListAfterIt(t *testing.T) {
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
+	a, account, folders := reconcileTestApp(t, "imap", storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
 	useFake(t, a, account.ID, &fakeIMAP{})
-	// the check queues a body job after it; stop it before the password goes.
-	t.Cleanup(func() { a.stopAccountScheduler(account.ID) })
 	client := &gatedListIMAP{firstIn: make(chan struct{}), gate: make(chan struct{})}
 	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
 	if _, err := a.ensureAccountSync(a.ctx, account.ID); err != nil {

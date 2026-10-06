@@ -5,6 +5,7 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
+	pjmap "github.com/peltonapp/Pelton/internal/jmap"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
 
@@ -221,7 +222,7 @@ func (a *App) ReauthorizeOAuthAccount(accountID int64) error {
 	return nil
 }
 
-// PasswordCheckDTO reports how a password fared against the account's imap
+// PasswordCheckDTO reports how a password fared against the account's mail
 // server. Rejected separates "the server said no" from "nothing answered": the
 // first means the password is wrong, the second says nothing about it at all.
 type PasswordCheckDTO struct {
@@ -230,9 +231,10 @@ type PasswordCheckDTO struct {
 	Error    string `json:"error"`
 }
 
-// CheckAccountPassword tries a password against an existing account's imap
-// server without storing it, so a mailbox marked as refused can be fixed on the
-// spot instead of the user finding out at the next sync.
+// CheckAccountPassword tries a password against an existing account's server
+// (JMAP for a JMAP mailbox, IMAP otherwise) without storing it, so a mailbox
+// marked as refused can be fixed on the spot instead of the user finding out at
+// the next sync.
 //
 // A refusal and an unreachable server are both returned as a result, not an
 // error: the caller shows them differently. Only a problem with the request
@@ -259,7 +261,8 @@ func (a *App) CheckAccountPassword(accountID int64, password string) (PasswordCh
 // prompt; anything else (a dropped connection, a server that is down) says
 // nothing about the password and is ignored. A success clears the mark.
 //
-// Callers pass the error from Login directly, including nil.
+// Callers pass the error from an IMAP Login or a JMAP session fetch directly,
+// including nil.
 func (a *App) noteLoginResult(accountID int64, err error) {
 	if err != nil && !loginRefused(err) {
 		return
@@ -276,9 +279,10 @@ func (a *App) noteLoginResult(accountID int64, err error) {
 	a.rejectedLogins[accountID] = struct{}{}
 }
 
-// loginRefused reports whether err is the server refusing the credentials.
+// loginRefused reports whether err is the server refusing the credentials,
+// over IMAP or JMAP.
 func loginRefused(err error) bool {
-	return errors.Is(err, pimap.ErrAuthFailed)
+	return errors.Is(err, pimap.ErrAuthFailed) || errors.Is(err, pjmap.ErrAuthFailed)
 }
 
 // loginRejected reports whether the server refused this account's credentials
@@ -383,8 +387,8 @@ func (a *App) AllAccounts() ([]AccountDTO, error) {
 
 // DeleteAccount removes an account entirely: its keyring secret, its cached mail
 // (folders, messages and attachment rows cascade in the db) and its attachment
-// files on disk. First it hard-cancels that account only: its worker (IDLE),
-// scheduler jobs and IMAP sessions stop, and nothing can start
+// files on disk. First it hard-cancels that account only: its worker (IDLE or
+// JMAP watch), scheduler jobs and IMAP sessions stop, and nothing can start
 // sync work for it again. Other accounts keep running. If the row cannot be
 // deleted, a worker the account had is started again.
 func (a *App) DeleteAccount(id int64) error {

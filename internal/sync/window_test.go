@@ -254,9 +254,9 @@ type fakeAdapter struct {
 	commands       int
 	fetchErr       error
 	fetchFailAfter int // when > 0 with fetchErr, return successful Fetched for the first N then error
-	// listMeta, when true, fills Header envelope fields in ListMessages.
+	// listMeta, when true, fills Header envelope fields like JMAP ListMessages.
 	listMeta bool
-	// stateToken is returned from ListMessages. Empty mimics IMAP without CONDSTORE.
+	// stateToken is returned from ListMessages (JMAP Email state). Empty mimics IMAP.
 	stateToken string
 	// onFetch, when set, runs for each remote id before it is appended to fetched.
 	onFetch func(id string)
@@ -633,8 +633,8 @@ func TestSyncFolderDoesNotReFloorUpgradedFolder(t *testing.T) {
 	}
 }
 
-// A push can cap Inbox at X headers and store a state token before the stub
-// campaign runs. FullList must not ask for changes since that token, or the
+// A JMAP push can cap Inbox at X headers and store Email state before the stub
+// campaign runs. FullList must not reuse Email/changes for that token, or the
 // folder never grows beyond the push window while other mailboxes list fully.
 func TestSyncFolderStubsFullListIgnoresStateToken(t *testing.T) {
 	ctx := context.Background()
@@ -759,7 +759,7 @@ func (a *deltaAdapter) ListChanges(_ context.Context, box RemoteMailbox, ensure 
 	return d, nil
 }
 
-// metaHeader is a header with list metadata.
+// metaHeader is a header with list metadata, as JMAP Email/get returns it.
 func metaHeader(id string, flags storage.Flag) Header {
 	h := Header{RemoteID: id, Flags: flags, HasListMeta: true, Subject: "subj-" + id, From: "ada@ex", Preview: "preview-" + id}
 	if n, err := strconv.ParseUint(id, 10, 32); err == nil {

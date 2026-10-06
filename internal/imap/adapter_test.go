@@ -380,7 +380,7 @@ func TestListChangesNeedsFullList(t *testing.T) {
 		token   string
 	}{
 		{"no cursor", condMailbox(100, 51, 50), ""},
-		{"foreign token", condMailbox(100, 51, 50), "st-other"},
+		{"jmap token", condMailbox(100, 51, 50), "st-jmap"},
 		{"no condstore", &Mailbox{Name: "INBOX", UIDValidity: 9, UIDNext: 51, NumMessages: 50}, good},
 		{"uidvalidity changed", &Mailbox{Name: "INBOX", UIDValidity: 10, HighestModSeq: 100, UIDNext: 51, NumMessages: 50}, good},
 	}

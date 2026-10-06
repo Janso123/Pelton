@@ -73,6 +73,10 @@ type mailboxBackup struct {
 	IMAPPort      int    `json:"imapPort"`
 	SMTPHost      string `json:"smtpHost"`
 	SMTPPort      int    `json:"smtpPort"`
+	// Protocol is "imap" or "jmap"; older backups have none and mean imap. The
+	// JMAP session URL and mail account id are not carried: they are found
+	// again by signing in on restore.
+	Protocol string `json:"protocol,omitempty"`
 	// SyncMaxParallel is the mailbox's own parallel-sync override; absent
 	// means it follows the global setting.
 	SyncMaxParallel *int `json:"syncMaxParallel,omitempty"`
@@ -219,6 +223,7 @@ func (a *App) exportMailboxes(credentialPassword string) ([]mailboxBackup, error
 			SMTPPort:      acc.SMTPPort,
 			TrustedCerts:  acc.TrustedCerts,
 			CAPEM:         acc.CAPEM,
+			Protocol:      acc.Protocol,
 		}
 		if acc.SyncMaxParallel != nil {
 			n := *acc.SyncMaxParallel
@@ -454,6 +459,15 @@ func (a *App) importMailboxes(mailboxes []mailboxBackup, credentialPassword stri
 			SMTPPort:      m.SMTPPort,
 			TrustedCerts:  m.TrustedCerts,
 			CAPEM:         m.CAPEM,
+			Protocol:      normalizeProtocol(m.Protocol),
+		}
+		secret, hasSecret := secrets[m.Email]
+		switch {
+		case !knownProtocol(account.Protocol):
+			a.log.Warn("backup mailbox has an unknown protocol, restoring as imap", "account", m.Email, "protocol", m.Protocol)
+			account.Protocol = "imap"
+		case account.Protocol == "jmap":
+			a.restoreJMAPSession(&account, secret, hasSecret)
 		}
 		id, err := a.store.CreateAccount(a.ctx, &account)
 		if err != nil {
@@ -468,7 +482,7 @@ func (a *App) importMailboxes(mailboxes []mailboxBackup, credentialPassword stri
 		}
 		have[m.Email] = id
 		ready = append(ready, account)
-		if secret, ok := secrets[m.Email]; ok {
+		if hasSecret {
 			if err := credentials.Store(id, secret); err != nil {
 				return ready, err
 			}

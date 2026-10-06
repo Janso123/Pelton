@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast v1.1.2
+	github.com/Janso123/go-jmap v1.0.0-rc.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/ProtonMail/go-crypto v1.4.1
 	github.com/VirusTotal/vt-go v1.1.0
@@ -58,6 +59,7 @@ require (
 	github.com/blevesearch/zapx/v16 v16.3.4 // indirect
 	github.com/blevesearch/zapx/v17 v17.2.3 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
+	github.com/coder/websocket v1.8.15 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/esiqveland/notify v0.13.3 // indirect

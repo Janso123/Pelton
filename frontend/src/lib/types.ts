@@ -44,6 +44,11 @@ export interface Account {
   // the user told the missing-password prompt to stop asking about this
   // account. It still cannot sync; the ui marks it instead of interrupting.
   passwordPromptDismissed: boolean
+  // 'imap' or 'jmap'. the backend derives session urls; this is only the choice.
+  protocol: string
+  // the JMAP session endpoint the backend derived or discovered; empty for IMAP
+  // accounts and until a session has been resolved.
+  jmapSessionUrl?: string
   // this account's own parallel sync connection limit (1-5), or null/absent
   // when it follows the global setting.
   syncMaxParallel?: number | null
@@ -576,13 +581,15 @@ export interface UIPrefs {
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction
   // syncMessageLimit caps how many of a folder's newest message bodies the
-  // first sync fetches. 0 means no limit.
+  // first sync fetches. JMAP may still list the whole folder as stubs. 0 means
+  // no limit.
   syncMessageLimit: number
   // syncAutoBackfill fetches the next batch of older mail automatically on
   // reaching the end of the list. Off puts it behind a button instead.
   syncAutoBackfill: boolean
   // syncMaxParallel is how many sync connections one mailbox may use at once
-  // (1–5): IMAP sync sessions. Sending and new-mail push do not count.
+  // (1–5). IMAP sync sessions, or concurrent JMAP sync requests. Sending and
+  // new-mail push do not count.
   syncMaxParallel: number
   // syncFullReconcileDays is how many days a folder may go without a full
   // check against the server before startup re-checks it; 0 = manual Sync only.
@@ -896,6 +903,8 @@ export interface AddAccountRequest {
   // optional oauth client secret for confidential-client app registrations
   // (some Microsoft Entra setups). empty keeps the default PKCE public flow.
   clientSecret: string
+  // 'imap' or 'jmap'; empty means imap. client-supplied session urls are ignored.
+  protocol: string
   // what the mailbox trusts beyond the system roots: fingerprints accepted in
   // the connection test, and a CA file's PEM text.
   trustedCerts: string[]
@@ -923,6 +932,19 @@ export interface TestConnectionRequest {
   proxy: AccountProxy
 }
 
+// IMAP success plus the optional JMAP probe. There is no contacts capability field.
+export interface TestConnectionResult {
+  jmapAvailable: boolean
+  jmapWebSocket: boolean
+  jmapSessionURL: string
+  jmapMailAccountID: string
+}
+
+// OAuth flow that has tokens but no account row yet.
+export interface PendingAccount extends TestConnectionResult {
+  id: string
+}
+
 // SyncFailureReason is the coarse class of a failed sync, which the ui turns
 // into a sentence. Anything unrecognized reads as 'other'.
 export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'certificate' | 'other'
@@ -931,7 +953,7 @@ export type SyncFailureReason = 'auth' | 'network' | 'credentials' | 'certificat
 // the user to review before trusting it. fingerprint is what trusting it sends
 // back; display is the same for reading. Dates are rfc3339.
 export interface UntrustedCert {
-  server: 'imap' | 'smtp'
+  server: 'imap' | 'smtp' | 'jmap'
   host: string
   port: number
   fingerprint: string
@@ -947,7 +969,7 @@ export interface UntrustedCert {
 
 // ConnectionTest is a connection test that reached the servers: untrusted is
 // empty when it logged in.
-export interface ConnectionTest {
+export interface ConnectionTest extends TestConnectionResult {
   untrusted: UntrustedCert[]
 }
 

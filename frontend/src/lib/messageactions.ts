@@ -226,10 +226,11 @@ export async function bulkArchive(items: MessageSummary[]): Promise<void> {
     try {
       const undo = await archiveMessage(item.id)
       reportArchiveExport(undo)
-      if (undo.messageId) {
+      if (undo.messageId || undo.remoteId) {
         undone.push({
           summary: item,
           messageId: undo.messageId,
+          remoteId: undo.remoteId,
           fromFolderId: undo.destFolderId,
           originalFolderId: undo.originalFolderId,
         })

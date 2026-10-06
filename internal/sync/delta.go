@@ -6,8 +6,8 @@ import (
 )
 
 // ErrNeedFullList means an adapter cannot compute a delta from the stored
-// cursor: there is none, the server no longer has its history, the mailbox
-// was reset (IMAP UIDVALIDITY), or the
+// cursor: there is none, the server no longer has its history (JMAP
+// cannotCalculateChanges), the mailbox was reset (IMAP UIDVALIDITY), or the
 // server tracks no changes (IMAP without CONDSTORE). The engine then lists the
 // folder in full.
 var ErrNeedFullList = errors.New("sync: delta unavailable, full list needed")

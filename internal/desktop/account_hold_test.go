@@ -2,8 +2,7 @@ package desktop
 
 import (
 	"context"
-	"log/slog"
-	"path/filepath"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,14 +11,258 @@ import (
 	"github.com/peltonapp/Pelton/internal/credentials"
 	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
+	pjmap "github.com/peltonapp/Pelton/internal/jmap"
+	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
+
+// countingIMAP counts itself as running sync work from Login until Logout or
+// Close, whichever comes first.
+type countingIMAP struct {
+	fakeIMAP
+	running *atomic.Int32
+	once    sync.Once
+	in      atomic.Bool
+}
+
+func (c *countingIMAP) Login() error {
+	c.in.Store(true)
+	c.running.Add(1)
+	return nil
+}
+
+func (c *countingIMAP) done() {
+	if c.in.Load() {
+		c.once.Do(func() { c.running.Add(-1) })
+	}
+}
+
+func (c *countingIMAP) Logout() error { c.done(); return nil }
+func (c *countingIMAP) Close() error  { c.done(); return nil }
+
+// refillJob is a background sync job that keeps writing old-protocol rows into
+// the account's cache until it is cancelled or the folder is gone, the way an
+// IMAP body campaign does.
+func refillJob(a *App, accountID, folderID int64, uid *atomic.Uint32, running *atomic.Int32) syncsched.Job {
+	return syncsched.Job{
+		Priority: syncsched.PriorityBackgroundBody,
+		Kind:     syncsched.JobFetchBodies,
+		FolderID: folderID,
+		Run: func(ctx context.Context) error {
+			running.Add(1)
+			defer running.Add(-1)
+			for ctx.Err() == nil {
+				if _, err := a.store.InsertMessage(context.Background(), &storage.Message{
+					AccountID: accountID, FolderID: folderID, UID: uid.Add(1), Subject: "refill",
+				}); err != nil {
+					return err
+				}
+			}
+			return ctx.Err()
+		},
+	}
+}
+
+func seedMessages(t *testing.T, a *App, accountID, folderID int64, n int, uid *atomic.Uint32) {
+	t.Helper()
+	for range n {
+		if _, err := a.store.InsertMessage(a.ctx, &storage.Message{
+			AccountID: accountID, FolderID: folderID, UID: uid.Add(1), Subject: "seed",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// accountMessageCount counts the account's messages under oldFolder and under
+// every folder it has now.
+func accountMessageCount(t *testing.T, a *App, accountID, oldFolder int64) int {
+	t.Helper()
+	ids := []int64{oldFolder}
+	folders, err := a.store.ListFolders(a.ctx, accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range folders {
+		ids = append(ids, f.ID)
+	}
+	n, err := a.store.CountMessages(a.ctx, storage.MessageQuery{FolderIDs: ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// A protocol switch deletes the old cache in batches. Before the hold, any
+// caller of ensureAccountSync (limit raise, message open, Sync, scroll, push)
+// started a fresh scheduler mid-switch whose jobs wrote old-protocol rows
+// between the batches, so the delete loop chased them for minutes. With the
+// hold, nothing of the account runs while the cache is deleted, the switch is
+// quick, and the new worker starts afterwards.
+func TestSwitchProtocolHoldsSyncWhileDeleting(t *testing.T) {
+	a := newJMAPSwitchTestApp(t)
+	id, folderID := seedSwitchAccount(t, a, "switch@example.test", "imap")
+	var uid atomic.Uint32
+	uid.Store(1)
+	seedMessages(t, a, id, folderID, 1500, &uid)
+
+	var running atomic.Int32
+	a.newIMAPClient = func(pimap.Config) (mailClient, error) {
+		return &countingIMAP{running: &running}, nil
+	}
+	a.onDemandFetchForTest = func(ctx context.Context, account storage.Account, folder storage.Folder, _ []string) error {
+		running.Add(1)
+		defer running.Add(-1)
+		for range 50 {
+			if _, err := a.store.InsertMessage(context.Background(), &storage.Message{
+				AccountID: account.ID, FolderID: folder.ID, UID: uid.Add(1), Subject: "on demand",
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	a.jmapClientForTest = func(context.Context, storage.Account) (*pjmap.Client, error) {
+		return nil, errors.New("no jmap server in this test")
+	}
+	a.authenticateTarget = func(context.Context, storage.Account, proxy.Config, string, credentials.Secret) (targetAuth, error) {
+		return targetAuth{SessionURL: "https://jmap.example", MailAccountID: "A1"}, nil
+	}
+
+	var batchesWithWork, batches atomic.Int32
+	a.store.TestingSetDeleteTxHook(func(context.Context) error {
+		batches.Add(1)
+		if running.Load() > 0 {
+			batchesWithWork.Add(1)
+		}
+		return nil
+	})
+	t.Cleanup(func() { a.store.TestingSetDeleteTxHook(nil) })
+
+	// An in-flight background campaign on the account.
+	tryScheduler(a, id).Enqueue(refillJob(a, id, folderID, &uid, &running))
+	deadline := time.Now().Add(2 * time.Second)
+	for running.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if running.Load() == 0 {
+		t.Fatal("background job never started")
+	}
+
+	// Everything the UI and the push paths do while the switch runs.
+	stub := &storage.Message{AccountID: id, FolderID: folderID, RemoteID: "stub-1", Subject: "stub"}
+	if _, err := a.store.UpsertMessageListMeta(a.ctx, stub); err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	var hammer sync.WaitGroup
+	hammerLoop := func(fn func()) {
+		hammer.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				fn()
+				time.Sleep(2 * time.Millisecond)
+			}
+		})
+	}
+	hammerLoop(func() {
+		if s := tryScheduler(a, id); s != nil {
+			s.Enqueue(refillJob(a, id, folderID, &uid, &running))
+		}
+	})
+	hammerLoop(func() { _ = a.TriggerSync() })
+	hammerLoop(func() { _ = a.fetchMessageBodyOnDemand(stub) })
+
+	start := time.Now()
+	switched := make(chan error, 1)
+	go func() { switched <- a.SwitchProtocol(id, "jmap") }()
+	var err error
+	select {
+	case err = <-switched:
+	case <-time.After(30 * time.Second):
+		close(stop)
+		hammer.Wait()
+		t.Fatalf("switch still running after 30s (%d delete batches, %d with sync work running)",
+			batches.Load(), batchesWithWork.Load())
+	}
+	elapsed := time.Since(start)
+	close(stop)
+	hammer.Wait()
+	if err != nil {
+		t.Fatalf("SwitchProtocol: %v", err)
+	}
+
+	if n := batchesWithWork.Load(); n > 0 {
+		t.Errorf("%d of %d delete batches ran while a sync job of the account was running", n, batches.Load())
+	}
+	if !raceEnabled && elapsed > 5*time.Second {
+		t.Errorf("switch took %v, want well under 5s", elapsed)
+	}
+	acc, gerr := a.store.GetAccount(a.ctx, id)
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if acc.Protocol != "jmap" {
+		t.Fatalf("protocol = %q, want jmap", acc.Protocol)
+	}
+	if n := accountMessageCount(t, a, id, folderID); n != 0 {
+		t.Errorf("%d old-protocol messages left after the switch", n)
+	}
+	if workerFor(a, id) == nil {
+		t.Error("no worker running after the switch")
+	}
+	if err := trySync(a, id); err != nil {
+		t.Errorf("sync still held after the switch: %v", err)
+	}
+}
+
+// Every way out of SwitchProtocol must lift the hold, or the mailbox never
+// syncs again until restart.
+func TestSwitchProtocolErrorPathsLiftHold(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(a *App)
+	}{
+		{"failing auth target", func(a *App) {
+			a.authenticateTarget = func(context.Context, storage.Account, proxy.Config, string, credentials.Secret) (targetAuth, error) {
+				return targetAuth{}, errors.New("login refused")
+			}
+		}},
+		{"failing cache delete", func(a *App) {
+			a.authenticateTarget = func(context.Context, storage.Account, proxy.Config, string, credentials.Secret) (targetAuth, error) {
+				return targetAuth{}, nil
+			}
+			a.store.TestingSetDeleteTxHook(func(context.Context) error { return errors.New("inject fail") })
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := newJMAPSwitchTestApp(t)
+			id, _ := seedSwitchAccount(t, a, "err@example.test", "jmap")
+			a.jmapClientForTest = func(context.Context, storage.Account) (*pjmap.Client, error) {
+				return nil, errors.New("no jmap server in this test")
+			}
+			c.setup(a)
+			t.Cleanup(func() { a.store.TestingSetDeleteTxHook(nil) })
+			if err := a.SwitchProtocol(id, "imap"); err == nil {
+				t.Fatal("expected the switch to fail")
+			}
+			if err := trySync(a, id); err != nil {
+				t.Fatalf("sync still held after a failed switch: %v", err)
+			}
+		})
+	}
+}
 
 // While an account is held, UI paths get a quiet no-op: opening a message
 // shows the stub, and Sync does not report a failure.
 func TestHeldAccountUIPathsAreQuiet(t *testing.T) {
-	a := newHoldTestApp(t)
-	id, folderID := seedHoldAccount(t, a, "quiet@example.test")
+	a := newJMAPSwitchTestApp(t)
+	id, folderID := seedSwitchAccount(t, a, "quiet@example.test", "imap")
 	var fetched atomic.Int32
 	a.onDemandFetchForTest = func(context.Context, storage.Account, storage.Folder, []string) error {
 		fetched.Add(1)
@@ -61,9 +304,9 @@ func TestHeldAccountUIPathsAreQuiet(t *testing.T) {
 // sessions and scheduler stop, its state goes, and nothing brings them back.
 // The other account keeps running.
 func TestDeleteAccountHardCancelsOnlyThatAccount(t *testing.T) {
-	a := newHoldTestApp(t)
-	idA, folderA := seedHoldAccount(t, a, "gone@example.test")
-	idB, _ := seedHoldAccount(t, a, "stays@example.test")
+	a := newJMAPSwitchTestApp(t)
+	idA, folderA := seedSwitchAccount(t, a, "gone@example.test", "imap")
+	idB, _ := seedSwitchAccount(t, a, "stays@example.test", "imap")
 	accA, err := a.store.GetAccount(a.ctx, idA)
 	if err != nil {
 		t.Fatal(err)
@@ -210,98 +453,29 @@ func trySync(a *App, accountID int64) error {
 	return err
 }
 
-// newHoldTestApp is an App with a migrated store and a profile session, for
-// tests that start, hold and stop account workers.
-func newHoldTestApp(t *testing.T) *App {
-	t.Helper()
-	ctx, stopBackground := testContext(t)
-	store, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
+// TriggerSync lists the accounts once and syncs them one after another, so an
+// account switched while an earlier one synced reaches its job with the old
+// protocol. That job must not run the old protocol's sync over the new
+// protocol's folders.
+func TestManualSyncSkipsAccountLoadedBeforeSwitch(t *testing.T) {
+	a := newJMAPSwitchTestApp(t)
+	id, _ := seedSwitchAccount(t, a, "stale@example.test", "imap")
+	stale, err := a.store.GetAccount(a.ctx, id)
 	if err != nil {
-		t.Fatalf("open store: %v", err)
+		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	t.Cleanup(stopBackground)
-	if err := store.RunMigrations(ctx); err != nil {
-		t.Fatalf("migrate: %v", err)
+	if err := a.store.SwitchAccountProtocol(a.ctx, id, "jmap", "https://jmap.example", "A1", nil); err != nil {
+		t.Fatal(err)
 	}
-	session, cancel := context.WithCancel(ctx)
-	app := &App{
-		ctx:         ctx,
-		session:     session,
-		sessionStop: cancel,
-		store:       store,
-		log:         slog.New(slog.DiscardHandler),
-		workers:     make(map[int64]*accountWorker),
+	var dialed atomic.Int32
+	a.newIMAPClient = func(pimap.Config) (mailClient, error) {
+		dialed.Add(1)
+		return &fakeIMAP{}, nil
 	}
-	// Cancel the session and join workers before other cleanups (credentials,
-	// store) so an idle loop cannot race the mock keyring on teardown.
-	t.Cleanup(func() {
-		cancel()
-		app.joinAllAccountWorkers()
-	})
-	return app
-}
-
-// seedHoldAccount creates an account with a stored password, an INBOX holding
-// one message and an address book.
-func seedHoldAccount(t *testing.T, a *App, email string) (accountID, folderID int64) {
-	t.Helper()
-	ctx := a.ctx
-	acc := &storage.Account{Email: email, IMAPHost: "imap.example.test", IMAPPort: 993}
-	id, err := a.store.CreateAccount(ctx, acc)
-	if err != nil {
-		t.Fatalf("create account: %v", err)
+	if err := a.syncAccount(*stale, true); err != nil {
+		t.Fatalf("sync with a stale protocol = %v, want nil", err)
 	}
-	if err := credentials.Store(id, credentials.Secret{
-		Method: credentials.MethodPassword, Password: "secret",
-	}); err != nil {
-		t.Fatalf("store secret: %v", err)
+	if n := dialed.Load(); n != 0 {
+		t.Errorf("stale IMAP sync opened %d connections on a JMAP account", n)
 	}
-	// Stop the worker before deleting the secret: cleanups run LIFO, so this
-	// runs before newHoldTestApp's join, and a test may have left a worker
-	// still reading the keyring.
-	t.Cleanup(func() {
-		a.stopAccountWorker(id)
-		_ = credentials.Delete(id)
-	})
-
-	folder := &storage.Folder{
-		AccountID: id, Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX",
-	}
-	fid, err := a.store.CreateFolder(ctx, folder)
-	if err != nil {
-		t.Fatalf("create folder: %v", err)
-	}
-	if _, err := a.store.InsertMessage(ctx, &storage.Message{
-		AccountID: id, FolderID: fid, UID: 1, Subject: "hello",
-	}); err != nil {
-		t.Fatalf("insert message: %v", err)
-	}
-	if _, err := a.store.CreateAddressBook(ctx, &storage.AddressBook{
-		AccountID: id, Name: "Personal", URL: "https://dav.example",
-		CollectionPath: "/books/personal/", Username: email,
-	}); err != nil {
-		t.Fatalf("create address book: %v", err)
-	}
-	return id, fid
-}
-
-// plantQuiescentWorker registers a worker for the account that has already
-// exited, so stopAccountWorker finds one to stop without waiting.
-func plantQuiescentWorker(a *App, accountID int64) *accountWorker {
-	done := make(chan struct{})
-	close(done)
-	_, cancel := context.WithCancel(context.Background())
-	w := &accountWorker{cancel: cancel, done: done}
-	a.workersMu.Lock()
-	a.workers[accountID] = w
-	a.workersMu.Unlock()
-	return w
-}
-
-// workerFor is the account's registered worker, or nil.
-func workerFor(a *App, accountID int64) *accountWorker {
-	a.workersMu.Lock()
-	defer a.workersMu.Unlock()
-	return a.workers[accountID]
 }

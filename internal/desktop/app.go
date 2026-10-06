@@ -17,6 +17,7 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/certtrust"
 	"github.com/peltonapp/Pelton/internal/configsync"
+	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/logging"
 	"github.com/peltonapp/Pelton/internal/mcpserver"
@@ -162,16 +163,16 @@ type App struct {
 	badgeMu     sync.Mutex
 	unreadBadge int
 
-	// workersMu guards workers, the per-account sync/idle goroutines.
-	// stopAccountWorker cancels and joins one entry; profile shutdown cancels
-	// the session and joins all.
+	// workersMu guards workers, the per-account sync/idle (or JMAP watch)
+	// goroutines. stopAccountWorker cancels and joins one entry; profile
+	// shutdown cancels the session and joins all.
 	workersMu sync.Mutex
 	workers   map[int64]*accountWorker
 
 	// accountStatesMu guards accountStates and removedAccounts. A state holds
 	// the account's lock, sync hold, tracked IMAP sessions, in-flight run and
-	// progress tally. Entries outlive the account's scheduler so account
-	// removal can abort, hold and lock only that account across the teardown.
+	// progress tally. Entries outlive the account's scheduler so a protocol
+	// switch can abort, hold and lock only that account across the teardown.
 	accountStatesMu sync.Mutex
 	accountStates   map[int64]*accountState
 	// removedAccounts are the ids DeleteAccount removed while the app ran.
@@ -182,6 +183,21 @@ type App struct {
 	// send never checks a slot out and pauses nothing.
 	syncsMu sync.Mutex
 	syncs   map[int64]*accountSync
+
+	// jmapState is the state only the JMAP driver uses (see sync_jmap.go).
+	jmapState
+
+	// pendingMu guards pending, OAuth accounts waiting for a protocol choice
+	// before FinishAddAccount inserts a row. Entries die with the process.
+	pendingMu sync.Mutex
+	pending   map[string]pendingAccount
+
+	// authenticateTarget verifies the chosen protocol before create/switch.
+	// Tests replace it so login can be stubbed without a server.
+	authenticateTarget func(ctx context.Context, account storage.Account, route proxy.Config, protocol string, secret credentials.Secret) (targetAuth, error)
+
+	// provisionCardDAV, when set, replaces provisionCardDAVBooks (tests).
+	provisionCardDAV func(ctx context.Context, account storage.Account, password string) error
 
 	// fullReconcileForTest, when set, replaces execFullReconcile. Tests only.
 	fullReconcileForTest func(ctx context.Context, account storage.Account, folder storage.Folder) error
@@ -234,6 +250,7 @@ func newApp(version, channel string) *App {
 		startedAt:  time.Now(),
 		storeReady: make(chan struct{}),
 		workers:    make(map[int64]*accountWorker),
+		pending:    make(map[string]pendingAccount),
 	}
 }
 

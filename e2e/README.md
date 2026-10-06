@@ -5,14 +5,17 @@ browser) against a Stalwart mail server in Docker.
 
 ## What it covers
 
-- Onboarding, then Alice and Bob added as IMAP mailboxes.
+- Onboarding, then Alice added as an IMAP mailbox and Bob as a JMAP mailbox.
 - Alice and Bob each hold 6,400 seeded messages, including a 1-byte and a
   roughly 5 MB message.
-- Scrolling and backfilling a large inbox, opening a synced message, and
-  **Messages to sync per folder** set to **All**.
+- Scrolling and backfilling a large inbox, opening a synced message and a
+  stub whose body was not prefetched, and **Messages to sync per folder**
+  set to **All**.
 - Search, folder switching, mark unread, archive, select all, forced sync,
   a second compose window, switching accounts.
-- Alice sends, Bob replies, Alice sees the reply.
+- Alice sends, Bob replies over JMAP, Alice sees the reply.
+- Switching Alice from IMAP to JMAP and back, and Bob from JMAP to IMAP and
+  back.
 
 Timings and known gaps from the last run are written to `report.md`.
 
@@ -73,8 +76,9 @@ then runs `make run` in the foreground. Same prerequisites as above.
 | `carol@example.org` | `carol-e2e` | empty        |
 | `dave@example.org`  | `dave-e2e`  | empty        |
 
-In Pelton pick **Other (IMAP / SMTP)**, use `127.0.0.1` for both hosts
-and keep the default ports (IMAP 993, SMTP 465). Mail between `@example.org` accounts is
+In Pelton pick **Other (IMAP/JMAP / SMTP)**, use `127.0.0.1` for both hosts
+and keep the default ports (IMAP 993, SMTP 465). After **Test connection**,
+choose **Keep IMAP** or **Use JMAP**. Mail between `@example.org` accounts is
 delivered locally, so you can send from one mailbox and read it in another.
 
 - `E2E_SEED_PER_INBOX=6400 ./e2e/manual.sh` seeds the full corpus, `0` skips

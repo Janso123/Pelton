@@ -37,6 +37,7 @@ nav = [
     { "iCloud" = "mailbox/icloud.md" },
     { "Outlook" = "mailbox/outlook.md" },
     { "Generic IMAP/SMTP" = "mailbox/imap-smtp.md" },
+    { "JMAP" = "mailbox/jmap.md" },
     { "Importing from Thunderbird" = "mailbox/thunderbird-import.md" },
   ] },
   { "Features" = [

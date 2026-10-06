@@ -52,6 +52,10 @@ type AccountDTO struct {
 	// prompt to stop asking for this account. The ui marks the mailbox instead
 	// of interrupting.
 	PasswordPromptDismissed bool `json:"passwordPromptDismissed"`
+	// Protocol is "imap" or "jmap". JMAPSessionURL is set for jmap accounts so
+	// settings can show the current choice; secrets never go here.
+	Protocol       string `json:"protocol"`
+	JMAPSessionURL string `json:"jmapSessionUrl"`
 	// SyncMaxParallel is the account's own parallel-sync limit, or null when
 	// it follows the global setting.
 	SyncMaxParallel *int `json:"syncMaxParallel"`
@@ -286,6 +290,8 @@ func toAccountDTO(a storage.Account) AccountDTO {
 		PGPDefault:         a.PGPDefault,
 
 		PasswordPromptDismissed: a.PasswordPromptDismissed,
+		Protocol:                a.Protocol,
+		JMAPSessionURL:          a.JMAPSessionURL,
 		SyncMaxParallel:         a.SyncMaxParallel,
 
 		TrustedCerts: displayPins(a.TrustedCerts),

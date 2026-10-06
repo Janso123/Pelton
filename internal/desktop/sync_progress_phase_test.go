@@ -7,7 +7,7 @@ func TestSyncProgressStubPhaseOnEmit(t *testing.T) {
 	app := &App{}
 	app.syncProgressEmitForTest = func(e SyncProgressEvent) { got = e }
 
-	app.emitSyncProgress(1, "user@example.com", "mail.example", syncCounts{
+	app.emitSyncProgress(1, "user@example.com", "jmap.example", syncCounts{
 		Folder:       "INBOX",
 		FoldersDone:  0,
 		FoldersTotal: 3,

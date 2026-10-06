@@ -44,6 +44,8 @@ import type {
   Discovered,
   AddAccountRequest,
   TestConnectionRequest,
+  TestConnectionResult,
+  PendingAccount,
   ConnectionTest,
   UntrustedCert,
   CAFile,
@@ -191,7 +193,7 @@ export function previewArchiveExportName(template: string, subfolders: string): 
   return App.PreviewArchiveExportName(template, subfolders)
 }
 
-// checkAccountPassword tries a password against the account's imap server
+// checkAccountPassword tries a password against the account's mail server
 // without storing it, so the prompt can say straight away whether it works.
 export function checkAccountPassword(accountId: number, password: string): Promise<PasswordCheck> {
   return App.CheckAccountPassword(accountId, password) as unknown as Promise<PasswordCheck>
@@ -510,11 +512,13 @@ export function undoDelete(id: number): Promise<void> {
   return App.UndoDelete(id)
 }
 
-// ArchiveUndo is what undo needs to move a message back: its stable rfc
-// Message-ID (the move gave it a new uid) and the folders on either side.
-// messageId is empty when the message had no Message-ID (undo not possible then).
+// ArchiveUndo is what undo needs to move a message back: how to find it where
+// the action put it, and the folders on either side. An IMAP move gives the
+// message a new uid, so it is found by rfc messageId; a JMAP email keeps its
+// remoteId. Undo is not possible when the one that applies is empty.
 export interface ArchiveUndo {
   messageId: string
+  remoteId: string
   originalFolderId: number
   // the folder the action put the message in, where undo looks for it.
   destFolderId: number
@@ -608,24 +612,25 @@ export function unsealDraft(id: number, passphrase: string): Promise<desktop.Dra
 // returning the info needed to undo it.
 export function archiveMessage(id: number): Promise<ArchiveUndo> {
   if (isDemoActive()) {
-    return Promise.resolve({ messageId: '', originalFolderId: 0, destFolderId: 0, exportPath: '', exportError: '' })
+    return Promise.resolve({ messageId: '', remoteId: '', originalFolderId: 0, destFolderId: 0, exportPath: '', exportError: '' })
   }
   return App.ArchiveMessage(id)
 }
 
 // unarchiveMessage undoes an archive or move: it moves the message from
-// fromFolderId back to originalFolderId, locating it by rfc Message-ID.
-export function unarchiveMessage(messageId: string, fromFolderId: number, originalFolderId: number): Promise<void> {
+// fromFolderId back to originalFolderId, locating it by remoteId (JMAP) or rfc
+// Message-ID (IMAP).
+export function unarchiveMessage(messageId: string, remoteId: string, fromFolderId: number, originalFolderId: number): Promise<void> {
   if (isDemoActive()) {
     return Promise.resolve()
   }
-  return App.UnarchiveMessage(messageId, fromFolderId, originalFolderId)
+  return App.UnarchiveMessage(messageId, remoteId, fromFolderId, originalFolderId)
 }
 
 // moveMessage moves a message to any folder of its account, returning undo info.
 export function moveMessage(id: number, destFolderId: number): Promise<ArchiveUndo> {
   if (isDemoActive()) {
-    return Promise.resolve({ messageId: '', originalFolderId: 0, destFolderId: 0, exportPath: '', exportError: '' })
+    return Promise.resolve({ messageId: '', remoteId: '', originalFolderId: 0, destFolderId: 0, exportPath: '', exportError: '' })
   }
   return App.MoveMessage(id, destFolderId)
 }
@@ -956,9 +961,10 @@ export function listOAuthProviders(): Promise<Record<string, string>> {
   return App.ListOAuthProviders()
 }
 
-// testConnection verifies imap credentials by logging in. It resolves with the
-// server certificates that need reviewing when one did not verify, and with an
-// empty list once the login worked.
+// testConnection verifies imap credentials by logging in, then probes JMAP. It
+// resolves with the server certificates that need reviewing when one did not
+// verify (and no JMAP result), or with an empty list and the JMAP probe once
+// the login worked.
 export function testConnection(req: TestConnectionRequest): Promise<ConnectionTest> {
   return App.TestConnection(new desktop.TestConnectionRequest(req)) as unknown as Promise<ConnectionTest>
 }
@@ -967,6 +973,13 @@ export function testConnection(req: TestConnectionRequest): Promise<ConnectionTe
 // that it does not trust, so they can be shown before trusting them.
 export function probeAccountCertificates(accountId: number): Promise<UntrustedCert[]> {
   return App.ProbeAccountCertificates(accountId) as unknown as Promise<UntrustedCert[]>
+}
+
+// probeAccountCertificatesFor lists the certificates the servers a protocol
+// would use present that the account does not trust, so switching protocol can
+// show them before signing in there.
+export function probeAccountCertificatesFor(accountId: number, protocol: 'imap' | 'jmap'): Promise<UntrustedCert[]> {
+  return App.ProbeAccountCertificatesFor(accountId, protocol) as unknown as Promise<UntrustedCert[]>
 }
 
 // trustAccountCertificate trusts a certificate the account's server presents.
@@ -996,9 +1009,36 @@ export function addPasswordAccount(req: AddAccountRequest): Promise<Account> {
   return App.AddPasswordAccount(new desktop.AddAccountRequest(req))
 }
 
-// addOAuthAccount runs the interactive PKCE flow then creates the account.
+// addOAuthAccount runs the legacy one-shot PKCE flow then creates an IMAP account.
+// New wizard flows use beginOAuthAccount / finishAddAccount instead.
 export function addOAuthAccount(req: AddAccountRequest): Promise<Account> {
   return App.AddOAuthAccount(new desktop.AddAccountRequest(req))
+}
+
+// beginOAuthAccount runs PKCE, probes JMAP, and returns a pending id with no
+// account row yet.
+export function beginOAuthAccount(req: AddAccountRequest): Promise<PendingAccount> {
+  return App.BeginOAuthAccount(new desktop.AddAccountRequest(req)) as Promise<PendingAccount>
+}
+
+// finishAddAccount creates the pending OAuth account with the chosen protocol.
+export function finishAddAccount(pendingID: string, protocol: string): Promise<Account> {
+  return App.FinishAddAccount(pendingID, protocol)
+}
+
+// cancelAddAccount drops a pending OAuth entry without creating an account.
+export function cancelAddAccount(pendingID: string): Promise<void> {
+  return App.CancelAddAccount(pendingID)
+}
+
+// probeAccount checks whether an existing account's server offers JMAP.
+export function probeAccount(accountID: number): Promise<TestConnectionResult> {
+  return App.ProbeAccount(accountID) as Promise<TestConnectionResult>
+}
+
+// switchProtocol changes an account between imap and jmap after re-authenticating.
+export function switchProtocol(accountID: number, protocol: string): Promise<void> {
+  return App.SwitchProtocol(accountID, protocol)
 }
 
 // --- signatures (header/footer blocks) ---

@@ -1,5 +1,5 @@
 // Package syncsched is the per-account priority queue for mail sync.
-// It does not import IMAP. Desktop injects each job's Run func.
+// It does not import IMAP or JMAP. Desktop injects each job's Run func.
 // The scheduler checks a pool slot out around that func.
 package syncsched
 
@@ -43,7 +43,7 @@ const (
 )
 
 // Job is one unit of sync work. Run should honor ctx cancellation: Stop
-// cancels ctx for shutdown and account removal.
+// cancels ctx for shutdown, account removal, and protocol switch.
 //
 // RemoteIDs is the body or on-demand id list for this attempt. After
 // ErrSoftPaused the scheduler replaces it with the ids that were not started,

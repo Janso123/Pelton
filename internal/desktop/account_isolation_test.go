@@ -11,6 +11,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/storage"
+	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
 // closeRecordingIMAP is a fakeIMAP that reports Close. Its Login can be made
@@ -36,14 +37,14 @@ func (c *closeRecordingIMAP) Login() error {
 	return c.loginErr
 }
 
-// Stopping one account's worker must not close another account's IMAP
+// Switching protocol on one account must not close another account's IMAP
 // sessions or cancel its scheduler jobs. Before per-account runtimes the abort
 // closed every tracked session in the app, so both mailboxes reported a failed
-// sync after one was stopped.
+// sync after one was switched.
 func TestStopAccountWorkerLeavesOtherAccountSessionsAndJobs(t *testing.T) {
-	a := newHoldTestApp(t)
-	idA, _ := seedHoldAccount(t, a, "a@example.test")
-	idB, _ := seedHoldAccount(t, a, "b@example.test")
+	a := newJMAPSwitchTestApp(t)
+	idA, _ := seedSwitchAccount(t, a, "a@example.test", "imap")
+	idB, _ := seedSwitchAccount(t, a, "b@example.test", "imap")
 	accA, err := a.store.GetAccount(a.ctx, idA)
 	if err != nil {
 		t.Fatal(err)
@@ -144,14 +145,14 @@ func TestStopAccountWorkerLeavesOtherAccountSessionsAndJobs(t *testing.T) {
 
 // A worker that outlives stopAccountWorker's wait must not tear down the
 // scheduler its replacement started. Before, the late exit deleted the map
-// entry by account id, so Sync did nothing after the worker was replaced.
+// entry by account id, so Sync did nothing after a protocol switch.
 func TestLateOldWorkerExitKeepsNewScheduler(t *testing.T) {
 	old := stopAccountWorkerTimeout
 	stopAccountWorkerTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { stopAccountWorkerTimeout = old })
 
-	a := newHoldTestApp(t)
-	id, _ := seedHoldAccount(t, a, "late@example.test")
+	a := newJMAPSwitchTestApp(t)
+	id, _ := seedSwitchAccount(t, a, "late@example.test", "imap")
 
 	// The first connection's Login hangs past the stop timeout and ignores
 	// Close. Later connections are refused at once, so the new worker settles
@@ -212,12 +213,87 @@ func TestLateOldWorkerExitKeepsNewScheduler(t *testing.T) {
 	}
 }
 
+// blockingJMAPAdapter parks the first ListMessages until release closes, so a
+// test can hold one account's folder sync inside its critical section.
+type blockingJMAPAdapter struct {
+	jmapListAdapter
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (b *blockingJMAPAdapter) ListMessages(ctx context.Context, box psync.RemoteMailbox) ([]psync.Header, string, string, error) {
+	b.once.Do(func() { close(b.entered) })
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+		return nil, "", "", ctx.Err()
+	}
+	return b.jmapListAdapter.ListMessages(ctx, box)
+}
+
+// One account's JMAP folder sync must not hold up an archive on another. The
+// process-wide sync lock made every mailbox wait for the slowest one.
+func TestJMAPFolderSyncDoesNotBlockOtherAccountArchive(t *testing.T) {
+	a, db, ctx := moveTestApp(t)
+	inboxB, _, messageB := moveTestAccount(t, db, ctx, false)
+	useFake(t, a, inboxB.AccountID, &fakeIMAP{})
+
+	idA, err := db.CreateAccount(ctx, &storage.Account{
+		Email: "jmap@example.test", Protocol: "jmap",
+		JMAPSessionURL: "https://jmap.example/.well-known/jmap", JMAPMailAccountID: "mail-1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateFolder(ctx, &storage.Folder{
+		AccountID: idA, Name: "INBOX", IMAPPath: "INBOX", RemoteID: "mb-inbox",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &blockingJMAPAdapter{
+		ids:     []string{"m1"},
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	syncDone := make(chan error, 1)
+	go func() { syncDone <- a.syncFolders(ctx, adapter, idA) }()
+	var releaseOnce sync.Once
+	releaseA := func() { releaseOnce.Do(func() { close(adapter.release) }) }
+	defer func() {
+		releaseA()
+		<-syncDone
+	}()
+	select {
+	case <-adapter.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("A's folder sync never reached the server")
+	}
+
+	archived := make(chan error, 1)
+	go func() {
+		_, err := a.ArchiveMessage(messageB)
+		archived <- err
+	}()
+	select {
+	case err := <-archived:
+		if err != nil {
+			t.Fatalf("archive on B: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		releaseA()
+		<-archived
+		t.Fatal("archive on B waited for A's JMAP folder sync")
+	}
+}
+
 // A scheduler first started by one sync run must keep serving the account
 // after that run's context ends. Bound to the run, it died with it and the
 // next run's jobs waited on a queue nobody served.
 func TestSchedulerOutlivesTheRunThatStartedIt(t *testing.T) {
-	a := newHoldTestApp(t)
-	id, _ := seedHoldAccount(t, a, "run@example.test")
+	a := newJMAPSwitchTestApp(t)
+	id, _ := seedSwitchAccount(t, a, "run@example.test", "imap")
 	t.Cleanup(func() { a.stopAccountScheduler(id) })
 
 	runCtx, endRun := context.WithCancel(a.ctx)

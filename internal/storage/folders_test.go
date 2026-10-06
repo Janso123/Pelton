@@ -102,9 +102,8 @@ func TestRenameFolderSubtreeNonASCII(t *testing.T) {
 	}
 }
 
-// a remote id that is not the path is stable across renames, so only the path
-// moves.
-func TestRenameKeepsOpaqueRemoteID(t *testing.T) {
+// a JMAP Mailbox id is stable across renames, so only the path moves.
+func TestRenameKeepsJMAPRemoteID(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 

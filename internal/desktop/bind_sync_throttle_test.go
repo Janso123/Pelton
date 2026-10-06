@@ -33,3 +33,18 @@ func TestThrottleHalvesEffectiveAfterErrors(t *testing.T) {
 		t.Fatalf("after two throttle errors effective=%d, want 2", got)
 	}
 }
+
+// a throttled account must not open more blob downloads than it has sync
+// slots, or the throttle backs off connections while downloads keep piling on.
+func TestJMAPBlobParallelFollowsThrottledPool(t *testing.T) {
+	ctx := context.Background()
+	p := pool.New(3)
+	p.SetEffective(1)
+	app := &App{
+		ctx:   ctx,
+		syncs: map[int64]*accountSync{1: {pool: p, ended: make(chan struct{})}},
+	}
+	if got := app.jmapBlobDownloadParallel(1); got != 1 {
+		t.Fatalf("blob parallelism %d with the pool throttled to 1, want 1", got)
+	}
+}

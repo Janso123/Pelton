@@ -2,10 +2,15 @@ package sync
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/storage"
 )
+
+// ErrNotOnServer marks a Fetch failure for a message the server no longer has,
+// as opposed to one that could work on a later try.
+var ErrNotOnServer = errors.New("sync: message not on the server")
 
 // Mailbox is one mailbox on the remote server.
 type Mailbox struct {
@@ -20,11 +25,11 @@ type Mailbox struct {
 // Header is the lightweight per-message view ListMessages returns.
 type Header struct {
 	RemoteID  string
-	LegacyUID uint32 // IMAP adapter only; zero for adapters without uids
+	LegacyUID uint32 // IMAP adapter only; JMAP always zero
 	Flags     storage.Flag
 
 	// HasListMeta is true when the adapter filled the envelope fields below
-	// (IMAP ENVELOPE). When it is false the engine skips
+	// (JMAP Email/get or IMAP ENVELOPE). When it is false the engine skips
 	// stub upsert and only stores the message after a full Fetch.
 	HasListMeta   bool
 	Subject       string
@@ -46,7 +51,7 @@ type Attachment struct {
 // Fetched is a full message body returned by Adapter.Fetch.
 type Fetched struct {
 	RemoteID                                                                             string
-	LegacyUID                                                                            uint32 // IMAP adapter only; zero for adapters without uids
+	LegacyUID                                                                            uint32 // IMAP adapter only; JMAP always zero
 	Flags                                                                                storage.Flag
 	Raw                                                                                  []byte
 	MessageID, Subject, From, To, Cc, Text, HTML, ListUnsubscribe, ReplyTo, CharsetGuess string
@@ -65,8 +70,8 @@ type RemoteMailbox struct {
 	Generation string
 }
 
-// Adapter is the protocol-facing surface the sync engine drives. IMAP provides
-// one; the engine never imports a protocol package.
+// Adapter is the protocol-facing surface the sync engine drives. IMAP and JMAP
+// each provide one; the engine never imports a protocol package.
 type Adapter interface {
 	// Addr returns the server address, used to label sync status.
 	Addr() string
@@ -76,11 +81,13 @@ type Adapter interface {
 	// the state token and generation to store for the next call. It is always
 	// a full list; deltas from a stored token go through DeltaLister. IMAP
 	// reports a generation (UIDVALIDITY) and a CONDSTORE cursor when the
-	// server has one; an adapter may report a state token and no generation. A changed
+	// server has one; JMAP a state token and no generation. A changed
 	// generation means the stored ids are no longer valid.
 	ListMessages(ctx context.Context, box RemoteMailbox) (headers []Header, stateToken, generation string, err error)
 	// Fetch may return both successful messages and an error. The engine stores
 	// every returned message and carries the first error to the account result.
+	// A message the server no longer has is left out of the result, and the
+	// error, if any, wraps ErrNotOnServer.
 	Fetch(ctx context.Context, mailboxID string, remoteIDs []string) ([]Fetched, error)
 	// SetFlags makes the server flags of one message match flags.
 	SetFlags(ctx context.Context, mailboxID, remoteID string, flags storage.Flag) error

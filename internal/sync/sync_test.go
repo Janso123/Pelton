@@ -191,7 +191,7 @@ func TestBuildDeltaPlan(t *testing.T) {
 			want:     nil,
 		},
 		{
-			name:     "opaque id without uid ignores the numeric floor",
+			name:     "jmap id without uid ignores the numeric floor",
 			delta:    Delta{Changed: []Header{hdr("e1", 0, 0)}},
 			floorUID: 5,
 			want:     []want{{"e1", ActionFetchNew, 0}},

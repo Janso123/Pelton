@@ -6,8 +6,8 @@ import (
 	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
-// A phased initial sync reports stubs before bodies so the status bar can say
-// which phase is running (#313). Verify is the background full reconcile.
+// JMAP initial sync reports stubs before bodies so the status bar can say which
+// phase is running (#313). Verify is the background full reconcile.
 const (
 	SyncPhaseStubs  = "stubs"
 	SyncPhaseBodies = "bodies"

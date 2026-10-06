@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -12,6 +13,25 @@ import (
 var colorKeywords = []imap.Flag{
 	"$Label1", "$Label2", "$Label3", "$Label4",
 	"$Label5", "$Label6", "$Label7", "$Label8",
+}
+
+// keywordSetter is the part of the JMAP adapter colour sync uses.
+type keywordSetter interface {
+	SetKeywords(ctx context.Context, remoteID string, add, remove []string) error
+}
+
+// colorKeywordChange is the keyword to add for a colour (none for 0) and the
+// other colour keywords to clear. The added keyword is left out of remove
+// because a JMAP patch must not both set and null the same key.
+func colorKeywordChange(color int) (add, remove []string) {
+	for i, kw := range colorKeywords {
+		if i == color-1 {
+			add = append(add, string(kw))
+			continue
+		}
+		remove = append(remove, string(kw))
+	}
+	return add, remove
 }
 
 // SetFlagColor sets a message's color label (0 clears, 1..8 pick a palette
@@ -33,7 +53,7 @@ func (a *App) SetFlagColor(id int64, color int) error {
 	return nil
 }
 
-// pushColorKeyword reflects a color change onto the server as an imap keyword.
+// pushColorKeyword reflects a color change onto the server as a keyword.
 // It removes every label keyword then adds the chosen one, so switching or
 // clearing a color leaves a single (or no) label. Failures are logged only; the
 // local color is already saved and authoritative.

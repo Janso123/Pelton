@@ -34,7 +34,7 @@ type Engine struct {
 	// anything.
 	InitialLimit int
 	// FullList drops a stored sync floor for this run so the stub list covers
-	// every server message. A list-stub phase sets it: a push may have
+	// every server message. JMAP's list-stub phase sets it: a push may have
 	// floored the folder at X already, and InitialLimit is ignored after that.
 	// Bodies stay a later pass. IMAP leaves it false.
 	FullList bool
@@ -49,9 +49,9 @@ type Engine struct {
 	// Nil means never pause. This is cooperative: it does not abort the context.
 	PauseCheck func() bool
 	// ReleaseLock, when set, is called between body-fetch batches so the caller
-	// can drop a process-wide sync mutex. A long body backfill must not freeze
+	// can drop a process-wide sync mutex. JMAP body backfill must not freeze
 	// watch / TriggerSync: one SQLite writer is fine; holding syncMu across
-	// thousands of downloads is not. The callback must re-acquire before
+	// thousands of blob downloads is not. The callback must re-acquire before
 	// returning. Nil for IMAP, where the connection must stay exclusive.
 	ReleaseLock func()
 	// OnProgress, when set, is told how far the current folder has got: how many
@@ -64,11 +64,11 @@ type Engine struct {
 	// error counts as a failed upsert. Tests cancel the context or fail a
 	// write here. Nil in production.
 	beforeListStub func(remoteID string) error
-	// FetchBatchSize overrides fetchBatch for this engine when > 0. A smaller
-	// value makes soft-pause happen more often; IMAP leaves 0.
+	// FetchBatchSize overrides fetchBatch for this engine when > 0. JMAP body
+	// sync sets a smaller value so soft-pause happens more often; IMAP leaves 0.
 	FetchBatchSize int
 	// AbsorbArrivals, when true (default), re-lists between body batches so new
-	// mail lands as stubs during a long fetch. Background body jobs may set
+	// mail lands as stubs during a long fetch. JMAP background body jobs set
 	// false; push and manual sync still reconcile.
 	AbsorbArrivals bool
 }
@@ -429,7 +429,7 @@ func (e *Engine) syncFolderFull(ctx context.Context, folder storage.Folder, stat
 		// FullList without a backfill clears the floor (windowFloor), so every
 		// listed id is a row reconcile would store anyway; inserting it per page
 		// cannot land mail below a floor. A backfill lowers the floor by a page
-		// instead, even with FullList set (scroll backfill), so it and runs
+		// instead, even with FullList set (JMAP scroll backfill), so it and runs
 		// without FullList (IMAP-style windows) take the plain ListMessages path.
 		pageStored = make(map[string]struct{})
 		headers, stateToken, generation, err = pl.ListMessagesPaged(ctx, listBox, e.pageStubWriter(ctx, folder, localStates, pageStored, &stubFailures))
@@ -460,8 +460,8 @@ func (e *Engine) syncFolderFull(ctx context.Context, folder storage.Folder, stat
 	if reset {
 		// A generation change purges the folder, page stubs included, and the
 		// plan below stores every listed id again from the new snapshot. No
-		// row from the old generation survives. (A paged adapter may report no
-		// generation, so this only matters for one that grows one.)
+		// row from the old generation survives. (JMAP reports no generation,
+		// so this only matters for a paged adapter that grows one.)
 		pageStored = nil
 		state.SyncFloorID = ""
 		state.SyncFloorUID = 0
@@ -1083,8 +1083,8 @@ func withPageStubs(toFetch []string, headers []Header, pageStored map[string]str
 }
 
 // storeListStubs writes envelope rows for messages that have list metadata
-// so the message list can render before bodies arrive. Headers without
-// HasListMeta are skipped. It returns the stored row ids and how many
+// (JMAP) so the message list can render before bodies arrive. IMAP headers
+// without HasListMeta are skipped. It returns the stored row ids and how many
 // upserts failed, so callers can hold the cursor back.
 func (e *Engine) storeListStubs(ctx context.Context, folder storage.Folder, remoteIDs []string, headersByID map[string]Header) ([]int64, int) {
 	ids := make([]int64, 0, len(remoteIDs))

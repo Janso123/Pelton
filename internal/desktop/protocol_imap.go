@@ -165,7 +165,7 @@ func (p imapProtocol) moveMessage(m *storage.Message, source, dest storage.Folde
 }
 
 // moveBack finds the message by its rfc Message-ID: an IMAP move gives it a new uid.
-func (p imapProtocol) moveBack(rfcMessageID string, from, dest storage.Folder, account storage.Account) error {
+func (p imapProtocol) moveBack(rfcMessageID, remoteID string, from, dest storage.Folder, account storage.Account) error {
 	a := p.a
 	if rfcMessageID == "" {
 		return fmt.Errorf("pelton: this message cannot be moved back (no Message-ID)")

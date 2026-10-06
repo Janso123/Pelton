@@ -3,9 +3,11 @@
 package desktop
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"slices"
 	"sync"
 	"time"
@@ -147,4 +149,32 @@ func (a *App) applyLogSettings() {
 		return
 	}
 	a.log.Info("file logging on", "dir", dir, "level", logging.LevelName(a.logLevel()))
+}
+
+// dumpGoroutines writes every goroutine's stack to a file in the log
+// directory and returns its path, so a stall that cannot be reproduced on
+// demand still leaves a record of what each goroutine was waiting on. Stacks
+// hold code locations, not message content. It writes nothing, and returns
+// "", unless file or crash logging is on.
+func (a *App) dumpGoroutines(name string) string {
+	dir := a.logDir()
+	if dir == "" || !(a.logsOn() || a.crashLogsOn()) {
+		return ""
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		a.log.Error("goroutine dump", "err", err)
+		return ""
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s-%s.txt", name, time.Now().UTC().Format("20060102-150405")))
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		a.log.Error("goroutine dump", "err", err)
+		return ""
+	}
+	defer f.Close()
+	if err := pprof.Lookup("goroutine").WriteTo(f, 2); err != nil {
+		a.log.Error("goroutine dump", "err", err)
+		return ""
+	}
+	return path
 }

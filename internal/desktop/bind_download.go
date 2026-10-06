@@ -360,7 +360,7 @@ func (a *App) planDownload(ctx context.Context, since time.Time) ([]dlTask, []in
 // planAccount lists, for one account, the messages since the cutoff that still
 // need a body (tasks) and the ones already complete that only need pinning.
 // IMAP asks the server, since a folder may hold mail older than what sync
-// listed.
+// listed; JMAP sync lists every email as a stub, so the cache is enough.
 func (a *App) planAccount(ctx context.Context, account storage.Account, since time.Time) ([]dlTask, []int64, error) {
 	folders, err := a.store.ListFolders(a.ctx, account.ID)
 	if err != nil {
@@ -466,7 +466,7 @@ func (a *App) runDownload(ctx context.Context, tasks []dlTask, pin []int64, incl
 				continue
 			}
 			if errors.Is(err, errAccountSyncHeld) {
-				a.log.Info("download stopped: mailbox is being removed or was removed", "account", account.Email)
+				a.log.Info("download stopped: mailbox is switching protocol or was removed", "account", account.Email)
 				continue
 			}
 			a.log.Error("download account", "account", account.Email, "err", err)
@@ -480,8 +480,12 @@ func (a *App) runDownload(ctx context.Context, tasks []dlTask, pin []int64, incl
 // Attachments are kept when the user asked for them or the message fills a
 // cached stub.
 //
-// IMAP keeps one session for the whole download: an IMAP session is not
-// cheap to reopen.
+// A JMAP account takes the account lock per batch rather than for the whole
+// download, which can run for minutes: a sync, a mailbox action or a protocol
+// switch on that account gets the lock between batches. A JMAP session is
+// cheap to reopen; an IMAP one is not, so IMAP keeps one session throughout.
+// Once a protocol switch holds the account, the download stops before the
+// next batch, since its ids belong to the protocol being replaced.
 func (a *App) downloadAccount(ctx context.Context, account storage.Account, tasks []dlTask, includeAttachments bool, done *int, total int, start time.Time) error {
 	return a.protocolFor(account).download(ctx, account, groupByFolder(tasks), includeAttachments, done, total, start)
 }

@@ -8,12 +8,12 @@ import (
 
 // accountState is the per-account sync state that must outlive one scheduler.
 // The accountSync runtime is deleted and recreated whenever the account's
-// scheduler stops and starts; account removal has to abort this account's
+// scheduler stops and starts; a protocol switch has to abort this account's
 // sessions, keep its sync from starting again and hold its lock across that
 // teardown, so these live in their own map. Only account removal drops an
 // entry.
 type accountState struct {
-	// lock serializes one account's mailbox mutations.
+	// lock serializes one account's mailbox mutations and JMAP folder syncs.
 	// It replaces the old process-wide syncMu: another account never waits on
 	// it.
 	lock sync.Mutex
@@ -32,6 +32,9 @@ type accountState struct {
 	// tally is the account's progress counts. One tally per account keeps two
 	// mailboxes syncing at once from mixing their numbers.
 	tally syncTally
+
+	phaseMu sync.Mutex
+	phase   string
 
 	// progressMu orders the account's progress events and guards
 	// lastProgress, the latest running event the heartbeat re-sends. A closing
@@ -56,8 +59,8 @@ func (a *App) accountStateFor(accountID int64) *accountState {
 }
 
 // errAccountSyncHeld is what a sync entry point gets for an account that is
-// being removed or was removed. UI paths treat it as a quiet no-op.
-var errAccountSyncHeld = errors.New("pelton: mailbox is being removed or was removed")
+// switching protocol or was removed. UI paths treat it as a quiet no-op.
+var errAccountSyncHeld = errors.New("pelton: mailbox is switching protocol or was removed")
 
 // holdAccountSync keeps every caller of ensureAccountSync from starting a
 // scheduler for the account until the returned release runs, so no sync job
@@ -100,6 +103,7 @@ func (a *App) syncBlock(accountID int64) (held, removed bool) {
 // a caller that looked the account up before it was removed cannot start sync
 // work for it afterwards. Account ids are never reused.
 func (a *App) forgetAccountState(accountID int64) {
+	a.dropJMAPHTTPClient(accountID)
 	a.accountStatesMu.Lock()
 	defer a.accountStatesMu.Unlock()
 	delete(a.accountStates, accountID)
@@ -109,8 +113,8 @@ func (a *App) forgetAccountState(accountID int64) {
 	a.removedAccounts[accountID] = struct{}{}
 }
 
-// accountLock is the mutex one account's mailbox mutations hold. Different
-// accounts get different mutexes.
+// accountLock is the mutex one account's mailbox mutations and JMAP folder
+// syncs hold. Different accounts get different mutexes.
 func (a *App) accountLock(accountID int64) *sync.Mutex {
 	return &a.accountStateFor(accountID).lock
 }
@@ -122,7 +126,7 @@ func (a *App) accountTally(accountID int64) *syncTally {
 
 // abortAccountSync cancels the account's tracked sync run and closes its open
 // IMAP sessions. Other accounts are untouched. It is the hard cancel for
-// shutdown and account removal only.
+// shutdown, account removal and protocol switch only.
 func (a *App) abortAccountSync(accountID int64) {
 	st := a.accountStateFor(accountID)
 	st.mu.Lock()
@@ -183,9 +187,30 @@ func (a *App) trackIMAP(accountID int64, c mailClient) func() {
 	}
 }
 
-// errSyncBusy is returned when lockAccount cannot take the account's lock
-// because a sync on that account is still holding it.
+// setSyncProgressPhase records the phase (stubs or bodies) of the account's
+// running sync, or "" when none is split into phases.
+func (a *App) setSyncProgressPhase(accountID int64, phase string) {
+	st := a.accountStateFor(accountID)
+	st.phaseMu.Lock()
+	st.phase = phase
+	st.phaseMu.Unlock()
+}
+
+// syncProgressPhaseValue is the account's current sync phase.
+func (a *App) syncProgressPhaseValue(accountID int64) string {
+	st := a.accountStateFor(accountID)
+	st.phaseMu.Lock()
+	defer st.phaseMu.Unlock()
+	return st.phase
+}
+
+// errSyncBusy is returned when a protocol switch cannot take the account's
+// lock because a sync on that account is still holding it.
 var errSyncBusy = errors.New("pelton: mailbox sync is busy; try again in a moment")
+
+// accountLockWait is how long SwitchProtocol waits for the account's lock after
+// stopping its worker. A stuck FETCH must not block the settings toggle forever.
+const accountLockWait = 5 * time.Second
 
 // lockAccount waits up to timeout for the account's lock. On nil the caller
 // must Unlock it.

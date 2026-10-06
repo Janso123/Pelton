@@ -216,7 +216,7 @@ func TestUnarchiveMessageMovesTheFoundUIDBack(t *testing.T) {
 	client := &fakeIMAP{searchResult: []imap.UID{7}}
 	useFake(t, a, inbox.AccountID, client)
 
-	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err != nil {
+	if err := a.UnarchiveMessage("<one@example.com>", "", archive.ID, inbox.ID); err != nil {
 		t.Fatalf("UnarchiveMessage: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func TestUnarchiveMessageFailsWhenTheServerHasNoMatch(t *testing.T) {
 	client := &fakeIMAP{}
 	useFake(t, a, inbox.AccountID, client)
 
-	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err == nil {
+	if err := a.UnarchiveMessage("<one@example.com>", "", archive.ID, inbox.ID); err == nil {
 		t.Fatal("UnarchiveMessage returned no error though the search found nothing")
 	}
 	if len(client.moved) != 0 {
@@ -256,7 +256,7 @@ func TestUndoMoveSearchesTheDestinationFolder(t *testing.T) {
 	client := &fakeIMAP{searchResult: []imap.UID{7}}
 	useFake(t, a, inbox.AccountID, client)
 
-	if err := a.UnarchiveMessage("<one@example.com>", projects.ID, inbox.ID); err != nil {
+	if err := a.UnarchiveMessage("<one@example.com>", "", projects.ID, inbox.ID); err != nil {
 		t.Fatalf("UnarchiveMessage: %v", err)
 	}
 	if len(client.selected) != 1 || client.selected[0] != "Projects" {
@@ -285,7 +285,7 @@ func TestUndoMoveWithoutArchiveFolder(t *testing.T) {
 	client := &fakeIMAP{searchResult: []imap.UID{3}}
 	useFake(t, a, accountID, client)
 
-	if err := a.UnarchiveMessage("<one@example.com>", projects.ID, inbox.ID); err != nil {
+	if err := a.UnarchiveMessage("<one@example.com>", "", projects.ID, inbox.ID); err != nil {
 		t.Fatalf("UnarchiveMessage: %v", err)
 	}
 	if len(client.moved) != 1 || client.moved[0].dest != "INBOX" {

@@ -65,6 +65,7 @@ function account(over: Partial<Account> = {}): Account {
     exportNameTemplate: '',
     pgpDefault: '',
     passwordPromptDismissed: false,
+    protocol: 'imap',
     trustedCerts: [],
     caSubjects: [],
     proxy: blankAccountProxy(),

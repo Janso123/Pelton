@@ -69,6 +69,12 @@ Pick your provider:
 
     [Set up a generic account &rarr;](imap-smtp.md)
 
+-   __JMAP__
+
+    ---
+
+    [Use JMAP instead of IMAP &rarr;](jmap.md)
+
 -   __Importing from Thunderbird__
 
     ---
@@ -86,6 +92,8 @@ Pick your provider:
     - Using Purelymail, Fastmail, or Yahoo Mail? Pick that provider's tile in the picker.
       Pelton pre-fills the IMAP/SMTP settings for you; see
       [Generic IMAP/SMTP](imap-smtp.md#provider-presets) for details.
+    - Running a server that offers JMAP? Add it as a generic account and
+      choose JMAP when Pelton offers it; see [JMAP mailboxes](jmap.md).
     - Anything else, self-hosted, or a work server your IT team gave you settings for? Use
       [Generic IMAP/SMTP](imap-smtp.md).
 
@@ -105,7 +113,8 @@ anything a quick sync missed; **Manual only** leaves it to the Sync button,
 which always runs it.
 
 Settings > Accounts shows a connection line under each mailbox:
-`IMAP · host:port`.
+`IMAP · host:port` or `JMAP · host`. See [JMAP mailboxes](jmap.md) for
+details.
 
 ## Need help?
 

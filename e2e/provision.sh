@@ -58,7 +58,12 @@ for name in alice bob; do
     --field 'quotas={"maxDiskQuota":20000000000,"maxEmails":200000}'
 done
 
-echo "raising message limits"
+echo "raising JMAP upload and message limits"
+cli update Jmap \
+  --field maxUploadCount=1000000 \
+  --field uploadQuota=50000000000 \
+  --field maxUploadSize=100000000 \
+  --field maxRequestSize=50000000
 cli update Email \
   --field maxMessageSize=104857600 \
   --field maxAttachmentSize=104857600 \

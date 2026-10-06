@@ -30,6 +30,7 @@
     getProxyConfig,
   } from '../../lib/api'
   import CertificateReview from '../common/CertificateReview.svelte'
+  import ProtocolSwitch from './ProtocolSwitch.svelte'
   import AccountRouteFields from '../common/AccountRouteFields.svelte'
   import { routeSummary } from '../../lib/proxyroute'
   import { refreshSidebar } from '../../stores/accounts'
@@ -147,6 +148,37 @@
     void refreshPreview()
     void loadOAuthProvider(account.id)
     void loadProxyPasswordStored(account.id)
+  }
+
+  // the protocol switch committed: show it in the editor and the list, then
+  // read the account back for the host it uses now.
+  function onSwitched(accountId: number, next: 'imap' | 'jmap'): void {
+    if (!draft || draft.id !== accountId) {
+      return
+    }
+    draft = { ...draft, protocol: next }
+    opened = JSON.stringify(draft)
+    accounts = accounts.map((a) => (a.id === accountId ? { ...a, protocol: next } : a))
+    // folders are rebuilt server-side; refresh only after the switch commits.
+    void refreshSidebar()
+    void reloadAfterSwitch(accountId)
+  }
+
+  // reloadAfterSwitch reads the switched account back, so the connection
+  // summary names the JMAP host it now uses rather than the IMAP host.
+  async function reloadAfterSwitch(id: number): Promise<void> {
+    try {
+      accounts = await listAccounts()
+    } catch {
+      // the summary keeps the protocol switched above.
+      return
+    }
+    const fresh = accounts.find((a) => a.id === id)
+    if (fresh && draft && draft.id === id) {
+      draft.jmapSessionUrl = fresh.jmapSessionUrl
+      const base = JSON.parse(opened) as Account
+      opened = JSON.stringify({ ...base, jmapSessionUrl: fresh.jmapSessionUrl })
+    }
   }
 
   // loadProxyPasswordStored asks the keyring whether the mailbox's own proxy
@@ -545,6 +577,9 @@
           </div>
         </span>
       </div>
+      {#if !draft.local}
+        <ProtocolSwitch account={draft} bind:certBusy {reloadTrust} {onSwitched} />
+      {/if}
       {#if !draft.local}
         <div class="toggle">
           <span>{$t('mailboxes.syncParallel.useDefaultNamed').replace('{n}', String($prefs.syncMaxParallel))}</span>

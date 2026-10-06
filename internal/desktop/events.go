@@ -170,8 +170,7 @@ type SyncProgressEvent struct {
 	// the "mailbox 3 of 12" part of the line.
 	FoldersDone  int `json:"foldersDone"`
 	FoldersTotal int `json:"foldersTotal"`
-	// Phase is "stubs" or "bodies" during a phased initial campaign, "verify"
-	// during the background folder check, else empty.
+	// Phase is "stubs" or "bodies" during a JMAP initial campaign, else empty.
 	Phase string `json:"phase"`
 }
 

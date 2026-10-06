@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestFolderHasOlderOnServerFloorID(t *testing.T) {
+func TestFolderHasOlderOnServerJMAPFloorID(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -16,7 +16,7 @@ func TestFolderHasOlderOnServerFloorID(t *testing.T) {
 	if err := db.RunMigrations(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	accountID, err := db.CreateAccount(ctx, &Account{Email: "a@b.test"})
+	accountID, err := db.CreateAccount(ctx, &Account{Email: "a@b.test", Protocol: "jmap"})
 	if err != nil {
 		t.Fatalf("account: %v", err)
 	}
@@ -34,6 +34,6 @@ func TestFolderHasOlderOnServerFloorID(t *testing.T) {
 		t.Fatalf("FolderHasOlderOnServer: %v", err)
 	}
 	if !hasOlder {
-		t.Fatal("an opaque floor in sync_floor_id must count as hasOlder when sync_floor_uid is 0")
+		t.Fatal("JMAP floor in sync_floor_id must count as hasOlder when sync_floor_uid is 0")
 	}
 }

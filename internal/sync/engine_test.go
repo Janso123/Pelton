@@ -66,7 +66,7 @@ func TestEngineStoresListStubsBeforeBodies(t *testing.T) {
 
 // New mail that arrives while bodies are still downloading must appear as list
 // stubs without waiting for the rest of the body campaign (the Pelton-vs-Apple
-// Mail gap during a 22k-message backfill).
+// Mail gap during a 22k JMAP backfill).
 func TestEngineAbsorbsArrivalsDuringBodyFill(t *testing.T) {
 	ctx := context.Background()
 	db, folder := newSyncTestFolder(t)
@@ -350,8 +350,8 @@ func TestSyncFolderStubsDoesNotFetchBodies(t *testing.T) {
 	}
 }
 
-// A cancel while stub rows are being written must not persist the new state
-// token. If it did, the next incremental list (nothing new since that
+// A cancel while stub rows are being written must not persist the new JMAP
+// state token. If it did, the next incremental list (nothing new since that
 // token) would skip messages that never landed.
 func TestSyncFolderStubsCancelDuringStubStoreKeepsStateToken(t *testing.T) {
 	db, folder := newSyncTestFolder(t)

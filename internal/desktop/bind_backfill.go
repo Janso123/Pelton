@@ -122,13 +122,16 @@ func (a *App) backfillAccount(accountID int64, folders []storage.Folder) (int, b
 	done := make(chan error, 1)
 	sched, err := a.ensureAccountScheduler(a.ctx, accountID)
 	if errors.Is(err, errAccountSyncHeld) {
-		// The account is being removed.
+		// Switching protocol: the switch resyncs from scratch afterwards.
 		return 0, false, nil
 	}
 	if err != nil {
 		return 0, false, err
 	}
 	enqueueDeltaSync(sched, folders, func(ctx context.Context, folder storage.Folder, kind syncsched.JobKind) ([]string, error) {
+		if a.protocolSwitchedSince(ctx, *account) {
+			return nil, nil
+		}
 		if kind == syncsched.JobListStubs {
 			for i := range folders {
 				if folders[i].ID == folder.ID {
@@ -249,15 +252,18 @@ func (a *App) enqueueSyncLimitDelta(oldLimit, newLimit int) {
 	}
 }
 
-// newLimit is the new total sync_message_limit (0 = all); the driver's
-// backfillStep gets it as its body limit.
+// newLimit is the new total sync_message_limit (0 = all); it bounds JMAP bodies.
 func (a *App) enqueueAccountDelta(account storage.Account, folders []storage.Folder, batch, newLimit int) {
 	sched, err := a.ensureAccountScheduler(a.ctx, account.ID)
 	if err != nil {
-		// Held for removal or removed: nothing is left to sync.
+		// Held for a protocol switch or removed: the switch resyncs under the
+		// new limit anyway.
 		return
 	}
 	enqueueDeltaSync(sched, folders, func(ctx context.Context, folder storage.Folder, kind syncsched.JobKind) ([]string, error) {
+		if a.protocolSwitchedSince(ctx, account) {
+			return nil, nil
+		}
 		return a.protocolFor(account).backfillStep(ctx, account, folder, kind, batch, newLimit, nil)
 	}, nil)
 }

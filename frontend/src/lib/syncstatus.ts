@@ -1,4 +1,4 @@
-// syncstatus builds the status-bar sync line, including stub vs body phases.
+// syncstatus builds the status-bar sync line, including JMAP stub vs body phases.
 
 import type { SyncCounts } from '../stores/outbox'
 

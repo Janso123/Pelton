@@ -61,7 +61,7 @@ func TestFetchOlderEnqueuesStubThenBody(t *testing.T) {
 	}
 }
 
-func TestFoldersWithOlderIncludesFloorID(t *testing.T) {
+func TestFoldersWithOlderIncludesJMAPFloor(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(t.TempDir() + "/test.db")
 	if err != nil {
@@ -71,7 +71,7 @@ func TestFoldersWithOlderIncludesFloorID(t *testing.T) {
 	if err := db.RunMigrations(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	accountID, err := db.CreateAccount(ctx, &storage.Account{Email: "a@b.test"})
+	accountID, err := db.CreateAccount(ctx, &storage.Account{Email: "a@b.test", Protocol: "jmap"})
 	if err != nil {
 		t.Fatalf("account: %v", err)
 	}

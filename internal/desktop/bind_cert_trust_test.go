@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -13,7 +14,10 @@ import (
 	"testing"
 
 	"github.com/peltonapp/Pelton/internal/certtrust"
+	"github.com/peltonapp/Pelton/internal/credentials"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
+	pjmap "github.com/peltonapp/Pelton/internal/jmap"
+	"github.com/peltonapp/Pelton/internal/proxy"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
 
@@ -43,6 +47,18 @@ func presenting(a *App, cert *x509.Certificate) *[]string {
 		})
 	}
 	return checked
+}
+
+// noJMAP replaces the JMAP probe for the test, so TestConnection never dials
+// the IMAP host or the address's domain on 443: a listener there (an e2e mail
+// server) would otherwise add a certificate to Untrusted.
+func noJMAP(t *testing.T) {
+	t.Helper()
+	orig := probeDomain
+	t.Cleanup(func() { probeDomain = orig })
+	probeDomain = func(context.Context, pjmap.ProbeOptions, string, string, string, bool, ...string) (pjmap.Probe, error) {
+		return pjmap.Probe{}, nil
+	}
 }
 
 func bridgeRequest() TestConnectionRequest {
@@ -86,6 +102,7 @@ func TestTestConnectionReportsUntrustedCertificatesBeforeLoggingIn(t *testing.T)
 
 func TestTestConnectionLogsInOnceTheCertificateIsTrusted(t *testing.T) {
 	a := newAccountTestApp(t)
+	noJMAP(t)
 	cert, _ := serverCert(t)
 	presenting(a, cert)
 	client := &fakeIMAP{}
@@ -253,5 +270,68 @@ func TestSyncFailureReasonNamesAnUntrustedCertificate(t *testing.T) {
 	})
 	if got := syncFailureReason(err); got != syncFailCertificate {
 		t.Errorf("syncFailureReason() = %q, want %q", got, syncFailCertificate)
+	}
+}
+
+// An IMAP mailbox about to switch to JMAP has to see the JMAP server's
+// certificate before the switch signs in there. The JMAP host is found along
+// the mailbox's route (here the app-wide proxy, the default), never directly,
+// and nothing is sent to it until its certificate is trusted.
+func TestProbeAccountCertificatesForJMAPOnAnIMAPMailbox(t *testing.T) {
+	a := newAccountTestApp(t)
+	base := "https://" + hiddenJMAPHost
+	srv := newJMAPTLSServer(t, func() string { return base })
+	tunnel := newTunnelProxy(t, srv.addr())
+	a.proxyCfg = proxy.Config{Mode: proxy.ModeManual, Scheme: proxy.SchemeHTTP, Host: tunnel.host, Port: tunnel.port}
+	// the IMAP and SMTP servers are trusted: only the JMAP certificate is new.
+	a.checkTLS = func(string, string, int, certtrust.Trust) error { return nil }
+
+	id, err := a.store.CreateAccount(a.ctx, &storage.Account{
+		Email: "user@" + hiddenMailDomain, Username: "user@example.com",
+		IMAPHost: hiddenJMAPHost, IMAPPort: 993, SMTPHost: hiddenJMAPHost, SMTPPort: 465,
+		Protocol: "imap",
+	})
+	if err != nil {
+		t.Fatalf("create account: %v", err)
+	}
+	if err := credentials.Store(id, credentials.Secret{Method: credentials.MethodPassword, Password: "pw"}); err != nil {
+		t.Fatalf("store credentials: %v", err)
+	}
+	t.Cleanup(func() { _ = credentials.Delete(id) })
+
+	got, err := a.ProbeAccountCertificatesFor(id, "jmap")
+	if err != nil {
+		t.Fatalf("ProbeAccountCertificatesFor: %v", err)
+	}
+	if len(got) != 1 || got[0].Server != "jmap" || got[0].Host != hiddenJMAPHost || got[0].Port != 443 || got[0].Fingerprint != pinOf(srv) {
+		t.Fatalf("probed %+v, want the JMAP certificate at %s:443", got, hiddenJMAPHost)
+	}
+	if len(srv.seen()) != 0 {
+		t.Errorf("the server got requests over an unverified connection: %v", srv.seen())
+	}
+	if len(tunnel.seen()) == 0 {
+		t.Error("the JMAP host was not looked for along the mailbox's route")
+	}
+	if imapCerts, err := a.ProbeAccountCertificatesFor(id, "imap"); err != nil || len(imapCerts) != 0 {
+		t.Errorf("imap probe = %+v, %v; want the trusted IMAP and SMTP servers only", imapCerts, err)
+	}
+
+	if err := a.TrustAccountCertificate(id, got[0].Fingerprint); err != nil {
+		t.Fatalf("TrustAccountCertificate: %v", err)
+	}
+	if again, err := a.ProbeAccountCertificatesFor(id, "jmap"); err != nil || len(again) != 0 {
+		t.Errorf("after trusting, probed %+v, %v; want nothing left", again, err)
+	}
+	stored, _ := a.store.GetAccount(a.ctx, id)
+	if stored.Protocol != "imap" || !slices.Contains(stored.TrustedCerts, pinOf(srv)) {
+		t.Errorf("account protocol %q, pins %v; want still IMAP with the JMAP certificate pinned", stored.Protocol, stored.TrustedCerts)
+	}
+}
+
+func TestProbeAccountCertificatesForRefusesAnUnknownProtocol(t *testing.T) {
+	a := newAccountTestApp(t)
+	id := trustTestAccount(t, a)
+	if _, err := a.ProbeAccountCertificatesFor(id, "pop3"); err == nil {
+		t.Error("ProbeAccountCertificatesFor(pop3) succeeded")
 	}
 }

@@ -9,16 +9,17 @@
   import InfoTip from '../common/InfoTip.svelte'
   import { IconX, IconArrowLeft, IconCheck, IconArrowRight, IconMailbox, IconPlus } from '@tabler/icons-svelte'
   import WizardProviders from './WizardProviders.svelte'
+  import JmapChoice from './JmapChoice.svelte'
   import Spinner from '../common/Spinner.svelte'
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import { BrowserOpenURL } from '../../../wailsjs/runtime/runtime'
   import CertificateReview from '../common/CertificateReview.svelte'
   import AccountRouteFields from '../common/AccountRouteFields.svelte'
   import { blankAccountProxy } from '../../lib/proxyroute'
-  import { discoverConfig, testConnection, addPasswordAccount, addOAuthAccount, listFolders, setFolderSyncExcluded, startAccountSync, chooseCAFile } from '../../lib/api'
+  import { discoverConfig, testConnection, addPasswordAccount, beginOAuthAccount, finishAddAccount, cancelAddAccount, listFolders, setFolderSyncExcluded, startAccountSync, chooseCAFile } from '../../lib/api'
   import { errorMessage, toastError } from '../../stores/toast'
   import { providerPresets, type ProviderPreset } from '../../lib/providers'
-  import type { AddAccountRequest, Account, Folder, TLSMode, UntrustedCert } from '../../lib/types'
+  import type { AddAccountRequest, Account, Folder, TLSMode, TestConnectionResult, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
   const dispatch = createEventDispatcher<{ close: void; added: Account }>()
@@ -38,7 +39,7 @@
   // the moment 'added' fires, so the picker could not be answered there.
   export let skipFolderPicker = false
 
-  type Step = 'start' | 'provider' | 'config' | 'oauth' | 'working' | 'folders' | 'done' | 'error'
+  type Step = 'start' | 'provider' | 'config' | 'oauth' | 'jmap' | 'working' | 'folders' | 'done' | 'error'
   let step: Step = offerImport ? 'start' : 'provider'
 
   // the import modal, opened over the wizard from the start step.
@@ -51,6 +52,10 @@
   let workingMessage = ''
   let testing = false
   let testOk: boolean | null = null
+  // last successful password-test probe; drives the JMAP choice step.
+  let lastProbe: TestConnectionResult | null = null
+  // pending OAuth id while the JMAP choice step is open; cancelled on close.
+  let pendingOAuthId: string | null = null
   // the oauth provider autodiscovery says a custom address signs in with, so
   // a Google Workspace domain typed under "Other" is steered to Google sign-in.
   let discoveredOAuth = ''
@@ -89,6 +94,7 @@
       provider: '',
       clientId: '',
       clientSecret: '',
+      protocol: 'imap',
       trustedCerts: [],
       caPem: '',
       proxy: blankAccountProxy(),
@@ -137,6 +143,8 @@
     if (p.smtpTls) draft.smtpTls = p.smtpTls
     if (p.oauthProvider) draft.provider = p.oauthProvider
     testOk = null
+    lastProbe = null
+    pendingOAuthId = null
     error = ''
     showAdvanced = false
     discoveredOAuth = ''
@@ -213,6 +221,7 @@
   async function test(): Promise<void> {
     testing = true
     testOk = null
+    lastProbe = null
     untrusted = []
     error = ''
     try {
@@ -231,7 +240,10 @@
         proxy: draft.proxy,
       })
       untrusted = result.untrusted ?? []
-      testOk = untrusted.length === 0 ? true : null
+      // a JMAP certificate is only reported once the IMAP login has passed,
+      // so the mailbox already works; trusting it lets the next test find JMAP.
+      testOk = untrusted.every((c) => c.server === 'jmap') ? true : null
+      lastProbe = testOk ? result : null
     } catch (err) {
       testOk = false
       error = errorMessage(err)
@@ -264,12 +276,22 @@
     caSubjects = []
   }
 
+  // addPassword either opens the JMAP choice when the probe found it, or
+  // creates the account as IMAP straight away.
   async function addPassword(): Promise<void> {
+    if (lastProbe?.jmapAvailable) {
+      step = 'jmap'
+      return
+    }
+    await createPassword('imap')
+  }
+
+  async function createPassword(protocol: 'imap' | 'jmap'): Promise<void> {
     formStep = 'config'
     step = 'working'
     workingMessage = get(t)('wizard.working.connecting')
     try {
-      const account = await addPasswordAccount(draft)
+      const account = await addPasswordAccount({ ...draft, protocol })
       await finish(account)
     } catch (err) {
       fail(err)
@@ -281,11 +303,49 @@
     step = 'working'
     workingMessage = get(t)('wizard.working.signIn')
     try {
-      const account = await addOAuthAccount(draft)
+      const pending = await beginOAuthAccount(draft)
+      if (pending.jmapAvailable) {
+        pendingOAuthId = pending.id
+        step = 'jmap'
+        return
+      }
+      const account = await finishAddAccount(pending.id, 'imap')
       await finish(account)
     } catch (err) {
       fail(err)
     }
+  }
+
+  async function chooseJmap(useJmap: boolean): Promise<void> {
+    const protocol = useJmap ? 'jmap' : 'imap'
+    if (pendingOAuthId) {
+      const id = pendingOAuthId
+      pendingOAuthId = null
+      formStep = 'oauth'
+      step = 'working'
+      workingMessage = get(t)('wizard.working.connecting')
+      try {
+        const account = await finishAddAccount(id, protocol)
+        await finish(account)
+      } catch (err) {
+        fail(err)
+      }
+      return
+    }
+    await createPassword(protocol)
+  }
+
+  async function closeWizard(): Promise<void> {
+    if (step === 'jmap' && pendingOAuthId) {
+      const id = pendingOAuthId
+      pendingOAuthId = null
+      try {
+        await cancelAddAccount(id)
+      } catch (err) {
+        toastError(errorMessage(err))
+      }
+    }
+    dispatch('close')
   }
 
   // the folder picker (#173). The account exists and its folders are discovered
@@ -424,6 +484,7 @@
     draft.caPem
     draft.proxy
     testOk = null
+    lastProbe = null
     untrusted = []
   }
   $: canAddAccount = canSubmitPassword && testOk === true
@@ -443,7 +504,7 @@
       <span class="icon-spacer"></span>
     {/if}
     <span class="title">{$t('addMailbox.cta')}</span>
-    <button type="button" class="icon" aria-label={$t('wizard.close')} on:click={() => dispatch('close')}>
+    <button type="button" class="icon" aria-label={$t('wizard.close')} on:click={() => void closeWizard()}>
       <IconX size={18} stroke={1.8} />
     </button>
   </header>
@@ -694,6 +755,8 @@
             {$t('wizard.gmail.useAppPasswordInstead')}
           </button>
         {/if}
+      {:else if step === 'jmap'}
+        <JmapChoice on:choose={(e) => void chooseJmap(e.detail === 'jmap')} />
       {:else if step === 'working'}
         <Spinner label={workingMessage} />
       {:else if step === 'folders'}

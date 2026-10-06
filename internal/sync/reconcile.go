@@ -7,7 +7,7 @@
 // The decision logic lives in reconcile.go and is pure: it takes the local and
 // server view of a folder and returns a plan, with no database or network
 // calls, so every conflict case can be unit tested deterministically. The
-// engine never sees an IMAP UID, only a string remote id.
+// engine never sees an IMAP UID or a JMAP id, only a string remote id.
 package sync
 
 import (
@@ -203,7 +203,7 @@ func BuildPlan(locals []LocalMessage, servers []ServerMessage, floorID string) [
 // Only messages the delta names get a Decision; every other cached message is
 // unchanged by definition. floorUID is the folder's numeric sync floor (0 =
 // none): a new message whose LegacyUID is below it is outside the window and
-// is skipped, as in BuildPlan. A message with no LegacyUID has no
+// is skipped, as in BuildPlan. A message with no LegacyUID (JMAP) has no
 // numeric position and is always admitted. Pure: no io.
 //
 // Order: Changed in delta order, then members missing locally (highest uid

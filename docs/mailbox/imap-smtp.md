@@ -51,7 +51,7 @@ You'll need the following from your provider or IT department:
 
     ![The "Set up your mail" screen: Add a mailbox, or import from another client](../assets/screenshots/screenshot-mailbox-setup-choice.png)
 
-2. Pick **Other (IMAP / SMTP)** from the provider list:
+2. Pick **Other (IMAP/JMAP / SMTP)** from the provider list:
 
     ![The provider picker: Gmail, Outlook/Microsoft 365, iCloud, Yahoo, Fastmail, Purelymail, and Other (IMAP/SMTP)](../assets/screenshots/screenshot-mailbox-provider-picker.png)
 
@@ -60,7 +60,7 @@ You'll need the following from your provider or IT department:
     ![The Other (IMAP/SMTP) form: email, name, password, IMAP/SMTP host and port](../assets/screenshots/screenshot-mailbox-imap-smtp-form.png)
 
     As soon as you type your email address, Pelton tries to guess your
-    **IMAP host** and **SMTP host** from the domain. Treat this as a
+    **IMAP/JMAP host** and **SMTP host** from the domain. Treat this as a
     starting point, not a guarantee: the guess is based on common patterns
     (like `imap.example.com` for `you@example.com`), so it can easily be
     wrong for smaller or self-hosted providers. Check the guessed hostnames
@@ -70,17 +70,21 @@ You'll need the following from your provider or IT department:
 4. If your provider needs a non-default port, a STARTTLS connection, or a
    separate login username, expand **Advanced connection settings**:
 
-    ![Advanced connection settings: username override and IMAP/SMTP security (SSL/TLS vs STARTTLS)](../assets/screenshots/screenshot-mailbox-imap-smtp-advanced.png)
+    ![Advanced connection settings: username override and IMAP/JMAP security (SSL/TLS vs STARTTLS)](../assets/screenshots/screenshot-mailbox-imap-smtp-advanced.png)
 
     - **Username** only needs filling in if your server logs you in with
       something other than your email address. Leave it blank otherwise.
-    - **IMAP/SMTP security**: SSL/TLS uses the implicit-TLS port (IMAP `993`,
+    - **IMAP/JMAP security**: SSL/TLS uses the implicit-TLS port (IMAP `993`,
       SMTP `465`); STARTTLS uses the upgrade port (IMAP `143`, SMTP `587`).
       Most providers use SSL/TLS, only switch to STARTTLS if yours requires it.
 
 5. Click **Test connection**. Pelton needs a successful test before it lets
    you click **Add mailbox**, so if the button stays disabled, double-check
    the hostnames, ports, security setting, and password above.
+
+    If your server also supports JMAP, Pelton may then ask whether to use it
+    instead of IMAP and SMTP. IMAP stays the default; see
+    [JMAP mailboxes](jmap.md) for what the choice changes.
 
 - [x] Add the account in Pelton
 

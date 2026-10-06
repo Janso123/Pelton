@@ -149,12 +149,12 @@ const (
 	// how many of a folder's newest message bodies a first sync fetches, and
 	// whether reaching the end of the list pulls the next batch automatically
 	// (#175). 0 messages means no limit: sync the whole mailbox as older
-	// versions did.
+	// versions did. JMAP may still list the whole folder as stubs.
 	settingSyncMessageLimit = "sync_message_limit"
 	settingSyncAutoBackfill = "sync_auto_backfill"
-	// how many sync connections (IMAP sessions) one account may use at once.
-	// Sending and push stay outside this pool. Clamped to
-	// [minSyncMaxParallel, maxSyncMaxParallel] on write and on read.
+	// how many sync connections (IMAP sessions) or sync HTTP requests (JMAP)
+	// one account may use at once. Sending and push stay outside this pool.
+	// Clamped to [minSyncMaxParallel, maxSyncMaxParallel] on write and on read.
 	settingSyncMaxParallel = "sync_max_parallel"
 	// how many days a folder may go without a full reconcile before the
 	// startup sync re-lists it in full in the background. 0 means only manual
@@ -210,8 +210,8 @@ const (
 	// how many of a folder's newest message bodies a first sync fetches. Older
 	// bodies stay on the server until asked for. 0 means no limit.
 	defaultSyncMessageLimit = 100
-	// parallel sync connections per account: IMAP sync sessions. Sending and
-	// push do not consume a slot.
+	// parallel sync connections per account: IMAP sync sessions, or concurrent
+	// JMAP sync HTTP requests. Sending and push do not consume a slot.
 	defaultSyncMaxParallel = 3
 	minSyncMaxParallel     = 1
 	maxSyncMaxParallel     = 5
@@ -410,13 +410,14 @@ type UIPrefsDTO struct {
 	CloseAction string `json:"closeAction"`
 	// SyncMessageLimit caps how many of a folder's newest message bodies the
 	// first sync fetches; older bodies stay on the server until asked for. 0
-	// means no limit.
+	// means no limit. JMAP may still list the whole folder as stubs.
 	// SyncAutoBackfill fetches the next batch automatically on reaching the end
 	// of the list; off puts it behind a button instead.
 	SyncMessageLimit int  `json:"syncMessageLimit"`
 	SyncAutoBackfill bool `json:"syncAutoBackfill"`
 	// SyncMaxParallel is how many sync connections one account may use at once:
-	// IMAP sync sessions. Clamped to 1–5. Sending and new-mail push do not consume a slot.
+	// IMAP sync sessions, or concurrent JMAP sync HTTP requests. Clamped to
+	// 1–5. Sending and new-mail push do not consume a slot.
 	SyncMaxParallel int `json:"syncMaxParallel"`
 	// SyncFullReconcileDays is how many days a folder may go without a full
 	// reconcile before startup re-checks it in the background; 0 means only
