@@ -36,7 +36,8 @@
   import { loadOutbox } from '../../stores/outbox'
   import { scheduleUndo } from '../../stores/undosend'
   import { prefs } from '../../stores/prefs'
-  import { shortcutTitle } from '../../stores/shortcuts'
+  import { shortcutTitle, bindings } from '../../stores/shortcuts'
+  import { comboMatches } from '../../lib/shortcuts'
   import { bodyFontStack } from '../../lib/fonts'
   import { buildRequest, hasRecipients } from '../../lib/mailcompose'
   import ProtectionPicker from './ProtectionPicker.svelte'
@@ -344,6 +345,25 @@
     }
   }
 
+  // onSendKey sends on the send shortcut (#480) from anywhere in the pane. It
+  // listens while the event is still on its way down, because both editors
+  // bind the same key themselves (a blank line, a hard break) and must not
+  // see it. A plain input still gets it, so an address typed into a recipient
+  // field becomes a chip before the message goes, and the tick lets that
+  // change reach the session first.
+  async function onSendKey(event: KeyboardEvent): Promise<void> {
+    const combo = $bindings.send
+    if (!combo || !comboMatches(event, combo) || sending || confirmClose || session.minimized) {
+      return
+    }
+    event.preventDefault()
+    if (!(event.target instanceof HTMLInputElement)) {
+      event.stopPropagation()
+    }
+    await tick()
+    await send()
+  }
+
   async function save(): Promise<void> {
     try {
       const id = await saveDraft(session.draftId, buildRequest(session))
@@ -445,7 +465,18 @@
   }
 </script>
 
-<div class="compose" class:fullscreen={session.fullscreen} class:minimized={session.minimized} data-compose-id={session.id} role="dialog" aria-label={$t('compose.dialog.ariaLabel')}>
+<!-- the key listener only watches what the fields inside send up; the pane
+     itself is not something to focus. -->
+<!-- svelte-ignore a11y-interactive-supports-focus -->
+<div
+  class="compose"
+  class:fullscreen={session.fullscreen}
+  class:minimized={session.minimized}
+  data-compose-id={session.id}
+  role="dialog"
+  aria-label={$t('compose.dialog.ariaLabel')}
+  on:keydown|capture={onSendKey}
+>
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
   <header class="head" on:dblclick={toggleMinimize}>
     <span class="title">{session.subject || $t('compose.title.untitled')}</span>
@@ -556,7 +587,7 @@
 
     <footer class="foot">
       <div class="send-split">
-        <button type="button" class="send" disabled={sending} on:click={() => send()}>
+        <button type="button" class="send" disabled={sending} title={$shortcutTitle($t('action.send'), 'send')} on:click={() => send()}>
           <IconSend size={15} stroke={1.7} />
           {sending ? $t('compose.action.sending') : $t('action.send')}
         </button>
