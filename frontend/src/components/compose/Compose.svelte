@@ -265,9 +265,11 @@
   // where the next editor to mount puts its caret, so switching modes or
   // leaving the preview carries on where the writing stopped. textCaret is an
   // offset into the body, richCaret the body with caretMark at the caret.
-  // Either one also makes that editor take focus.
-  let textCaret: number | null = null
-  let richCaret: string | null = null
+  // Either one also makes that editor take focus. A message that opens with
+  // its recipients filled in, a reply above all, starts in the body, at the
+  // top; an empty one leaves the caret for the address fields.
+  let textCaret: number | null = hasRecipients(session) && session.mode !== 'wysiwyg' ? 0 : null
+  let richCaret: string | null = hasRecipients(session) && session.mode === 'wysiwyg' ? session.body : null
 
   // bodyWithCaret is the body with caretMark where the caret is, or null when
   // there is no caret to read.
