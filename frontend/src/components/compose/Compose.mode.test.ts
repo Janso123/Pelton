@@ -111,6 +111,27 @@ describe('caret across editor modes', () => {
     })
   }
 
+  it('opens a reply with the caret at the top of the body', async () => {
+    const id = openCompose(1, 'plaintext')
+    updateCompose(id, { to: 'ann@example.com', subject: 'Re: hi', body: '\n\nOn x wrote:\n> hi', signaturesApplied: true })
+    render(Compose, { session: getSession(id)! })
+    const view = await sourceEditor()
+    expect(view.hasFocus).toBe(true)
+    expect(view.state.selection.main.head).toBe(0)
+  })
+
+  it('leaves the body unfocused while the subject is empty', async () => {
+    const id = openCompose(1, 'plaintext')
+    updateCompose(id, { to: 'ann@example.com', body: 'hi', signaturesApplied: true })
+    render(Compose, { session: getSession(id)! })
+    expect((await sourceEditor()).hasFocus).toBe(false)
+  })
+
+  it('leaves a new message without recipients unfocused', async () => {
+    openPane('plaintext', '')
+    expect((await sourceEditor()).hasFocus).toBe(false)
+  })
+
   it('keeps the caret and focus going from Plain to Markdown', async () => {
     openPane('plaintext', 'Hello world\n\n> quoted')
     ;(await sourceEditor()).dispatch({ selection: { anchor: 5 } })

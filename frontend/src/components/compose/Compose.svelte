@@ -232,10 +232,6 @@
     } else if (session.subject.trim().length == 0) {
       const input = document.querySelector<HTMLInputElement>(`#subject-${session.id}`)
       input?.focus()
-    } else if (session.mode === 'wysiwyg') {
-      richCaret = session.body
-    } else {
-      textCaret = 0
     }
 
     if (session.signaturesApplied) {
@@ -277,9 +273,12 @@
   // where the next editor to mount puts its caret, so switching modes or
   // leaving the preview carries on where the writing stopped. textCaret is an
   // offset into the body, richCaret the body with caretMark at the caret.
-  // Either one also makes that editor take focus.
-  let textCaret: number | null = null
-  let richCaret: string | null = null
+  // Either one also makes that editor take focus. A message that opens with
+  // its recipient and subject filled in, a reply above all, starts in the
+  // body, at the top; otherwise onMount puts the caret in the first empty field.
+  const startInBody = session.to.trim() !== '' && session.subject.trim() !== ''
+  let textCaret: number | null = startInBody && session.mode !== 'wysiwyg' ? 0 : null
+  let richCaret: string | null = startInBody && session.mode === 'wysiwyg' ? session.body : null
 
   // bodyWithCaret is the body with caretMark where the caret is, or null when
   // there is no caret to read.
