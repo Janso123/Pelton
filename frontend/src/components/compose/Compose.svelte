@@ -39,7 +39,7 @@
   import { shortcutTitle, bindings } from '../../stores/shortcuts'
   import { comboMatches } from '../../lib/shortcuts'
   import { bodyFontStack } from '../../lib/fonts'
-  import { buildRequest, hasRecipients } from '../../lib/mailcompose'
+  import { buildRequest, hasRecipients, parseAddressList } from '../../lib/mailcompose'
   import ProtectionPicker from './ProtectionPicker.svelte'
   import { composeProtectionStatus } from '../../lib/api'
   import type { ProtectionStatus } from '../../lib/types'
@@ -391,12 +391,8 @@
   // recipientList is every address currently typed in, which is what the
   // status is about.
   $: recipientList = [session.to, session.cc, session.bcc]
-    .join(',')
-    .split(/[,;]/)
-    .map((part) => {
-      const match = part.match(/<([^>]+)>/)
-      return (match ? match[1] : part).trim().toLowerCase()
-    })
+    .flatMap(parseAddressList)
+    .map((a) => a.email.toLowerCase())
     .filter((email) => email.includes('@'))
 
   $: void refreshProtection(session.accountId, recipientList.join(','))
