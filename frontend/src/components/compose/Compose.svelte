@@ -23,7 +23,7 @@
   import AddressFields from './AddressFields.svelte'
   import MarkdownPreview from './MarkdownPreview.svelte'
   import EditorModeSwitch from './EditorModeSwitch.svelte'
-  import { convertEditorBody } from '../../lib/richtext'
+  import { caretMark, convertEditorBody } from '../../lib/richtext'
   import { renderMarkdown } from '../../lib/markdown'
   import Select from '../common/Select.svelte'
   import EditorToolbar from './EditorToolbar.svelte'
@@ -48,6 +48,7 @@
   import { atTime, addDays, nextWeekday } from '../../lib/datepresets'
   import { errorMessage, toastError, toastSuccess } from '../../stores/toast'
   import type CodeMirrorEditor from './CodeMirrorEditor.svelte'
+  import type RichEditorView from './RichEditor.svelte'
 
   // the mail body font setting flows into the editors as a css variable so
   // what you type looks like what recipients without their own fonts see
@@ -200,7 +201,8 @@
 
   // the rich editor (tiptap) is code-split: it only loads when the session is in
   // wysiwyg mode, keeping prosemirror out of the main bundle.
-  let RichEditor: typeof import('./RichEditor.svelte').default | null = null
+  let RichEditor: typeof RichEditorView | null = null
+  let richEditor: RichEditorView | null = null
   $: if (session.mode === 'wysiwyg' && !RichEditor) {
     void import('./RichEditor.svelte').then((m) => (RichEditor = m.default))
   }
@@ -260,14 +262,49 @@
     updateCompose(session.id, { body: withBlock(session.body, sig) })
   }
 
+  // where the next editor to mount puts its caret, so switching modes or
+  // leaving the preview carries on where the writing stopped. textCaret is an
+  // offset into the body, richCaret the body with caretMark at the caret.
+  // Either one also makes that editor take focus.
+  let textCaret: number | null = null
+  let richCaret: string | null = null
+
+  // bodyWithCaret is the body with caretMark where the caret is, or null when
+  // there is no caret to read.
+  function bodyWithCaret(): string | null {
+    if (session.mode === 'wysiwyg') {
+      return richEditor ? richEditor.contentWithCaret() : null
+    }
+    const offset = preview ? textCaret : editor ? editor.caretOffset() : null
+    return offset === null ? null : session.body.slice(0, offset) + caretMark + session.body.slice(offset)
+  }
+
   function setMode(event: CustomEvent<EditorMode>): void {
-    if (event.detail !== 'markdown') {
+    const mode = event.detail
+    const body = convertEditorBody(session.body, session.mode, mode)
+    const marked = bodyWithCaret()
+    const landed = marked === null ? null : convertEditorBody(marked, session.mode, mode)
+    richCaret = mode === 'wysiwyg' ? (landed ?? body) : null
+    textCaret = mode === 'wysiwyg' ? null : Math.max(0, landed?.indexOf(caretMark) ?? 0)
+    if (mode !== 'markdown') {
       preview = false
     }
-    updateCompose(session.id, {
-      mode: event.detail,
-      body: convertEditorBody(session.body, session.mode, event.detail),
-    })
+    updateCompose(session.id, { mode, body })
+  }
+
+  function togglePreview(): void {
+    if (!preview) {
+      textCaret = editor ? editor.caretOffset() : null
+    }
+    preview = !preview
+  }
+
+  // setBody takes an edit from the editor. The carried caret is spent by then,
+  // so an editor remounted later does not jump back to it.
+  function setBody(body: string): void {
+    textCaret = null
+    richCaret = null
+    updateCompose(session.id, { body })
   }
 
   function toggleFullscreen(): void {
@@ -557,14 +594,16 @@
         {#if RichEditor}
           <svelte:component
             this={RichEditor}
+            bind:this={richEditor}
             content={session.body}
-            on:change={(e) => updateCompose(session.id, { body: e.detail })}
+            caretContent={richCaret}
+            on:change={(e) => setBody(e.detail)}
           />
         {:else}
           <div class="editor-loading">{$t('compose.editor.loading')}</div>
         {/if}
       {:else if session.mode === 'markdown'}
-        <EditorToolbar {preview} on:format={(e) => applyFormat(e.detail)} on:togglePreview={() => (preview = !preview)} />
+        <EditorToolbar {preview} on:format={(e) => applyFormat(e.detail)} on:togglePreview={togglePreview} />
         {#if preview}
           <MarkdownPreview markdown={session.body} font={composeFont ?? ''} />
         {:else if CMEditor}
@@ -574,7 +613,8 @@
             content={session.body}
             placeholder={$t('compose.editor.placeholderMarkdown')}
             vimEnabled={$prefs.composeVimMode}
-            on:change={(e) => updateCompose(session.id, { body: e.detail })}
+            caret={textCaret}
+            on:change={(e) => setBody(e.detail)}
           />
         {:else}
           <div class="editor-loading">{$t('compose.editor.loading')}</div>
@@ -587,7 +627,8 @@
           placeholder={$t('compose.editor.placeholderPlain')}
           vimEnabled={$prefs.composeVimMode}
           mono
-          on:change={(e) => updateCompose(session.id, { body: e.detail })}
+          caret={textCaret}
+          on:change={(e) => setBody(e.detail)}
         />
       {:else}
         <div class="editor-loading">Loading editor…</div>

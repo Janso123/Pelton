@@ -115,6 +115,12 @@ const leadingBlankLines = /^[ \t]*\n/
 const leadingEmptyParagraph = /^\s*<p>(?:<br[^>]*>)?<\/p>/
 
 
+/**
+ * A private-use character that stands in for the caret while a body is
+ * converted: put it into the source and it comes out where the caret lands.
+ */
+export const caretMark = '\uE000'
+
 /** Convert the current body when changing editors; source mode determines its format. */
 export function convertEditorBody(body: string, from: EditorMode, to: EditorMode): string {
   if (from === to) return body

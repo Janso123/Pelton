@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/svelte'
 import userEvent from '@testing-library/user-event'
+import { EditorView } from '@codemirror/view'
+import type { Editor } from '@tiptap/core'
 
 vi.mock('../../stores/signatures', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../stores/signatures')>()),
@@ -86,5 +88,80 @@ describe('default signature in Rich', () => {
     const id = openPane('wysiwyg', '<p>Hello</p>', false)
     await vi.waitFor(() => expect(getSession(id)!.signaturesApplied).toBe(true))
     expect(getSession(id)!.body).toContain('<p>-- </p><p><strong>Jan</strong><br><a href="https://example.com">site</a></p>')
+  })
+})
+
+describe('caret across editor modes', () => {
+  // the source editors, reached the way a click would reach them: through the
+  // element that holds the caret.
+  async function sourceEditor(): Promise<EditorView> {
+    const content = await vi.waitFor(() => {
+      const el = document.querySelector<HTMLElement>('.cm-content')
+      expect(el).not.toBeNull()
+      return el!
+    })
+    return EditorView.findFromDOM(content)!
+  }
+
+  async function richEditor(): Promise<Editor> {
+    return vi.waitFor(() => {
+      const el = document.querySelector('.ProseMirror') as (HTMLElement & { editor?: Editor }) | null
+      expect(el?.editor).toBeDefined()
+      return el!.editor!
+    })
+  }
+
+  it('keeps the caret and focus going from Plain to Markdown', async () => {
+    openPane('plaintext', 'Hello world\n\n> quoted')
+    ;(await sourceEditor()).dispatch({ selection: { anchor: 5 } })
+    await userEvent.click(screen.getByRole('tab', { name: 'Markdown' }))
+    await vi.waitFor(async () => expect((await sourceEditor()).state.selection.main.head).toBe(5))
+    expect((await sourceEditor()).hasFocus).toBe(true)
+  })
+
+  it('puts the caret at the same text in Rich and gives it focus', async () => {
+    openPane('plaintext', 'Hello world\n\n> quoted line')
+    ;(await sourceEditor()).dispatch({ selection: { anchor: 'Hello world\n\n> quo'.length } })
+    await userEvent.click(screen.getByRole('tab', { name: 'Rich' }))
+    const rich = await richEditor()
+    const { $head } = rich.state.selection
+    expect($head.parent.textContent).toBe('quoted line')
+    expect($head.parentOffset).toBe(3)
+    await vi.waitFor(() => expect(rich.view.dom.contains(document.activeElement)).toBe(true))
+  })
+
+  it('carries the caret back from Rich into the source text', async () => {
+    const id = openPane('wysiwyg', '<p>Hello world</p><blockquote><p>quoted line</p></blockquote>')
+    const rich = await richEditor()
+    let at = 0
+    rich.state.doc.descendants((node, pos) => {
+      if (node.isText && node.text === 'quoted line') at = pos + 3
+    })
+    rich.commands.setTextSelection(at)
+    await userEvent.click(screen.getByRole('tab', { name: 'Plain' }))
+    const view = await sourceEditor()
+    expect(getSession(id)!.body.slice(view.state.selection.main.head)).toBe('ted line')
+    expect(view.hasFocus).toBe(true)
+  })
+
+  it('starts at the top when the caret cannot be read', async () => {
+    openPane('markdown', 'Hello world')
+    await sourceEditor()
+    await userEvent.click(screen.getByRole('button', { name: 'Preview' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Rich' }))
+    const rich = await richEditor()
+    expect(rich.state.selection.head).toBe(1)
+    await vi.waitFor(() => expect(rich.view.dom.contains(document.activeElement)).toBe(true))
+  })
+
+  it('returns to the caret after the Markdown preview', async () => {
+    openPane('markdown', 'Hello world')
+    ;(await sourceEditor()).dispatch({ selection: { anchor: 5 } })
+    const toggle = screen.getByRole('button', { name: 'Preview' })
+    await userEvent.click(toggle)
+    await userEvent.click(toggle)
+    const view = await sourceEditor()
+    expect(view.state.selection.main.head).toBe(5)
+    expect(view.hasFocus).toBe(true)
   })
 })
