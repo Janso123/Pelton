@@ -374,9 +374,6 @@
     }
   }
 
-  // hasContent decides whether closing needs a save/discard prompt: any
-  // recipient, subject or body text counts, but a session that was only ever
-  // opened and never touched should close silently.
   // recipientList is every address currently typed in, which is what the
   // status is about.
   $: recipientList = [session.to, session.cc, session.bcc]
@@ -384,17 +381,25 @@
     .map((a) => a.email.toLowerCase())
     .filter((email) => email.includes('@'))
 
-  $: void refreshProtection(session.accountId, recipientList.join(','))
+  $: void refreshProtection(session.accountId, recipientList)
 
   // refreshProtection asks the backend what is possible. A failure leaves the
   // controls as they were rather than pretending nothing can be protected.
-  async function refreshProtection(accountId: number, key: string): Promise<void> {
+  // The answer depends on the sending account's own keys as much as on the
+  // recipients, so both make up the key a reply is matched against.
+  async function refreshProtection(accountId: number, recipients: string[]): Promise<void> {
+    const key = JSON.stringify([accountId, recipients])
     if (key === statusFor && protectionStatus !== null) {
       return
     }
     statusFor = key
     try {
-      const status = await composeProtectionStatus(accountId, recipientList)
+      const status = await composeProtectionStatus(accountId, recipients)
+      // a newer account or recipient list was asked for while this was in
+      // flight; its answer, not this one, decides what the controls may offer.
+      if (key !== statusFor) {
+        return
+      }
       protectionStatus = status as unknown as ProtectionStatus
       if (!suggestedApplied) {
         suggestedApplied = true
@@ -413,6 +418,9 @@
     }
   }
 
+  // hasContent decides whether closing needs a save/discard prompt: any
+  // recipient, subject or body text counts, but a session that was only ever
+  // opened and never touched should close silently.
   function hasContent(): boolean {
     return (
       session.to.trim().length > 0 ||
