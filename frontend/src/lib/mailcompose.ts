@@ -3,7 +3,8 @@
 // editor modes. markdown is rendered to html with marked for the sent html part;
 // the markdown source is kept as the plain text part.
 
-import { marked } from 'marked'
+import { renderMarkdown } from './markdown'
+import { htmlToText } from './richtext'
 import { writingDirection, markDirection } from './textdirection'
 import type { Address, ComposeRequest, EditorMode } from './types'
 import type { ComposeSession } from '../stores/compose'
@@ -105,19 +106,12 @@ export interface RenderedBody {
 export function renderBody(mode: EditorMode, body: string): RenderedBody {
   const direction = writingDirection(body)
   if (mode === 'markdown') {
-    return { text: body, html: markDirection(marked.parse(body) as string, direction) }
+    return { text: body, html: markDirection(renderMarkdown(body), direction) }
   }
   if (mode === 'wysiwyg') {
     return { text: htmlToText(body), html: markDirection(body, direction) }
   }
   return { text: body, html: '' }
-}
-
-// htmlToText extracts readable text from html for the plain-text alternative.
-function htmlToText(html: string): string {
-  const el = document.createElement('div')
-  el.innerHTML = html
-  return el.textContent ?? ''
 }
 
 // buildRequest assembles the full compose request from a session. the result is

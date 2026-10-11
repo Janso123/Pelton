@@ -6,7 +6,6 @@
   // outbox (with the undo-send window when enabled); save stores a local draft.
   import { formatWeekdayTime, type TimeFormat } from '../../lib/format'
   import { onMount, tick } from 'svelte'
-  import { marked } from 'marked'
   import {
     IconX,
     IconSend,
@@ -22,7 +21,10 @@
     IconCalendarWeek,
   } from '@tabler/icons-svelte'
   import AddressFields from './AddressFields.svelte'
+  import MarkdownPreview from './MarkdownPreview.svelte'
   import EditorModeSwitch from './EditorModeSwitch.svelte'
+  import { convertEditorBody } from '../../lib/richtext'
+  import { renderMarkdown } from '../../lib/markdown'
   import Select from '../common/Select.svelte'
   import EditorToolbar from './EditorToolbar.svelte'
   import AttachmentPicker from './AttachmentPicker.svelte'
@@ -204,11 +206,15 @@
   }
 
   $: accounts = $sidebar.data?.accounts ?? []
-  $: previewHtml = marked.parse(session.body || '', { async: false }) as string
 
   // withBlock inserts a signature block into a body: headers go to the top,
-  // footers to the bottom after the standard "-- " delimiter.
+  // footers to the bottom after the standard "-- " delimiter. The rich editor
+  // reads html, so there the block goes in as html.
   function withBlock(body: string, sig: Signature): string {
+    if (session.mode === 'wysiwyg') {
+      const block = sig.format === 'html' ? sig.content : renderMarkdown(sig.content)
+      return sig.kind === 'header' ? `${block}${body}` : `${body}<p>-- </p>${block}`
+    }
     if (sig.kind === 'header') {
       return `${sig.content}\n\n${body}`
     }
@@ -258,7 +264,10 @@
     if (event.detail !== 'markdown') {
       preview = false
     }
-    updateCompose(session.id, { mode: event.detail })
+    updateCompose(session.id, {
+      mode: event.detail,
+      body: convertEditorBody(session.body, session.mode, event.detail),
+    })
   }
 
   function toggleFullscreen(): void {
@@ -557,7 +566,7 @@
       {:else if session.mode === 'markdown'}
         <EditorToolbar {preview} on:format={(e) => applyFormat(e.detail)} on:togglePreview={() => (preview = !preview)} />
         {#if preview}
-          <div class="preview selectable">{@html previewHtml}</div>
+          <MarkdownPreview markdown={session.body} font={composeFont ?? ''} />
         {:else if CMEditor}
           <svelte:component
             this={CMEditor}
@@ -783,19 +792,6 @@
     flex-direction: column;
   }
 
-  .preview {
-    flex: 1;
-    width: 100%;
-    min-height: 0;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--compose-font, inherit);
-    font-size: var(--fz-body);
-    line-height: 1.55;
-    overflow-y: auto;
-    padding: var(--space-3) var(--space-4);
-  }
-
   /* shown briefly while the rich editor chunk loads. */
   .editor-loading {
     flex: 1;
@@ -804,36 +800,6 @@
     justify-content: center;
     color: var(--text-tertiary);
     font-size: var(--fz-label);
-  }
-
-  /* a light github-style rendered preview. */
-  .preview :global(h1),
-  .preview :global(h2),
-  .preview :global(h3) {
-    margin: var(--space-3) 0 var(--space-2);
-  }
-
-  .preview :global(a) {
-    color: var(--link);
-  }
-
-  .preview :global(pre),
-  .preview :global(code) {
-    font-family: var(--font-mono);
-    background: var(--surface-sunken);
-    border-radius: var(--radius-control);
-  }
-
-  .preview :global(pre) {
-    padding: var(--space-3);
-    overflow-x: auto;
-  }
-
-  .preview :global(blockquote) {
-    margin: 0 0 var(--space-2);
-    padding-inline-start: var(--space-3);
-    border-inline-start: 2px solid var(--border-strong);
-    color: var(--text-secondary);
   }
 
   /* a narrow pane wraps the controls onto a second row rather than squeezing

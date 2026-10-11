@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseAddressList, splitAddressList } from './mailcompose'
+import { parseAddressList, splitAddressList, renderBody } from './mailcompose'
 
 describe('parseAddressList', () => {
   it('keeps a comma inside a quoted name', () => {
@@ -44,5 +44,27 @@ describe('parseAddressList', () => {
 describe('splitAddressList', () => {
   it('returns trimmed raw tokens', () => {
     expect(splitAddressList('"Doe, John" <j@x> , b@y')).toEqual(['"Doe, John" <j@x>', 'b@y'])
+  })
+})
+
+describe('rich message plain-text alternative', () => {
+  it('preserves paragraphs, line breaks, and nested quotes in sent text', () => {
+    expect(renderBody('wysiwyg', '<p>Hello &amp; welcome<br>Next line</p><blockquote><p>Original</p><blockquote><p>Older</p></blockquote></blockquote>').text)
+      .toBe('Hello & welcome\nNext line\n\n> Original\n> \n> > Older')
+  })
+
+  it('keeps link destinations and lists readable without formatting markup', () => {
+    expect(renderBody('wysiwyg', '<p><strong>See</strong> <a href="https://example.com">the details</a></p><ul><li>One</li><li>Two</li></ul>').text)
+      .toBe('See the details (https://example.com)\n\n- One\n- Two')
+  })
+})
+
+describe('markdown message html', () => {
+  it('preserves quoted source lines in the HTML sent from Markdown', () => {
+    const body = '> First line\n> Second line'
+    const rendered = renderBody('markdown', body)
+    const doc = new DOMParser().parseFromString(rendered.html, 'text/html')
+    expect(doc.querySelectorAll('blockquote br')).toHaveLength(1)
+    expect(rendered.text).toBe(body)
   })
 })
