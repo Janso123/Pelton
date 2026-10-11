@@ -836,8 +836,11 @@
     color: var(--text-secondary);
   }
 
+  /* a narrow pane wraps the controls onto a second row rather than squeezing
+     their labels. */
   .foot {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3) var(--space-4);
@@ -868,6 +871,7 @@
     color: var(--text-primary);
     cursor: var(--cursor-action);
     font-size: var(--fz-label);
+    white-space: nowrap;
   }
 
   .send:hover:not(:disabled),
