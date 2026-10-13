@@ -1337,6 +1337,8 @@ export const SettingKeys = {
   notifyNewMail: 'notify_new_mail',
   verboseSync: 'verbose_sync',
   syncProgressBar: 'sync_progress_bar',
+  statusClock: 'status_clock',
+  statusUnread: 'status_unread',
   closeAction: 'close_button_action',
   syncMessageLimit: 'sync_message_limit',
   syncAutoBackfill: 'sync_auto_backfill',
