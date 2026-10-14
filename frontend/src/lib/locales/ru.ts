@@ -1,4 +1,4 @@
-const en: Record<string, string> = {
+const ru: Record<string, string> = {
   'menu.preferences': 'Настройки',
   'menu.compose': 'Создать',
   'menu.sync': 'Синхронизировать',
@@ -779,8 +779,8 @@ const en: Record<string, string> = {
   'folders.created': 'Создано {name}',
   'folders.renamed': 'Переименовано to {name}',
   'folders.deleted': 'Удалено {name}',
-  'folders.emptyTrash': 'Корзина пуста',
-  'folders.emptyTrashTitle': 'Корзина пуста',
+  'folders.emptyTrash': 'Очистить Корзину',
+  'folders.emptyTrashTitle': 'Удаление содержимого Корзины',
   'folders.emptyTrashWarning': 'Это навсегда удалит все {count} сообщения в {name}, на сервере и на этом компьютере. Это не может быть отменено.',
   'folders.emptyTrashConfirm': 'Удалить все',
   'folders.roleAction': 'Использовать как…',
