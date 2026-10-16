@@ -304,9 +304,9 @@ const ru: Record<string, string> = {
   'common.spinner.loading': 'Загрузка',
   'common.statusBar.downloadFailed': 'Загрузка не удалась',
   'common.statusBar.downloading': 'Загружаем',
-  'common.statusBar.cancelDownload': 'Отменить загрузку'
+  'common.statusBar.cancelDownload': 'Отменить загрузку',
   'common.statusBar.saving': 'Сохраняем',
-  'common.statusBar.lowPowerTitle': 'Режим энергосбережения включён: авсинхронизация и пакетная загрузка на паузе. Нажмите, чтобы выключить.',
+  'common.statusBar.lowPowerTitle': 'Режим энергосбережения включён: автосинхронизация и пакетная загрузка на паузе. Нажмите, чтобы выключить.',
   'common.statusBar.lowPower': 'Режим энергосбережения',
   'common.statusBar.devMode': 'РЕЖИМ РАЗРАБОТЧИКА',
   'common.statusBar.devModeTitle': 'Работаем с каталогом разработчиков, а не с вашим настоящим почтовым ящиком.',
@@ -1734,4 +1734,4 @@ const ru: Record<string, string> = {
   'contacts.harvest.hint': 'Автозаполнение запоминает каждый адрес, на который вы пишете или с которого отправляете. Если отключено, то предлагаются только контакты из ваших адресных книг.'
 }
 
-export default en
+export default ru
