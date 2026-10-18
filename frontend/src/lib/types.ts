@@ -572,6 +572,10 @@ export interface UIPrefs {
   // syncProgressBar puts a progress bar beside that line, counting message
   // bodies rather than mailboxes. On by default.
   syncProgressBar: boolean
+  // statusClock shows the date and time in the status bar, statusUnread the
+  // unread count of the unified inbox (#488).
+  statusClock: boolean
+  statusUnread: boolean
   // closeAction is what the window's close button does: 'background' keeps
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction

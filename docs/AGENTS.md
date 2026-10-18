@@ -39,6 +39,10 @@ Status bar shows a progress bar while a sync or a backfill runs, counting messag
 
 Settings > Sync & power. "Messages to sync per folder": how many of the newest message bodies are downloaded per folder, default 100, "All" fetches every body newest first. Older mail loads on scroll and opening a message that is not downloaded yet fetches it. "Parallel sync connections": 1 to 5, default 3, how many IMAP sessions one mailbox syncs over; a mailbox can override it in its editor. Sending never waits for these connections. "Full folder check every (days)": default 7, 1/3/7/14/30 or "Manual only" (0); startup and push syncs ask the server only for changes (IMAP CONDSTORE), a folder whose last full check is older than this is re-listed in full in the background at the lowest priority, and manual Sync always queues the full check. Settings > Accounts shows a connection line per mailbox: `IMAP · host:port`.
 
+## Status bar clock and unread count
+
+The left of the status bar shows how many messages in the Unified Inbox are unread (hidden at zero); clicking it opens the Unified Inbox. The right end shows the weekday, date and time, following Settings > Display > time format, and moves on at each full minute. Settings > Display > Status bar has a switch for each, both on by default.
+
 ## Text encoding
 
 Mail that declares no charset, or one nothing knows, is detected from the bytes (ICU port, github.com/gogs/chardet) and converted, so nothing invalid reaches the database or the search index. Applies to bodies and to rfc 2047 encoded-words in headers. Settings > Display > "Text encoding fallback": `auto` (default, detect) or a fixed encoding name. Messages read this way carry a badge in the reading pane. Mail cached before this existed is marked and refetched from the server during sync, a few per folder per sync.

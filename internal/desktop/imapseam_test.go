@@ -56,6 +56,11 @@ type fakeIMAP struct {
 	// by uid; a uid missing from messages is skipped like one the server lost.
 	since    []imap.UID
 	messages map[imap.UID]*pimap.Message
+	// folders is what LIST answers, and failList makes it fail instead.
+	folders  []pimap.Folder
+	failList error
+	// failSelect makes SELECT of the named mailboxes fail.
+	failSelect map[string]error
 }
 
 type movedMessage struct {
@@ -78,10 +83,13 @@ func (f *fakeIMAP) Addr() string  { return "fake:993" }
 
 func (f *fakeIMAP) Select(mailbox string) (*pimap.Mailbox, error) {
 	f.selected = append(f.selected, mailbox)
+	if err := f.failSelect[mailbox]; err != nil {
+		return nil, err
+	}
 	return &pimap.Mailbox{Name: mailbox}, nil
 }
 
-func (f *fakeIMAP) ListFolders() ([]pimap.Folder, error) { return nil, nil }
+func (f *fakeIMAP) ListFolders() ([]pimap.Folder, error) { return f.folders, f.failList }
 func (f *fakeIMAP) CreateFolder(path string) error {
 	f.created = append(f.created, path)
 	return nil

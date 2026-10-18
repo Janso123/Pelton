@@ -476,6 +476,7 @@ func (a *App) syncListedAccounts(include func(storage.Account) bool, manual bool
 	synced := 0
 	netFailed := false
 	syncable := 0
+	var otherErr error
 	for _, account := range accounts {
 		if account.Local {
 			continue
@@ -490,6 +491,8 @@ func (a *App) syncListedAccounts(include func(storage.Account) bool, manual bool
 			}
 			if isNetworkError(err) {
 				netFailed = true
+			} else if otherErr == nil {
+				otherErr = err
 			}
 			a.log.Error("sync account", "account", account.Email, "err", err)
 			continue
@@ -511,6 +514,11 @@ func (a *App) syncListedAccounts(include func(storage.Account) bool, manual bool
 		// nothing synced and any account failed for the network, report offline.
 		if netFailed {
 			return errOffline
+		}
+		// nor must any other failure: a folder the server no longer has read as
+		// a missing password (#484).
+		if otherErr != nil {
+			return otherErr
 		}
 		return errNoCredentials
 	}
@@ -1859,7 +1867,7 @@ func (a *App) syncIMAPInitial(ctx context.Context, account storage.Account, onIn
 // X is the engine's InitialLimit (sync_message_limit).
 func (a *App) syncIMAPInitialPass(ctx context.Context, account storage.Account, onInboxDone func()) error {
 	if err := a.withIMAPSession(ctx, account, func(client mailClient) error {
-		return a.ensureFolders(client, account.ID)
+		return a.syncFolderTree(client, account.ID)
 	}); err != nil {
 		return err
 	}
@@ -1925,7 +1933,7 @@ func (a *App) runIMAPManualSync(ctx context.Context, account storage.Account) er
 	defer a.emit(EventSyncState, SyncStateEvent{Running: false})
 	return a.enqueueLiveAndWait(ctx, account.ID, syncsched.JobManualSync, 0, nil, func(jobCtx context.Context) error {
 		return a.withIMAPSession(jobCtx, account, func(client mailClient) error {
-			if err := a.ensureFolders(client, account.ID); err != nil {
+			if err := a.syncFolderTree(client, account.ID); err != nil {
 				return err
 			}
 			return a.syncFolders(jobCtx, pimap.NewAdapter(client), account.ID)

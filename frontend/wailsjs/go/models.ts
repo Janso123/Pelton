@@ -2292,6 +2292,8 @@ export namespace desktop {
 	    notifyNewMail: boolean;
 	    verboseSync: boolean;
 	    syncProgressBar: boolean;
+	    statusClock: boolean;
+	    statusUnread: boolean;
 	    closeAction: string;
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
@@ -2383,6 +2385,8 @@ export namespace desktop {
 	        this.notifyNewMail = source["notifyNewMail"];
 	        this.verboseSync = source["verboseSync"];
 	        this.syncProgressBar = source["syncProgressBar"];
+	        this.statusClock = source["statusClock"];
+	        this.statusUnread = source["statusUnread"];
 	        this.closeAction = source["closeAction"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];

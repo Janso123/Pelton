@@ -49,6 +49,14 @@ export function formatListDate(iso: string, timeFormat: TimeFormat = 'auto'): st
   })
 }
 
+// formatStatusClock renders the status bar clock: a short weekday and date with
+// the time, in the user's clock preference.
+export function formatStatusClock(date: Date, timeFormat: TimeFormat = 'auto'): string {
+  const day = date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
+  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: hour12Of(timeFormat) })
+  return `${day} ${time}`
+}
+
 // formatFullDate renders a full, unambiguous date for the message header.
 export function formatFullDate(iso: string, timeFormat: TimeFormat = 'auto'): string {
   if (!iso) {

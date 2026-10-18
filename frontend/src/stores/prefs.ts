@@ -89,6 +89,8 @@ const defaults: UIPrefs = {
   notifyNewMail: false,
   verboseSync: false,
   syncProgressBar: true,
+  statusClock: true,
+  statusUnread: true,
   closeAction: 'background',
   syncMessageLimit: 100,
   syncAutoBackfill: true,
@@ -530,6 +532,18 @@ export function setVerboseSync(value: boolean): void {
 export function setSyncProgressBar(value: boolean): void {
   prefs.update((p) => ({ ...p, syncProgressBar: value }))
   void setSetting(SettingKeys.syncProgressBar, String(value))
+}
+
+// setStatusClock shows or hides the date and time in the status bar.
+export function setStatusClock(value: boolean): void {
+  prefs.update((p) => ({ ...p, statusClock: value }))
+  void setSetting(SettingKeys.statusClock, String(value))
+}
+
+// setStatusUnread shows or hides the unread count in the status bar.
+export function setStatusUnread(value: boolean): void {
+  prefs.update((p) => ({ ...p, statusUnread: value }))
+  void setSetting(SettingKeys.statusUnread, String(value))
 }
 
 // setCloseAction picks what the window's close button does. The backend reads

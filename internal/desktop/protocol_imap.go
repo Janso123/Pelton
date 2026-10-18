@@ -367,7 +367,7 @@ func (p imapProtocol) discoverFolders(ctx context.Context, account storage.Accou
 	if err != nil {
 		return err
 	}
-	return a.createFolderTree(account.ID, folders)
+	return a.createFolderTree(account.ID, folders, nil)
 }
 
 // folderPath is the path of a new folder under parent. A flat mailbox list

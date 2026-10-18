@@ -141,7 +141,7 @@ func TestCreateFolderTreeSplitsOnTheLastDelimiter(t *testing.T) {
 			for _, p := range tt.paths {
 				folders = append(folders, pimap.Folder{Name: p, Delimiter: tt.delim})
 			}
-			if err := a.createFolderTree(accountID, folders); err != nil {
+			if err := a.createFolderTree(accountID, folders, nil); err != nil {
 				t.Fatalf("createFolderTree: %v", err)
 			}
 			rows, err := a.store.ListFolders(a.ctx, accountID)

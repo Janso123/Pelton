@@ -32,9 +32,24 @@ const dropLegacyWoff = {
   },
 }
 
+// on the dev server a flag is a plain path rather than the build's url
+// template; flagurl.dev.ts says why.
+const flagUrlDev = {
+  name: 'flag-url-dev',
+  apply: 'serve' as const,
+  enforce: 'pre' as const,
+  async resolveId(this: { resolve: (s: string, i?: string, o?: object) => Promise<{ id: string } | null> }, source: string, importer?: string) {
+    if (!source.endsWith('/flagurl')) {
+      return null
+    }
+    const resolved = await this.resolve(source, importer, { skipSelf: true })
+    return resolved ? resolved.id.replace(/flagurl\.ts$/, 'flagurl.dev.ts') : null
+  },
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [svelte(), dropLegacyWoff],
+  plugins: [svelte(), dropLegacyWoff, flagUrlDev],
   resolve: {
     alias: {
       'tabler-nodes-outline': tablerNodesOutline,
