@@ -89,6 +89,8 @@
     setAutoSyncInterval,
     setVerboseSync,
     setSyncProgressBar,
+    setStatusClock,
+    setStatusUnread,
     setCloseAction,
     setSyncMessageLimit,
     setSyncAutoBackfill,
@@ -216,6 +218,8 @@
     { cat: 'list', label: $t('settingsPanel.label.generatedStyle'), kw: 'avatar style' },
     { cat: 'display', label: $t('onboarding.extras.fontSize'), kw: 'message font size' },
     { cat: 'display', label: $t('settingsPanel.label.timeFormat'), kw: 'clock 24 hour' },
+    { cat: 'display', label: $t('settingsPanel.toggle.statusClock'), kw: 'status bar clock time date' },
+    { cat: 'display', label: $t('settingsPanel.toggle.statusUnread'), kw: 'status bar unread count new mail' },
     { cat: 'display', label: $t('settingsPanel.label.bodyFont'), kw: 'font' },
     { cat: 'display', label: $t('settingsPanel.toggle.senderFonts'), kw: 'font email typeface sender' },
     { cat: 'list', label: $t('settingsPanel.label.selectAllScope'), kw: 'select all bulk selection' },
@@ -1481,6 +1485,24 @@
               on:change={(e) => setPaneLocked(e.detail)}
             />
           </div>
+          <h4 class="subhead">{$t('settingsPanel.heading.statusBar')}</h4>
+          <div class="toggle">
+            <span class="row-label">{$t('settingsPanel.toggle.statusClock')}</span>
+            <ToggleSwitch
+              checked={$prefs.statusClock}
+              label={$t('settingsPanel.toggle.statusClock')}
+              on:change={(e) => setStatusClock(e.detail)}
+            />
+          </div>
+          <div class="toggle">
+            <span class="row-label">{$t('settingsPanel.toggle.statusUnread')}</span>
+            <ToggleSwitch
+              checked={$prefs.statusUnread}
+              label={$t('settingsPanel.toggle.statusUnread')}
+              on:change={(e) => setStatusUnread(e.detail)}
+            />
+          </div>
+          <p class="hint">{$t('settingsPanel.hint.statusUnread')}</p>
         </section>
       {:else if active === 'gestures'}
         <section>

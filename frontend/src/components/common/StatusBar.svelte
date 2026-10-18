@@ -4,12 +4,14 @@
   // right side shows live sync state and the last-synced relative time. it is the
   // honest, always-visible window into background activity.
   import { onDestroy, onMount } from 'svelte'
-  import { IconSend, IconAlertTriangle, IconRefresh, IconCheck, IconDownload, IconBatteryEco, IconX, IconBug, IconWifiOff } from '@tabler/icons-svelte'
+  import { IconSend, IconAlertTriangle, IconRefresh, IconCheck, IconDownload, IconBatteryEco, IconX, IconBug, IconWifiOff, IconMail } from '@tabler/icons-svelte'
   import { outbox, syncing, lastSynced, syncFolder, syncServer, syncAccount, syncCounts } from '../../stores/outbox'
   import { online } from '../../stores/network'
   import { failedSyncs, showSyncFailure } from '../../stores/syncfailures'
   import { downloadProgress, attachmentProgress } from '../../stores/progress'
-  import { formatRelative } from '../../lib/format'
+  import { formatRelative, formatStatusClock, type TimeFormat } from '../../lib/format'
+  import { sidebar } from '../../stores/accounts'
+  import { selectView } from '../../stores/selection'
   import { cancelDownload, isDevMode, isNightly } from '../../lib/api'
   import ProfileChip from './ProfileChip.svelte'
   import AgentProposals from './AgentProposals.svelte'
@@ -97,6 +99,30 @@
       ? $t('common.statusBar.syncFailedOne').replace('{mailbox}', $failedSyncs[0].email)
       : $t('common.statusBar.syncFailedMany').replace('{n}', String($failedSyncs.length))
 
+  // the clock and the unread count (#488). The clock ticks on the minute rather
+  // than every thirty seconds, so it never lags the system clock by half a
+  // minute.
+  let now = new Date()
+  let clockTimer: ReturnType<typeof setTimeout> | null = null
+  function scheduleClock(): void {
+    now = new Date()
+    clockTimer = setTimeout(scheduleClock, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()))
+  }
+  scheduleClock()
+  onDestroy(() => {
+    if (clockTimer) clearTimeout(clockTimer)
+  })
+  $: clock = formatStatusClock(now, $prefs.timeFormat as TimeFormat)
+  $: clockTitle = now.toLocaleString(undefined, { dateStyle: 'full', timeStyle: 'short' })
+
+  // the unified inbox's unread count, the same number its sidebar badge shows.
+  $: inboxUnread = $sidebar.data?.views.find((v) => v.key === 'inbox')?.unreadCount ?? 0
+  $: unreadLabel = $t('common.statusBar.unread').replace('{n}', inboxUnread.toLocaleString())
+
+  function openInbox(): void {
+    selectView('inbox', $t('sidebar.unifiedInbox'))
+  }
+
   $: syncedLabel = $lastSynced ? relativeAt($lastSynced, tick, $t) : ''
   function relativeAt(ts: number, _tick: number, translate: (key: string) => string): string {
     return formatRelative(ts, translate)
@@ -149,6 +175,12 @@
     {#if $profiles.length > 1 && $currentProfile}
       <AgentProposals />
       <ProfileChip />
+    {/if}
+    {#if $prefs.statusUnread && inboxUnread > 0}
+      <button type="button" class="outbox-btn unread" title={$t('common.statusBar.unreadTitle')} on:click={openInbox}>
+        <IconMail size={13} stroke={1.7} />
+        <span>{unreadLabel}</span>
+      </button>
     {/if}
     {#if pending.length > 0 || failed.length > 0}
       <button type="button" class="outbox-btn" class:has-failed={failed.length > 0} on:click={() => (panelOpen = !panelOpen)}>
@@ -273,6 +305,9 @@
         {$t('common.statusBar.synced')} {syncedLabel}
       </span>
     {/if}
+    {#if $prefs.statusClock}
+      <time class="clock" datetime={now.toISOString()} title={clockTitle}>{clock}</time>
+    {/if}
   </div>
 </footer>
 
@@ -384,6 +419,17 @@
   .outbox-btn:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
+  }
+
+  .outbox-btn.unread {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .clock {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
   }
 
   .outbox-btn .fail {
