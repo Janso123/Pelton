@@ -167,16 +167,6 @@ WHERE account_id = ? AND message_id = ? AND id != ? AND pending_delete = 0 AND `
 	return nil
 }
 
-// ClearFlagsPending clears the pending flag marker after a successful push.
-func (d *DB) ClearFlagsPending(ctx context.Context, id int64) error {
-	res, err := d.sql.ExecContext(ctx,
-		`UPDATE messages SET pending_flags = 0 WHERE id = ?`, id)
-	if err != nil {
-		return fmt.Errorf("storage: clear flags pending on message %d: %w", id, err)
-	}
-	return requireOneRow(res, ErrMessageNotFound)
-}
-
 // ResolvePendingFlags stores final as a message's flags and clears its pending
 // marker once a sync has settled the local change with the server. It writes
 // only while the row still has the flags snapshot and the marker the sync read:

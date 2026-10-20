@@ -34,6 +34,9 @@ type testOptions struct {
 	// failStoreAfter makes the nth STORE fail (1 = the first). 0 never fails.
 	// It is how the restore step is broken on purpose.
 	failStoreAfter int
+	// noCopyUID makes COPY answer without a COPYUID code, as a server without
+	// UIDPLUS does. The session then has no MOVE either.
+	noCopyUID bool
 	// subjects seeds one message per subject.
 	subjects []string
 }
@@ -58,7 +61,7 @@ func newTestServer(t *testing.T, opts testOptions) (*Client, *wireLog) {
 	srv := imapserver.New(&imapserver.Options{
 		NewSession: func(*imapserver.Conn) (imapserver.Session, *imapserver.GreetingData, error) {
 			session := mem.NewSession()
-			if opts.failSearch || opts.failStoreAfter > 0 {
+			if opts.failSearch || opts.failStoreAfter > 0 || opts.noCopyUID {
 				session = &brokenSession{Session: session, opts: opts}
 			}
 			return session, nil, nil
@@ -196,6 +199,14 @@ func (s *brokenSession) Store(w *imapserver.FetchWriter, numSet imap.NumSet, fla
 		return errors.New("store is broken")
 	}
 	return s.Session.Store(w, numSet, flags, options)
+}
+
+func (s *brokenSession) Copy(numSet imap.NumSet, dest string) (*imap.CopyData, error) {
+	data, err := s.Session.Copy(numSet, dest)
+	if s.opts.noCopyUID && err == nil {
+		return nil, nil
+	}
+	return data, err
 }
 
 // mailboxSubjects returns the subjects a mailbox holds, in uid order. It

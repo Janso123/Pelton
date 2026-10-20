@@ -107,8 +107,18 @@ func (f *fakeIMAP) FetchMessage(imap.UID) (*pimap.Message, error) { return &pima
 func (f *fakeIMAP) FetchMessages([]imap.UID, func(imap.UID, *pimap.Message, error) error) error {
 	return nil
 }
+func (f *fakeIMAP) FetchPartial(imap.UID, int64, int64) (*pimap.Message, error) {
+	return nil, nil
+}
 func (f *fakeIMAP) FetchRawMessage(imap.UID) ([]byte, error)      { return nil, nil }
 func (f *fakeIMAP) FetchAllFlags() ([]pimap.MessageHeader, error) { return nil, nil }
+func (f *fakeIMAP) FetchFlagsChangedSince(uint64) ([]pimap.MessageHeader, error) {
+	return nil, nil
+}
+func (f *fakeIMAP) SearchAllUIDs() ([]imap.UID, error) { return nil, nil }
+func (f *fakeIMAP) FetchHeaders([]imap.UID, *imap.FetchOptions) ([]pimap.MessageHeader, error) {
+	return nil, nil
+}
 
 func (f *fakeIMAP) AddFlags(imap.UID, ...imap.Flag) error    { return nil }
 func (f *fakeIMAP) RemoveFlags(imap.UID, ...imap.Flag) error { return nil }

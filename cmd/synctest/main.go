@@ -66,7 +66,7 @@ func run() error {
 		return err
 	}
 
-	engine := psync.NewEngine(client, store, log)
+	engine := psync.NewEngine(pimap.NewAdapter(client), store, log)
 
 	fmt.Println("\n=== first sync ===")
 	res, err := engine.SyncFolder(ctx, folder)
@@ -273,6 +273,6 @@ func pickUnseen(states []storage.MessageState) storage.MessageState {
 }
 
 func printResult(res psync.FolderSyncResult) {
-	fmt.Printf("new=%d deleted=%d flag_updated=%d conflicts=%d pushed=%d uidvalidity_reset=%v\n",
-		res.New, res.Deleted, res.FlagUpdated, res.Conflicts, res.Pushed, res.UIDValidityReset)
+	fmt.Printf("new=%d deleted=%d flag_updated=%d conflicts=%d pushed=%d generation_reset=%v has_older=%v repaired=%d\n",
+		res.New, res.Deleted, res.FlagUpdated, res.Conflicts, res.Pushed, res.GenerationReset, res.HasOlder, res.Repaired)
 }

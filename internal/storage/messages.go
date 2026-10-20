@@ -1084,16 +1084,6 @@ func (d *DB) RecordSearchState(ctx context.Context, read []IndexRead, state Sear
 	return nil
 }
 
-// SetMessageFlags replaces a message's flag bitmask.
-func (d *DB) SetMessageFlags(ctx context.Context, id int64, flags Flag) error {
-	res, err := d.sql.ExecContext(ctx,
-		`UPDATE messages SET flags = ? WHERE id = ?`, uint8(flags), id)
-	if err != nil {
-		return fmt.Errorf("storage: set flags on message %d: %w", id, err)
-	}
-	return requireOneRow(res, ErrMessageNotFound)
-}
-
 // DeleteMessage removes a message; its attachment rows cascade. Attachment
 // files on disk are removed separately via DeleteAttachmentFilesForMessage.
 func (d *DB) DeleteMessage(ctx context.Context, id int64) error {
