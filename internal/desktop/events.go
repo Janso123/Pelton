@@ -23,6 +23,12 @@ const (
 	// EventMailRepaired fires when a sync replaced the text of messages that
 	// were cached with an encoding nothing could read, so the list reloads.
 	EventMailRepaired = "mail:repaired"
+	// EventMailUpdated fires when a message row changes in place, such as a stub
+	// gaining its full body after a background fetch.
+	EventMailUpdated = "mail:updated"
+	// EventMailBodyFailed fires when the body of a message opened in the reading
+	// pane could not be fetched, after every retry, so the pane stops waiting.
+	EventMailBodyFailed = "mail:bodyFailed"
 	// EventSyncProgress fires as folders are synced so the ui can show progress.
 	EventSyncProgress = "sync:progress"
 	// EventSyncState fires when background sync starts or stops, with any error.
@@ -170,6 +176,17 @@ type SyncProgressEvent struct {
 	// Phase is "stubs" while the named folder is listed, "bodies" while bodies
 	// are fetched, else empty.
 	Phase string `json:"phase"`
+}
+
+// MailUpdatedEvent is the payload for EventMailUpdated. The reading pane reloads
+// when the open message gains a body that was fetched in the background.
+type MailUpdatedEvent struct {
+	MessageID int64 `json:"messageId"`
+}
+
+// MailBodyFailedEvent is the payload for EventMailBodyFailed.
+type MailBodyFailedEvent struct {
+	MessageID int64 `json:"messageId"`
 }
 
 // SyncStateEvent is the payload for EventSyncState. Error is empty on success.

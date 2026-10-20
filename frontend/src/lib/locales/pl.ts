@@ -741,6 +741,8 @@ const pl: Record<string, string> = {
   'detail.print.to': 'Do:',
   'detail.print.dialogFailed': 'Nie udało się otworzyć okna drukowania.',
   'detail.loadingMessage': 'Wczytywanie wiadomości',
+  'detail.bodyFetchFailed': 'Nie udało się pobrać pełnej treści wiadomości.',
+  'detail.bodyFetchRetry': 'Spróbuj ponownie',
   'detail.moveDialog.moved': 'Przeniesiono do {folder}.',
   'detail.moveDialog.dialogLabel': 'Przenieś do folderu',
   'detail.moveDialog.title': 'Przenieś do folderu',

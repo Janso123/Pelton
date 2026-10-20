@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -131,6 +133,29 @@ func TestRaisedLimitListsAShortFirstPage(t *testing.T) {
 	// The first page stores 50, then 500 and 50 more.
 	if len(rows) < 3 || rows[0] != 600 || rows[1] != 650 {
 		t.Fatalf("rows before each header fetch %v, want a first page of 50", rows)
+	}
+}
+
+// Opening a message larger than the chunk size fetches it in chunks in the
+// normal lane, never whole in the fast lane.
+func TestOpenedLargeMessageComesInChunks(t *testing.T) {
+	const size = 12 << 20
+	client := &pagingIMAP{n: 1, sources: map[imap.UID][]byte{1: bigSource(size)}}
+	a, _, inbox, _ := pagingInbox(t, client)
+	seedStub(t, a, inbox, 1, size)
+	id, err := a.store.MessageIDByRemoteID(a.ctx, inbox.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.fetchMessageBodyOnDemand(mustGetMessage(t, a.store, id)); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	ops := client.opsSnapshot()
+	if len(ops) != 3 || !strings.HasPrefix(ops[0], "chunk ") {
+		t.Fatalf("ops %v, want three chunks", ops)
+	}
+	if m := mustGetMessage(t, a.store, id); !m.BodyComplete {
+		t.Fatal("the opened message has no body")
 	}
 }
 
@@ -390,6 +415,68 @@ func TestLoadOlderFastLaneUnitNeverReconciles(t *testing.T) {
 	if n := rowCount(t, a, inbox.ID); n != 100 {
 		t.Fatalf("%d stubs after the fast-lane unit, want its page of 50 stored", n)
 	}
+}
+
+// The user waits for an opened large message, so its chunks do not queue
+// behind a listing of its folder (a manual Sync of a big folder, say).
+func TestOpenedLargeMessageDoesNotWaitForTheFoldersList(t *testing.T) {
+	const size = 6 << 20
+	client := &pagingIMAP{n: 1, sources: map[imap.UID][]byte{1: bigSource(size)}}
+	a, account, inbox, rt := pagingInbox(t, client)
+	setParallel(t, a, 2)
+	a.reconfigureAccountPool(account.ID)
+	seedStub(t, a, inbox, 1, size)
+	id, err := a.store.MessageIDByRemoteID(a.ctx, inbox.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	defer close(release)
+	recv(t, signalJob(rt.sched, syncsched.KindListStubs, inbox.ID, release), 2*time.Second, "list never started")
+	opened := make(chan error, 1)
+	go func() { opened <- a.fetchMessageBodyOnDemand(mustGetMessage(t, a.store, id)) }()
+	if err := recv(t, opened, 5*time.Second, "the opened message waited for the folder's list"); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+}
+
+// Opening a stub fills it in place: the pane hears mail:updated, and the
+// list is not told about new mail (mail:new reloads it, and the old ui
+// jumps), small message or large.
+func TestOpeningAStubSendsNoNewMail(t *testing.T) {
+	for _, size := range []int64{1 << 10, 6 << 20} {
+		t.Run(strconv.FormatInt(size, 10), func(t *testing.T) { openStubQuietly(t, size) })
+	}
+}
+
+func openStubQuietly(t *testing.T, size int64) {
+	client := &pagingIMAP{n: 1, sources: map[imap.UID][]byte{1: bigSource(int(size))}}
+	a, _, inbox, _ := pagingInbox(t, client)
+	seedStub(t, a, inbox, 1, size)
+	id, err := a.store.MessageIDByRemoteID(a.ctx, inbox.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	news := 0
+	a.emitForTest = func(name string, _ any) {
+		if name == EventMailNew {
+			mu.Lock()
+			news++
+			mu.Unlock()
+		}
+	}
+	if err := a.fetchMessageBodyOnDemand(mustGetMessage(t, a.store, id)); err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if !mustGetMessage(t, a.store, id).BodyComplete {
+		t.Fatalf("size %d: the opened message has no body", size)
+	}
+	mu.Lock()
+	if news != 0 {
+		t.Errorf("size %d: %d mail:new events for an opened message, want none", size, news)
+	}
+	mu.Unlock()
 }
 
 // probedIMAP is a pagingIMAP that answers a UID FETCH only for the UIDs it

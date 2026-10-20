@@ -38,9 +38,10 @@ type accountSessions struct {
 	listMu  sync.Mutex
 	listing folderClaims
 
-	// bodyClaims are the message ids the account's running body units
-	// fetch now, whichever runtime runs them: a folder's body copies take
-	// from it, so no id is fetched twice.
+	// bodyClaims are the message ids the account's running body and
+	// offline units fetch now, whichever runtime runs them: a folder's body
+	// copies and its offline download take from it, so no id is fetched
+	// twice.
 	bodyClaims syncsched.Claims
 	// backlogMu guards backlog: per folder, how many body batches were
 	// missing when its last body unit planned, for the generator's run

@@ -56,10 +56,9 @@ func (a *App) pushColorKeyword(id int64, color int) {
 	a.protocolFor(*account).setColor(*m, *folder, *account, color)
 }
 
-// DownloadMessageOffline pins a message for offline availability, the
-// deliberate keep signal that drives the downloaded indicator. A stub's body
-// is fetched first; it is pinned only once its body is stored, and a failed
-// fetch returns the error and leaves it unpinned.
+// DownloadMessageOffline keeps a message available offline. A message that so
+// far has only its list entry gets its body fetched first; pinning a row with
+// no body would show it as downloaded while there is nothing to read.
 func (a *App) DownloadMessageOffline(id int64) error {
 	if err := a.ready(); err != nil {
 		return err
@@ -68,8 +67,10 @@ func (a *App) DownloadMessageOffline(id int64) error {
 	if err != nil {
 		return err
 	}
-	if _, err := a.ensureBody(m); err != nil {
-		return err
+	if !m.BodyComplete {
+		if err := a.fetchBodyJoined(m); err != nil {
+			return err
+		}
 	}
 	return a.store.SetOffline(a.ctx, id, true)
 }

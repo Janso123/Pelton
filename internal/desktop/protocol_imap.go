@@ -27,6 +27,10 @@ func (p imapProtocol) olderStep(ctx context.Context, account storage.Account, fo
 	return p.a.imapOlderStep(ctx, account, folder, older)
 }
 
+func (p imapProtocol) onDemandBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error {
+	return p.a.execIMAPOnDemandBodies(ctx, account, folder, remoteIDs)
+}
+
 func (p imapProtocol) bodyBatch(ctx context.Context, account storage.Account, folder storage.Folder) error {
 	return p.a.imapBodyBatch(ctx, account, folder)
 }
@@ -422,21 +426,14 @@ func (p imapProtocol) download(ctx context.Context, account storage.Account, gro
 	for _, ft := range groups {
 		folders = append(folders, ft.folder)
 	}
-	// One task per folder key, so a folder's units never run at once.
+	// One task per folder key, so a folder's units never run at once; they
+	// share the body claims with the folder's body units (offlineUnit).
 	return a.runFolderTasks(ctx, account, syncsched.KindOffline, syncsched.KindOffline.String(), folders,
 		func(taskCtx context.Context, client mailClient, folder storage.Folder) error {
 			if ctx.Err() != nil {
 				return nil
 			}
-			ft := groups[folder.ID]
-			chunk := ft.remoteIDs[:min(downloadBatch, len(ft.remoteIDs))]
-			ft.remoteIDs = ft.remoteIDs[len(chunk):]
-			more := len(ft.remoteIDs) > 0
-			a.fetchDownloadBatch(taskCtx, pimap.NewAdapter(client), account, folder, chunk, includeAttachments, prog)
-			if more {
-				return syncsched.ErrAgain
-			}
-			return nil
+			return a.offlineUnit(withTaskSession(taskCtx, account.ID, client), client, account, groups[folder.ID], includeAttachments, prog)
 		})
 }
 

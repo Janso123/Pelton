@@ -743,6 +743,8 @@ const en: Record<string, string> = {
   'detail.print.to': 'To:',
   'detail.print.dialogFailed': 'Could not open the print dialog.',
   'detail.loadingMessage': 'Loading message',
+  'detail.bodyFetchFailed': 'Couldn\'t load the full message.',
+  'detail.bodyFetchRetry': 'Try again',
   'detail.moveDialog.moved': 'Moved to {folder}.',
   'detail.moveDialog.dialogLabel': 'Move to folder',
   'detail.moveDialog.title': 'Move to folder',

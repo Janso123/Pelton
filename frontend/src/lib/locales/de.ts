@@ -743,6 +743,8 @@ const de: Record<string, string> = {
   'detail.print.to': 'An:',
   'detail.print.dialogFailed': 'Der Druckdialog konnte nicht geöffnet werden.',
   'detail.loadingMessage': 'Nachricht wird geladen',
+  'detail.bodyFetchFailed': 'Die vollständige Nachricht konnte nicht geladen werden.',
+  'detail.bodyFetchRetry': 'Erneut versuchen',
   'detail.moveDialog.moved': 'Nach {folder} verschoben.',
   'detail.moveDialog.dialogLabel': 'In Ordner verschieben',
   'detail.moveDialog.title': 'In Ordner verschieben',

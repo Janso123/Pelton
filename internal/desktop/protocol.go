@@ -20,6 +20,9 @@ type mailProtocol interface {
 	// the task's session: the ids that need a body, and whether more units
 	// follow.
 	olderStep(ctx context.Context, account storage.Account, folder storage.Folder, older *olderList) ([]string, bool, error)
+	// onDemandBodies fetches the bodies of messages the user opened, on the
+	// fast-lane task's session.
+	onDemandBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error
 	// bodyBatch fetches one batch of a folder's missing bodies and returns
 	// syncsched.ErrAgain while more are missing.
 	bodyBatch(ctx context.Context, account storage.Account, folder storage.Folder) error

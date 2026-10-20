@@ -107,19 +107,22 @@ func inTask(t *testing.T, a *App, account storage.Account, folderID int64, fn fu
 	}
 }
 
-// Only mail new in the list that found it notifies. A backfill and a stub
-// left without its body by an earlier run never do.
+// Only mail new in the list that found it notifies. A backfill, a stub
+// left without its body by an earlier run, and an opened message never do.
 func TestOnlyFreshMailNotifies(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		// stub stores uid 5 as a body-less stub before the list.
 		stub     bool
 		backfill int
-		want     bool
+		// opened fetches the body as the user opening it would.
+		opened bool
+		want   bool
 	}{
 		{name: "new in the list", want: true},
 		{name: "old stub refilled", stub: true},
 		{name: "backfill page", backfill: 10},
+		{name: "opened message", opened: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &inboxIMAP{uids: []imap.UID{5}}
@@ -144,6 +147,9 @@ func TestOnlyFreshMailNotifies(t *testing.T) {
 				}
 				if !slices.Contains(ids, "5") {
 					t.Errorf("list returned %v, want uid 5 to fetch", ids)
+				}
+				if tc.opened {
+					return a.execIMAPOnDemandBodies(ctx, account, inbox, ids)
 				}
 				return a.execIMAPBodies(ctx, account, inbox, ids, false)
 			})

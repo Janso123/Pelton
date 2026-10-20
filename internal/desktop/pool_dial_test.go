@@ -52,6 +52,10 @@ func TestEveryAccountDialGoesThroughThePool(t *testing.T) {
 	if _, err := db.InsertMessage(ctx, &storage.Message{AccountID: accountID, FolderID: trash.ID, UID: 9, Subject: "old", Date: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	stubID, err := db.UpsertMessageListMeta(ctx, &storage.Message{AccountID: accountID, FolderID: inbox.ID, UID: 5, Subject: "hi", Date: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
 	account, err := db.GetAccount(ctx, accountID)
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +89,7 @@ func TestEveryAccountDialGoesThroughThePool(t *testing.T) {
 		{"delete folder", func() error { return a.DeleteFolder(folderByPath(t, db, accountID, "Work").ID) }},
 		{"sent copy", func() error { _, err := a.appendToSent(*account, []byte("Subject: hi\r\n\r\nbody\r\n")); return err }},
 		{"empty trash", func() error { _, err := a.EmptyTrash(trash.ID); return err }},
+		{"open a stub", func() error { return a.fetchMessageBodyOnDemand(mustGetMessage(t, db, stubID)) }},
 		{"offline download", func() error {
 			tasks, pin, err := a.planDownload(ctx, time.Now().AddDate(0, -1, 0))
 			if err != nil {

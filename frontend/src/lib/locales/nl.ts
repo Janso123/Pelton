@@ -743,6 +743,8 @@ const nl: Record<string, string> = {
   'detail.print.to': 'Aan:',
   'detail.print.dialogFailed': 'Het afdrukvenster kon niet worden geopend.',
   'detail.loadingMessage': 'Bericht laden',
+  'detail.bodyFetchFailed': 'Het volledige bericht kon niet worden geladen.',
+  'detail.bodyFetchRetry': 'Opnieuw proberen',
   'detail.moveDialog.moved': 'Verplaatst naar {folder}.',
   'detail.moveDialog.dialogLabel': 'Naar map verplaatsen',
   'detail.moveDialog.title': 'Naar map verplaatsen',

@@ -1322,6 +1322,7 @@ export namespace desktop {
 	    pgpState: string;
 	    unsubscribe?: UnsubscribeDTO;
 	    charsetGuess: string;
+	    bodyComplete: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageDetailDTO(source);
@@ -1364,6 +1365,7 @@ export namespace desktop {
 	        this.pgpState = source["pgpState"];
 	        this.unsubscribe = this.convertValues(source["unsubscribe"], UnsubscribeDTO);
 	        this.charsetGuess = source["charsetGuess"];
+	        this.bodyComplete = source["bodyComplete"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

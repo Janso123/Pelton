@@ -747,6 +747,8 @@ const zhCN: Record<string, string> = {
   'detail.print.to': '收件人：',
   'detail.print.dialogFailed': '无法打开打印对话框。',
   'detail.loadingMessage': '正在加载邮件',
+  'detail.bodyFetchFailed': '无法加载完整邮件。',
+  'detail.bodyFetchRetry': '重试',
   'detail.moveDialog.moved': '已移动到 {folder}。',
   'detail.moveDialog.dialogLabel': '移动到文件夹',
   'detail.moveDialog.title': '移动到文件夹',

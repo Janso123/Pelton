@@ -743,6 +743,8 @@ const tr: Record<string, string> = {
   'detail.print.to': 'Kime:',
   'detail.print.dialogFailed': 'Yazdırma penceresi açılamadı.',
   'detail.loadingMessage': 'İleti yükleniyor',
+  'detail.bodyFetchFailed': 'İletinin tamamı yüklenemedi.',
+  'detail.bodyFetchRetry': 'Yeniden dene',
   'detail.moveDialog.moved': '{folder} klasörüne taşındı.',
   'detail.moveDialog.dialogLabel': 'Klasöre taşı',
   'detail.moveDialog.title': 'Klasöre taşı',

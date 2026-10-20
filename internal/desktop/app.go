@@ -192,6 +192,15 @@ type App struct {
 	syncStateMu   sync.Mutex
 	syncStateRuns int
 
+	// onDemandFetchForTest, when set, replaces the protocol fetch inside
+	// fetchMessageBodyOnDemand. Production leaves it nil.
+	onDemandFetchForTest func(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error
+	// bodyRetryDelays, when set, replaces onDemandBodyRetryDelays (tests).
+	bodyRetryDelays []time.Duration
+	// bodyFetches maps the id of a message whose body is being fetched to a
+	// channel closed when that fetch ends, so opening it again, or keeping it
+	// offline, joins the fetch instead of racing it.
+	bodyFetches sync.Map
 	// movedUIDs remembers where recent moves put each message, for undo.
 	movedUIDs movedCopies
 	// emitForTest, when set, receives every event before the wails runtime
@@ -323,8 +332,8 @@ func (a *App) startup(ctx context.Context) {
 	goSafe("checking for updates", func() { a.maybeAutoCheckForUpdates(ctx) })
 
 	// if a bulk offline download was still running when the app last closed,
-	// pick it back up; planDownload skips anything already cached so this is
-	// cheap when most of the range was already fetched.
+	// pick it back up; planDownload skips anything that already has its body so
+	// this is cheap when most of the range was already fetched.
 	a.ResumePendingDownload()
 }
 

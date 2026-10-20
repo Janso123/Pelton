@@ -743,6 +743,8 @@ const ar: Record<string, string> = {
   'detail.print.to': 'إلى:',
   'detail.print.dialogFailed': 'تعذّر فتح نافذة الطباعة.',
   'detail.loadingMessage': 'جارٍ تحميل الرسالة',
+  'detail.bodyFetchFailed': 'تعذّر تحميل الرسالة كاملة.',
+  'detail.bodyFetchRetry': 'إعادة المحاولة',
   'detail.moveDialog.moved': 'نُقلت إلى {folder}.',
   'detail.moveDialog.dialogLabel': 'نقل إلى مجلد',
   'detail.moveDialog.title': 'نقل إلى مجلد',

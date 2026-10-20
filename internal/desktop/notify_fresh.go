@@ -13,7 +13,7 @@ import (
 // found it ("fresh"): a list records the ids it found that were not
 // incomplete stubs already, and the body fetch that stores one of them
 // notifies. Bodies stored for anything else (a backfill, a raised limit, an
-// old stub refilled) only update the list.
+// old stub refilled, an opened message) only update the list.
 
 // freshTTL is how long a fresh id waits for its body. One whose body never
 // lands (gone from the server) is forgotten after it.
@@ -89,14 +89,15 @@ func freshIDs(toFetch []string, before map[string]struct{}) []string {
 }
 
 // notifyFresh notifies for the fresh ids among a fetched batch that the
-// fetch stored, and forgets every fresh id of the batch.
-func (a *App) notifyFresh(ctx context.Context, folder storage.Folder, batch []string, stored []int64) {
+// fetch stored, and forgets every fresh id of the batch. notify false only
+// forgets them (an opened message is not news).
+func (a *App) notifyFresh(ctx context.Context, folder storage.Folder, batch []string, stored []int64, notify bool) {
 	rt := a.accountSync(folder.AccountID)
 	if rt == nil {
 		return
 	}
 	fresh := rt.takeFresh(folder.ID, batch)
-	if len(fresh) == 0 || len(stored) == 0 {
+	if !notify || len(fresh) == 0 || len(stored) == 0 {
 		return
 	}
 	var ids []int64

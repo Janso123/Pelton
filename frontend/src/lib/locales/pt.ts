@@ -740,6 +740,8 @@ const pt: Record<string, string> = {
   'detail.print.to': 'Para:',
   'detail.print.dialogFailed': 'Não pôde abrir a caixa de diálogo de impressão.',
   'detail.loadingMessage': 'A carregar mensagem',
+  'detail.bodyFetchFailed': 'Não foi possível carregar a mensagem completa.',
+  'detail.bodyFetchRetry': 'Tentar novamente',
   'detail.moveDialog.moved': 'Movido para {folder}.',
   'detail.moveDialog.dialogLabel': 'Mover para pasta',
   'detail.moveDialog.title': 'Mover para pasta',

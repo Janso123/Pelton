@@ -1369,6 +1369,151 @@ func (a *App) stopSyncRuntime(accountID int64, rt *accountSync, hard bool) {
 	}
 }
 
+// fetchMessageBodyOnDemand fetches the body of one stub the user opened, as
+// a fast-lane task: it starts on a free session, else on IDLE's, else when
+// a running task ends. The list row stays on failure; GetMessage surfaces
+// the error. While the account is being removed it fetches nothing and
+// returns nil, so the stub shows.
+func (a *App) fetchMessageBodyOnDemand(m *storage.Message) error {
+	if m == nil || m.BodyComplete {
+		return nil
+	}
+	account, err := a.store.GetAccount(a.ctx, m.AccountID)
+	if err != nil {
+		return err
+	}
+	if account.Local {
+		return nil
+	}
+	folder, err := a.store.GetFolder(a.ctx, m.FolderID)
+	if err != nil {
+		return err
+	}
+	msgID := m.ID
+	remoteIDs := []string{m.RemoteID}
+	if rt, err := a.ensureAccountSync(a.ctx, account.ID); err == nil && m.SizeBytes > rt.sched.ChunkBudget().Get() {
+		err = a.fetchLargeBodyOnDemand(*account, *folder, msgID, m.RemoteID)
+		if errors.Is(err, errAccountSyncHeld) {
+			return nil
+		}
+		return err
+	}
+	// A message that cannot be read leaves the task as a value, not as its
+	// error: the session is fine and must not be closed for it.
+	var unreadable error
+	err = a.runNowKey(a.ctx, *account, syncsched.KindOnDemandBody, folder.ID, fmt.Sprintf("open:%d", msgID),
+		func(ctx context.Context, _ mailClient) error {
+			// A queued open is stale once the body arrived another way, or
+			// the message left the folder.
+			need, err := a.store.MessageNeedsBody(ctx, msgID)
+			if errors.Is(err, storage.ErrMessageNotFound) || (err == nil && !need) {
+				return nil
+			}
+			if a.onDemandFetchForTest != nil {
+				err = a.onDemandFetchForTest(ctx, *account, *folder, remoteIDs)
+			} else {
+				err = a.protocolFor(*account).onDemandBodies(ctx, *account, *folder, remoteIDs)
+			}
+			if _, ok := errors.AsType[*psync.MessageError](err); ok {
+				unreadable = err
+				return nil
+			}
+			return err
+		})
+	if errors.Is(err, errAccountSyncHeld) {
+		// Being removed: the stub stays on screen until the account goes.
+		return nil
+	}
+	if err == nil && unreadable != nil {
+		return fmt.Errorf("%w: %w", errMessageUnreadable, unreadable)
+	}
+	return err
+}
+
+// errMessageUnreadable is an opened message the server sent but that could
+// not be read (psync.MessageError). Fetching it again gets the same bytes.
+var errMessageUnreadable = errors.New("pelton: this message could not be read")
+
+// fetchLargeBodyOnDemand fetches an opened message larger than the chunk
+// size in the normal lane, one chunk per unit, so it never holds a
+// fast-lane session for a long download. Its kind (KindOpenedBody) runs at
+// the top class and waits for no listing or body work of the folder.
+func (a *App) fetchLargeBodyOnDemand(account storage.Account, folder storage.Folder, msgID int64, remoteID string) error {
+	part := psync.NewPartialBody(remoteID)
+	var unreadable error
+	err := a.runPooled(a.ctx, account, poolTask{
+		Kind: syncsched.KindOpenedBody, FolderID: folder.ID,
+		Key: fmt.Sprintf("open:%d", msgID),
+		Run: func(ctx context.Context, c mailClient) error {
+			if need, err := a.store.MessageNeedsBody(ctx, msgID); err == nil && !need {
+				return nil
+			}
+			rt := a.accountSync(account.ID)
+			if rt == nil {
+				return errAccountSyncHeld
+			}
+			engine := a.newSyncEngine(pimap.NewAdapter(c), account.ID)
+			engine.OnProgress = nil
+			engine.OnStored = nil
+			done, res, err := engine.FetchBodyChunk(ctx, folder, part, rt.sched.ChunkBudget().Get())
+			// One chunk is one FETCH on this task's session. Joined
+			// callers share this unit, so it counts once.
+			a.noteUnitOutcome(account.ID, err)
+			if _, ok := errors.AsType[*psync.MessageError](err); ok {
+				unreadable = err
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if !done {
+				return syncsched.ErrAgain
+			}
+			// The pane hears mail:updated from its caller; the list needs no
+			// mail:new for a row filled in place.
+			if res.New > 0 {
+				a.afterStoredBodies()
+			}
+			a.notifyFresh(ctx, folder, []string{remoteID}, res.NewIDs, false)
+			return nil
+		},
+	})
+	if err == nil && unreadable != nil {
+		return fmt.Errorf("%w: %w", errMessageUnreadable, unreadable)
+	}
+	return err
+}
+
+// execIMAPOnDemandBodies fetches the bodies of the messages the user opened
+// on the task's session. One that cannot be read comes back as a
+// *psync.MessageError, the others stored. It draws no progress line, raises
+// no notification (the user is reading the message) and sends no mail:new:
+// the stubs are filled in place, and the pane hears mail:updated from its
+// caller.
+func (a *App) execIMAPOnDemandBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error {
+	err := a.withIMAPSession(ctx, account, func(client mailClient) error {
+		engine := a.newSyncEngine(pimap.NewAdapter(client), account.ID)
+		engine.OnProgress = nil
+		engine.OnStored = nil
+		res, err := engine.FetchBodies(ctx, folder, remoteIDs)
+		if bad, ok := errors.AsType[*psync.MessageError](err); ok {
+			a.log.Warn("opened message could not be read", "folder", folder.Name, "ids", bad.RemoteIDs, "err", bad.Err)
+		} else if psync.IsSoftError(err) {
+			// A push refused between batches stays pending; the body stands.
+			err = nil
+		}
+		if res.New > 0 {
+			a.afterStoredBodies()
+		}
+		a.notifyFresh(ctx, folder, remoteIDs, res.NewIDs, false)
+		return err
+	})
+	// Called from the open's task unit (or outside a task, where
+	// withIMAPSession's own task does not count): once per FETCH.
+	a.noteUnitOutcome(account.ID, err)
+	return err
+}
+
 // syncIMAPInitial records the initial sync pass the way syncAccountCtx records
 // every other account sync. onInboxDone runs once Inbox is listed and has its
 // first body batch, so IDLE can start before the other folders and the rest
@@ -1491,8 +1636,8 @@ func (a *App) stoppedErr(accountID int64, err error) error {
 // runIMAPManualSync is the sync behind TriggerSync, SyncAccountNow and timed
 // auto-sync: a group of normal-lane tasks (folder tree, then each folder's
 // list and body batches). The user's Sync (manual) runs them in the top
-// class. Fast-lane work (a move, a flag, the Sent copy) still goes first.
-// It does not hold the account lock. It returns once every folder is listed;
+// class. An opened message's body still goes first, in the fast lane. It
+// does not hold the account lock. It returns once every folder is listed;
 // the bodies go on in the background (runSyncPlan).
 //
 // The folder tree is a barrier: it may drop folder rows, so it waits for the
@@ -1538,8 +1683,20 @@ func mergeNewestIDs(newer, older []string) []string {
 // announces them; the fresh ones among them notify. quiet draws no progress
 // line (bodies outside a sync run: backfill, a full folder check).
 func (a *App) execIMAPBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string, quiet bool) error {
+	return a.fetchIMAPBodies(ctx, account, folder, remoteIDs, quiet, true)
+}
+
+// fetchIMAPBodies is execIMAPBodies; notify false never notifies.
+func (a *App) fetchIMAPBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string, quiet, notify bool) error {
+	return a.fillIMAPBodies(ctx, account, folder, remoteIDs, quiet, notify, true)
+}
+
+// fillIMAPBodies is fetchIMAPBodies; withAttachments false stores the
+// bodies without attachment files (an offline download without them).
+func (a *App) fillIMAPBodies(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string, quiet, notify, withAttachments bool) error {
 	err := a.withIMAPSession(ctx, account, func(client mailClient) error {
 		engine := a.newSyncEngine(pimap.NewAdapter(client), account.ID)
+		engine.WithoutAttachments = !withAttachments
 		if quiet {
 			engine.OnProgress = nil
 		}
@@ -1561,7 +1718,7 @@ func (a *App) execIMAPBodies(ctx context.Context, account storage.Account, folde
 		}
 		if err == nil {
 			a.announceStoredBodies(folder, res)
-			a.notifyFresh(ctx, folder, remoteIDs, res.NewIDs)
+			a.notifyFresh(ctx, folder, remoteIDs, res.NewIDs, notify)
 		}
 		return err
 	})

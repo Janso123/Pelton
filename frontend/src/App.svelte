@@ -69,7 +69,9 @@
   import { liabilityAccepted } from './lib/liability'
   import { setDemoActive } from './lib/demo'
   import { recordArchived } from './stores/undoarchive'
-  import { onMailNew, onMailRepaired, onSyncState, onSyncProgress, onOutboxChanged, onMenu, onViewsChanged, onFoldersChanged, onProfileChanged, onMailtoCompose, onAgentProposals, onOpenMessage, type Unsubscribe, type MailtoDraft } from './lib/events'
+  import { onMailNew, onMailRepaired, onMailUpdated, onMailBodyFailed, onSyncState, onSyncProgress, onOutboxChanged, onMenu, onViewsChanged, onFoldersChanged, onProfileChanged, onMailtoCompose, onAgentProposals, onOpenMessage, type Unsubscribe, type MailtoDraft } from './lib/events'
+  import { refreshMessage } from './stores/message'
+  import { markBodyFetchFailed, clearBodyFetchFailed } from './stores/bodyfetch'
   import { loadViews, editingView, closeViewEditor, openViewEditor, views as savedViews } from './stores/views'
   import { selectSavedView } from './stores/selection'
   import { isMac } from './lib/i18n'
@@ -353,6 +355,22 @@
         // the subjects and bodies changed underneath the list, so what is on
         // screen is stale rather than merely incomplete.
         void loadList(get(selection))
+      }),
+    )
+    unsubscribers.push(
+      onMailUpdated((e) => {
+        clearBodyFetchFailed(e.messageId)
+        const open = get(visibleMessageId)
+        if (open === e.messageId) {
+          void refreshMessage(e.messageId)
+        }
+      }),
+    )
+    unsubscribers.push(
+      onMailBodyFailed((e) => {
+        if (get(visibleMessageId) === e.messageId) {
+          markBodyFetchFailed(e.messageId)
+        }
       }),
     )
     unsubscribers.push(

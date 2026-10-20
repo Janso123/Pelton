@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,27 +12,45 @@ import (
 	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
-// While an account is held, UI paths get a quiet no-op: Sync does not report
-// a failure.
+// While an account is held, UI paths get a quiet no-op: opening a message
+// shows the stub, and Sync does not report a failure.
 func TestHeldAccountUIPathsAreQuiet(t *testing.T) {
 	a := newHoldTestApp(t)
-	id, _ := seedHoldAccount(t, a, "quiet@example.test")
+	id, folderID := seedHoldAccount(t, a, "quiet@example.test")
+	var fetched atomic.Int32
+	a.onDemandFetchForTest = func(context.Context, storage.Account, storage.Folder, []string) error {
+		fetched.Add(1)
+		return nil
+	}
 	var dialed atomic.Int32
 	a.newIMAPClient = func(pimap.Config) (mailClient, error) {
 		dialed.Add(1)
 		return &fakeIMAP{}, nil
 	}
+	stub := &storage.Message{AccountID: id, FolderID: folderID, RemoteID: "stub-1", Subject: "stub"}
+	if _, err := a.store.UpsertMessageListMeta(a.ctx, stub); err != nil {
+		t.Fatal(err)
+	}
 
 	release := a.holdAccountSync(id)
-	defer release()
+	if err := a.fetchMessageBodyOnDemand(stub); err != nil {
+		t.Errorf("on-demand body while held = %v, want nil (stub shown)", err)
+	}
 	if err := a.SyncAccountNow(id); err != nil {
 		t.Errorf("SyncAccountNow while held = %v, want nil", err)
 	}
 	if a.accountSync(id) != nil {
 		t.Error("a held account got a scheduler")
 	}
-	if dialed.Load() != 0 {
-		t.Errorf("held account ran sync work: %d connections", dialed.Load())
+	if fetched.Load() != 0 || dialed.Load() != 0 {
+		t.Errorf("held account ran sync work: %d fetches, %d connections", fetched.Load(), dialed.Load())
+	}
+	release()
+	if err := a.fetchMessageBodyOnDemand(stub); err != nil {
+		t.Fatalf("on-demand body after release: %v", err)
+	}
+	if fetched.Load() != 1 {
+		t.Errorf("fetches after release = %d, want 1", fetched.Load())
 	}
 }
 
@@ -80,6 +99,8 @@ func TestDeleteAccountHardCancelsOnlyThatAccount(t *testing.T) {
 	if err := trySync(a, idA); err == nil {
 		t.Error("ensureAccountSync recreated a removed account's runtime")
 	}
+	stale := &storage.Message{AccountID: idA, FolderID: r.folderA, RemoteID: "x"}
+	_ = a.fetchMessageBodyOnDemand(stale)
 	if a.accountSync(idA) != nil {
 		t.Error("a scheduler came back for the removed account")
 	}

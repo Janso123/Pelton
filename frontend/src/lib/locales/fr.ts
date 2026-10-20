@@ -743,6 +743,8 @@ const fr: Record<string, string> = {
   'detail.print.to': 'À :',
   'detail.print.dialogFailed': 'Impossible d\'ouvrir la boîte de dialogue d\'impression.',
   'detail.loadingMessage': 'Chargement du message',
+  'detail.bodyFetchFailed': 'Impossible de charger le message complet.',
+  'detail.bodyFetchRetry': 'Réessayer',
   'detail.moveDialog.moved': 'Déplacé vers {folder}.',
   'detail.moveDialog.dialogLabel': 'Déplacer vers un dossier',
   'detail.moveDialog.title': 'Déplacer vers un dossier',

@@ -558,7 +558,7 @@ func (rt *accountSync) dropBodyWant(folderID int64) {
 // holds (the account's adaptive count and byte budget, see
 // syncsched.BodyLimits), fetches it and returns syncsched.ErrAgain while more
 // are missing. Several units of one folder run at once (the generator's
-// width), so the claims keep them disjoint; when
+// width), so the claims keep them, and the offline download, disjoint; when
 // everything missing is claimed by others it returns syncsched.ErrSaturated.
 // A message larger than the account's chunk size comes alone, one chunk per
 // unit (imapBodyChunk), one such message per folder at a time. The folder's
@@ -734,7 +734,7 @@ func (a *App) imapBodyChunk(ctx context.Context, account storage.Account, folder
 		done, res, err = engine.FetchBodyChunk(ctx, folder, p, budget.Get())
 		if done && err == nil {
 			a.announceStoredBodies(folder, res)
-			a.notifyFresh(ctx, folder, []string{p.RemoteID}, res.NewIDs)
+			a.notifyFresh(ctx, folder, []string{p.RemoteID}, res.NewIDs, true)
 		}
 		return err
 	})

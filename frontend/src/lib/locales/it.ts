@@ -751,6 +751,8 @@ const it: Record<string, string> = {
   'detail.print.to': 'A:',
   'detail.print.dialogFailed': 'Impossibile aprire la finestra di stampa.',
   'detail.loadingMessage': 'Caricamento messaggio in corso',
+  'detail.bodyFetchFailed': 'Impossibile caricare il messaggio completo.',
+  'detail.bodyFetchRetry': 'Riprova',
   'detail.moveDialog.moved': 'Spostato in {folder}.',
   'detail.moveDialog.dialogLabel': 'Sposta nella cartella',
   'detail.moveDialog.title': 'Sposta nella cartella',

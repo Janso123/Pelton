@@ -223,6 +223,9 @@ type MessageDetailDTO struct {
 	// picked but not reported back. Empty for mail that was right about itself,
 	// which is nearly all of it, and the reader is shown nothing then.
 	CharsetGuess string `json:"charsetGuess"`
+	// BodyComplete is false while the row is still a list stub whose preview
+	// may be shown before the full body arrives.
+	BodyComplete bool `json:"bodyComplete"`
 }
 
 // TrackingPixelDTO is one remote image the scan thinks exists to report the
