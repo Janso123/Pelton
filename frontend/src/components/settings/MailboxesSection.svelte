@@ -8,7 +8,9 @@
   import { IconPencil, IconTrash, IconCheck, IconPlus, IconAlertTriangle, IconChevronRight } from '@tabler/icons-svelte'
   import ToggleSwitch from '../common/ToggleSwitch.svelte'
   import Modal from '../common/Modal.svelte'
+  import { clampSyncParallel, syncParallelOptions } from '../../lib/syncparallel'
   import InfoTip from '../common/InfoTip.svelte'
+  import StepSlider from './StepSlider.svelte'
   import {
     listAccounts,
     updateAccount,
@@ -33,9 +35,12 @@
   import AccountRouteFields from '../common/AccountRouteFields.svelte'
   import { routeSummary } from '../../lib/proxyroute'
   import { refreshSidebar } from '../../stores/accounts'
+  import { prefs } from '../../stores/prefs'
   import { missingPassword, askForPassword, refreshMissingPasswords } from '../../stores/passwordprompt'
+  import { retrySync } from '../../stores/syncfailures'
   import { errorMessage, toastError, toastSuccess, pushAction } from '../../stores/toast'
   import { accountLabel } from '../../lib/format'
+  import { connectionSummary } from '../../lib/connection'
   import type { Account, ProxyConfig, TLSMode, UntrustedCert } from '../../lib/types'
   import { t } from '../../lib/i18n'
 
@@ -81,6 +86,14 @@
   // how this mailbox starts a new message: unprotected, signed, or signed and
   // encrypted whenever every recipient has a key.
   const pgpDefaults = ['', 'sign', 'auto'] as const
+
+
+  // switching the default off starts the override at the current global value.
+  function setUseDefaultParallel(useDefault: boolean): void {
+    if (draft) {
+      draft.syncMaxParallel = useDefault ? null : clampSyncParallel($prefs.syncMaxParallel)
+    }
+  }
 
   function setPGPDefault(value: string): void {
     if (draft) {
@@ -359,11 +372,15 @@
         exportSubfolders: draft.exportSubfolders,
         exportNameTemplate: draft.exportNameTemplate,
         pgpDefault: draft.pgpDefault,
+        syncMaxParallel: draft.syncMaxParallel ?? null,
         proxy: draft.proxy,
       })
       accounts = accounts.map((a) => (a.id === updated.id ? updated : a))
       if (passwordDraft !== '') {
         void refreshMissingPasswords()
+        // a mailbox that had no password has not synced yet; waiting for the
+        // next sync would leave it looking broken after the fix.
+        void retrySync(updated.id)
       }
       void refreshSidebar()
       cancelEdit()
@@ -431,10 +448,12 @@
 {:else}
   <ul class="list">
     {#each accounts as account (account.id)}
+      {@const summary = connectionSummary(account, $t('sidebar.localFolders'))}
       <li>
         <div class="who">
           <span class="name">{accountLabel(account)}</span>
           {#if accountLabel(account) !== account.email}<span class="addr">{account.email}</span>{/if}
+          {#if summary !== accountLabel(account)}<span class="addr">{summary}</span>{/if}
         </div>
         {#if $missingPassword.has(account.id)}
           <button
@@ -525,6 +544,26 @@
           </div>
         </span>
       </div>
+      {#if !draft.local}
+        <div class="toggle">
+          <span>{$t('mailboxes.syncParallel.useDefaultNamed').replace('{n}', String(clampSyncParallel($prefs.syncMaxParallel)))}</span>
+          <ToggleSwitch
+            checked={draft.syncMaxParallel == null}
+            label={$t('mailboxes.syncParallel.useDefaultNamed').replace('{n}', String(clampSyncParallel($prefs.syncMaxParallel)))}
+            on:change={(e) => setUseDefaultParallel(e.detail)}
+          />
+        </div>
+        {#if draft.syncMaxParallel != null}
+          <StepSlider
+            label={$t('mailboxes.syncParallel.label')}
+            value={String(clampSyncParallel(draft.syncMaxParallel))}
+            options={syncParallelOptions}
+            on:change={(e) => {
+              if (draft) draft.syncMaxParallel = Number(e.detail)
+            }}
+          />
+        {/if}
+      {/if}
       {#if oauthProvider}
         <div class="field">
           <span>{$t('mailboxes.oauth.label')}</span>

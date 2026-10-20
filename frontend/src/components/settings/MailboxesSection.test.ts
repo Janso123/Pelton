@@ -106,6 +106,32 @@ describe('mailbox editor sign-in', () => {
   })
 })
 
+describe('mailbox editor parallel connections', () => {
+  it('offers 2 to 10 connections for an override', async () => {
+    api.listAccounts.mockResolvedValue([{ ...account, syncMaxParallel: 6 }])
+    api.accountOAuthProvider.mockResolvedValue('')
+    await openEditor()
+
+    const slider = await screen.findByRole('slider', { name: 'Parallel sync connections' })
+    // nine steps: 2, 3, ... 10. 1 is no longer offered.
+    expect(slider).toHaveAttribute('min', '0')
+    expect(slider).toHaveAttribute('max', '8')
+    expect(slider).toHaveAttribute('aria-valuetext', '6')
+    const ends = slider.nextElementSibling?.textContent?.replace(/\s+/g, ' ').trim()
+    expect(ends).toBe('2 10')
+  })
+
+  it('shows a stored 1 as the lowest step, 2', async () => {
+    api.listAccounts.mockResolvedValue([{ ...account, syncMaxParallel: 1 }])
+    api.accountOAuthProvider.mockResolvedValue('')
+    await openEditor()
+
+    const slider = await screen.findByRole('slider', { name: 'Parallel sync connections' })
+    expect(slider).toHaveAttribute('aria-valuetext', '2')
+    expect(slider).toHaveValue('0')
+  })
+})
+
 describe('add mailbox from settings', () => {
   // closing on 'added' would skip the folder picker and the done step.
   it('keeps the wizard open through the folder picker and reloads the list', async () => {

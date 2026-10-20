@@ -8,7 +8,7 @@ vi.mock('../lib/api', () => ({
 }))
 
 import { getMessage } from '../lib/api'
-import { bodyLoading, clearMessage, loadMessage, messageDetail, refreshMessage } from './message'
+import { bodyLoading, clearMessage, loadMessage, messageDetail, refreshMessage, setBodyHtml } from './message'
 
 const fetchMessage = vi.mocked(getMessage)
 
@@ -236,3 +236,20 @@ describe('detail update races', () => {
 })
 
 // loading remote images is a round trip; another message can open meanwhile.
+describe('setBodyHtml', () => {
+  it('swaps the body of the message it names', () => {
+    messageDetail.set(ready(detail(1, { bodyHtmlSafe: '<p>blocked</p>' })))
+
+    setBodyHtml(1, '<p>with images</p>')
+
+    expect(get(messageDetail).data?.bodyHtmlSafe).toBe('<p>with images</p>')
+  })
+
+  it('leaves another open message alone', () => {
+    messageDetail.set(ready(detail(2, { bodyHtmlSafe: '<p>second</p>' })))
+
+    setBodyHtml(1, '<p>first with images</p>')
+
+    expect(get(messageDetail).data?.bodyHtmlSafe).toBe('<p>second</p>')
+  })
+})

@@ -4,6 +4,7 @@
 
 import { EventsOn } from '../../wailsjs/runtime/runtime'
 import type { AccountSyncState } from './types'
+import type { SyncPhase } from './syncstatus'
 
 // event names, matching the go constants exactly.
 export const EventNames = {
@@ -63,6 +64,7 @@ export interface SyncProgressEvent {
   // mailboxes rather than messages.
   foldersDone: number
   foldersTotal: number
+  phase?: SyncPhase
 }
 
 /** Payload of mail:updated: the id of a message row that changed in place, such as a stub that gained its body. */
@@ -75,6 +77,7 @@ export interface MailBodyFailedEvent {
   messageId: number
 }
 
+/** Payload of the sync state event: whether background sync is running, and the error that ended it, if any. */
 export interface SyncStateEvent {
   running: boolean
   error: string
@@ -87,6 +90,7 @@ export interface AccountSyncStateEvent {
   states: AccountSyncState[]
 }
 
+/** Payload of the bulk download progress event: counts, percent and ETA of a running download. */
 export interface DownloadProgressEvent {
   running: boolean
   done: number
@@ -97,6 +101,7 @@ export interface DownloadProgressEvent {
   error: string
 }
 
+/** Payload of the attachment save progress event: bytes and files done out of the total. */
 export interface AttachmentProgressEvent {
   running: boolean
   filename: string

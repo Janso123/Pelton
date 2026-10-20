@@ -35,9 +35,10 @@
   import { loadSignatures } from './stores/signatures'
   import { loadVIPSenders } from './stores/vip'
   import { loadVirusTotalConfig } from './stores/virustotal'
-  import { loadOutbox, syncing, lastSynced, syncFolder, syncServer, syncAccount, syncCounts, emptySyncCounts } from './stores/outbox'
+  import { loadOutbox, syncing, lastSynced, syncFolder, syncServer, syncAccount, syncCounts, syncPhase, emptySyncCounts } from './stores/outbox'
   import { selection, applyStartupSelection, searchQuery } from './stores/selection'
-  import { loadList, messageList } from './stores/messages'
+  import { loadList, listIsPaginated, messageList, refreshListHead } from './stores/messages'
+  import { refreshListOnMailNew } from './lib/maillistrefresh'
   import { initProgress } from './stores/progress'
   import { composeSessions, openCompose, openComposeWith, initComposePrefs, openReply, openForward, requestComposeClose } from './stores/compose'
   import { openSnooze, openSnoozeMany } from './stores/snooze'
@@ -69,6 +70,7 @@
   import { liabilityAccepted } from './lib/liability'
   import { setDemoActive } from './lib/demo'
   import { recordArchived } from './stores/undoarchive'
+  import { accountPhase, applyProgressEvent, applySyncState, currentProgress, currentVerify, isSyncing, startProgressSweep, type SyncView } from './lib/syncprogress'
   import { onMailNew, onMailRepaired, onMailUpdated, onMailBodyFailed, onSyncState, onSyncProgress, onOutboxChanged, onMenu, onViewsChanged, onFoldersChanged, onProfileChanged, onMailtoCompose, onAgentProposals, onOpenMessage, type Unsubscribe, type MailtoDraft } from './lib/events'
   import { refreshMessage } from './stores/message'
   import { markBodyFetchFailed, clearBodyFetchFailed } from './stores/bodyfetch'
@@ -181,6 +183,30 @@
   // onboarding, and the acknowledgement is deliberately never remembered.
   let nightlyOpen = false
   const unsubscribers: Unsubscribe[] = []
+  let syncView: SyncView = { progress: new Map(), verify: new Map(), running: false }
+  // pushes the view into the status bar's stores. A running sync owns the line;
+  // the background folder check shows only when nothing else runs.
+  function publishSyncView(view: SyncView): void {
+    const running = isSyncing(view)
+    syncing.set(running)
+    const cur = currentProgress(view.progress) ?? (running ? null : currentVerify(view))
+    syncFolder.set(cur ? cur.folder : '')
+    syncServer.set(cur ? cur.server : '')
+    syncAccount.set(cur ? cur.accountEmail : '')
+    syncPhase.set(cur?.phase ? cur.phase : '')
+    syncCounts.set(
+      cur
+        ? {
+            done: cur.done,
+            total: cur.total,
+            folderDone: cur.folderDone,
+            folderTotal: cur.folderTotal,
+            foldersDone: cur.foldersDone,
+            foldersTotal: cur.foldersTotal,
+          }
+        : emptySyncCounts,
+    )
+  }
 
   // live pane widths. they track the persisted prefs unless the user is mid-drag,
   // so a resize feels immediate and only commits on release.
@@ -345,9 +371,15 @@
     }
 
     unsubscribers.push(
-      onMailNew(() => {
+      onMailNew((e) => {
         void refreshSidebar()
-        void loadList(get(selection))
+        refreshListOnMailNew(e.accountId, {
+          selection: () => get(selection),
+          phase: (id) => accountPhase(syncView, id),
+          paginated: listIsPaginated,
+          loadList,
+          refreshListHead,
+        })
       }),
     )
     unsubscribers.push(
@@ -375,14 +407,13 @@
     )
     unsubscribers.push(
       onSyncState((e) => {
-        syncing.set(e.running)
+        // fires once per account run, so it cannot clear the status line;
+        // only the progress closing events do that.
+        syncView = applySyncState(syncView, e.running, Date.now())
+        syncing.set(isSyncing(syncView))
         // record the moment a sync finishes for the status bar's last-synced time.
         if (!e.running) {
           lastSynced.set(Date.now())
-          syncFolder.set('')
-          syncServer.set('')
-          syncAccount.set('')
-          syncCounts.set(emptySyncCounts)
           // a password the server refuses is only discovered by trying, so the
           // markers can only be right after a sync has run.
           void refreshMissingPasswords()
@@ -391,26 +422,18 @@
     )
     unsubscribers.push(
       onSyncProgress((e) => {
-        // the closing event carries no folder name; that is what says the run
-        // is over, rather than the counts, which for a resync of a cached
-        // mailbox can be 0 of 0 the whole way through.
-        const running = e.folder !== ''
-        syncFolder.set(running ? e.folder : '')
-        syncServer.set(running ? e.server : '')
-        syncAccount.set(running ? e.accountEmail : '')
-        syncCounts.set(
-          running
-            ? {
-                done: e.done,
-                total: e.total,
-                folderDone: e.folderDone,
-                folderTotal: e.folderTotal,
-                foldersDone: e.foldersDone,
-                foldersTotal: e.foldersTotal,
-              }
-            : emptySyncCounts,
-        )
+        // accounts sync concurrently, so the line follows whichever is still
+        // running instead of going blank when the first one closes.
+        syncView = applyProgressEvent(syncView, e, Date.now())
+        publishSyncView(syncView)
       }),
+    )
+    unsubscribers.push(
+      startProgressSweep(
+        () => syncView,
+        (v) => (syncView = v),
+        publishSyncView,
+      ),
     )
     unsubscribers.push(watchSyncStates())
     unsubscribers.push(

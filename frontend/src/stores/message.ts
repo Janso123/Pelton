@@ -108,10 +108,12 @@ export function clearMessage(): void {
   messageDetail.set(idle())
 }
 
-// setBodyHtml swaps the rendered body, used after loading remote images.
-export function setBodyHtml(html: string): void {
+// setBodyHtml swaps the rendered body, used after loading remote images. It
+// names the message the html belongs to: the load is a round trip, and if
+// another message opened meanwhile this one's body must not land under it.
+export function setBodyHtml(id: number, html: string): void {
   messageDetail.update((s) => {
-    if (s.status !== 'ready' || !s.data) {
+    if (s.status !== 'ready' || !s.data || s.data.id !== id) {
       return s
     }
     return ready({ ...s.data, bodyHtmlSafe: html })
