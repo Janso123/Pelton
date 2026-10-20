@@ -27,6 +27,9 @@ func TestPanickedListLetsGoOfItsFolder(t *testing.T) {
 			_, err := listWhole(ctx, a, account, inbox)
 			return err
 		}},
+		{"full reconcile", func(ctx context.Context, a *App, account storage.Account, inbox storage.Folder) error {
+			return a.execFullReconcile(ctx, account, inbox)
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := &inboxIMAP{uids: []imap.UID{1, 2}}

@@ -111,3 +111,30 @@ func TestIMAPRunHeartbeatKeepsProgressAlive(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 	assertClosedOnce(t, rec.snapshot())
 }
+
+// The "checking folders" line reports once per folder, and one big folder
+// can take longer than the ui keeps a silent line. Its latest event is sent
+// again while checks run, and not after the closing one.
+func TestVerifyLineHeartbeat(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a := &App{}
+		rec := &progressRecorder{}
+		a.emitForTest = rec.hook(1)
+		a.emitSyncProgress(1, "a@example.test", "", syncCounts{Folder: "Archive", FoldersTotal: 3, Phase: SyncPhaseVerify})
+		synctest.Sleep(3*syncProgressHeartbeat + time.Second)
+		ev := rec.snapshot()
+		if len(ev) != 4 {
+			t.Fatalf("got %d events, want the first and 3 heartbeats", len(ev))
+		}
+		for _, e := range ev {
+			if e.Folder != "Archive" || e.Phase != SyncPhaseVerify {
+				t.Fatalf("heartbeat sent %+v, want the latest verify event", e)
+			}
+		}
+		a.emitSyncProgress(1, "a@example.test", "", syncCounts{Phase: SyncPhaseVerify})
+		synctest.Sleep(3 * syncProgressHeartbeat)
+		if ev := rec.snapshot(); len(ev) != 5 || ev[4].Folder != "" {
+			t.Fatalf("events after the closing one: %+v", ev[4:])
+		}
+	})
+}

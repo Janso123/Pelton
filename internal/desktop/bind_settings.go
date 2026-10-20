@@ -159,6 +159,12 @@ const (
 	// them; sending stays outside the pool. Clamped to
 	// [minSyncMaxParallel, maxSyncMaxParallel] on write and on read.
 	settingSyncMaxParallel = "sync_max_parallel"
+	// how many days a folder may go without a full reconcile before it is
+	// re-listed in full in the background (checked at startup, after each
+	// timed sync and hourly). 0 means only manual Sync does that, for folders
+	// not checked in a day. Low-power mode queues none. Clamped to
+	// [0, maxSyncFullReconcileDays].
+	settingSyncFullReconcileDays = "sync_full_reconcile_days"
 	// the order of the unified views block in the sidebar, as a comma-separated
 	// list of view keys (#187). The views have no rows of their own, so unlike
 	// folders and accounts their order lives here. Empty means the built-in
@@ -217,6 +223,10 @@ const (
 	defaultSyncMaxParallel = 3
 	minSyncMaxParallel     = 1
 	maxSyncMaxParallel     = 10
+	// days between background full reconciles of a folder, and the largest
+	// value the setting accepts.
+	defaultSyncFullReconcileDays = 7
+	maxSyncFullReconcileDays     = 365
 )
 
 // UIPrefsDTO is the complete set of user-facing preferences this step exposes:
@@ -421,6 +431,10 @@ type UIPrefsDTO struct {
 	// IDLE included. Clamped to 1–10 (the ui offers 2–10). Sending does not
 	// use one.
 	SyncMaxParallel int `json:"syncMaxParallel"`
+	// SyncFullReconcileDays is how many days a folder may go without a full
+	// reconcile before it is re-checked in the background; 0 means only
+	// manual Sync does, for folders not checked in a day.
+	SyncFullReconcileDays int `json:"syncFullReconcileDays"`
 	// StartupSelection is what the sidebar selects on launch: "view:<key>" for a
 	// unified view, "folder:<id>" for one account folder, or "last" to restore
 	// the previous session. A target that no longer exists falls back to the
@@ -525,6 +539,7 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		SyncMessageLimit:           a.syncMessageLimit(),
 		SyncAutoBackfill:           a.boolSetting(settingSyncAutoBackfill, true),
 		SyncMaxParallel:            a.syncMaxParallel(),
+		SyncFullReconcileDays:      a.fullReconcileDays(),
 		StartupSelection:           a.stringSetting(settingStartupSelection, defaultStartupSelection),
 		LogToFile:                  a.logsOn(),
 		LogLevel:                   logging.LevelName(a.logLevel()),
@@ -561,6 +576,13 @@ func (a *App) SetSetting(key, value string) error {
 			n = defaultSyncMaxParallel
 		}
 		value = strconv.Itoa(clampSyncMaxParallel(n))
+	}
+	if key == settingSyncFullReconcileDays {
+		n, err := strconv.Atoi(value)
+		if err != nil {
+			n = defaultSyncFullReconcileDays
+		}
+		value = strconv.Itoa(clampFullReconcileDays(n))
 	}
 	var limitRaisedFrom, limitRaisedTo int
 	var raiseMessageLimit bool

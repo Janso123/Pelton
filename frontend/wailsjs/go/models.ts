@@ -2298,6 +2298,7 @@ export namespace desktop {
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
 	    syncMaxParallel: number;
+	    syncFullReconcileDays: number;
 	    startupSelection: string;
 	    logToFile: boolean;
 	    logLevel: string;
@@ -2390,6 +2391,7 @@ export namespace desktop {
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];
 	        this.syncMaxParallel = source["syncMaxParallel"];
+	        this.syncFullReconcileDays = source["syncFullReconcileDays"];
 	        this.startupSelection = source["startupSelection"];
 	        this.logToFile = source["logToFile"];
 	        this.logLevel = source["logLevel"];

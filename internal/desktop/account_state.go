@@ -17,8 +17,13 @@ type accountState struct {
 	// it.
 	lock sync.Mutex
 
-	// mu guards closers and holds.
+	// mu guards closers, holds and the check backoffs.
 	mu sync.Mutex
+	// checkFails is, per folder, the failed full checks in a row and when the
+	// next may run; checksDown the same for the whole account, after a check
+	// failed on the connection or the login. In memory only.
+	checkFails map[int64]checkFailure
+	checksDown checkFailure
 	// holds counts holdAccountSync callers. While it is above zero no
 	// scheduler can be started for the account, so no sync job can run.
 	holds int
@@ -35,6 +40,11 @@ type accountState struct {
 	// event clears it.
 	progressMu   sync.Mutex
 	lastProgress *SyncProgressEvent
+	// lastVerify is the latest running event of the folder check line, which
+	// its own heartbeat re-sends while verifyBeating; a closing verify event
+	// clears it. Both are guarded by progressMu.
+	lastVerify    *SyncProgressEvent
+	verifyBeating bool
 
 	// late watches the bodies the account's passes left running and counts
 	// its recorded sync outcomes.

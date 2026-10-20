@@ -13,7 +13,8 @@ import (
 // found it ("fresh"): a list records the ids it found that were not
 // incomplete stubs already, and the body fetch that stores one of them
 // notifies. Bodies stored for anything else (a backfill, a raised limit, an
-// old stub refilled, an opened message) only update the list.
+// old stub refilled, a full check healing the cache, an opened message) only
+// update the list.
 
 // freshTTL is how long a fresh id waits for its body. One whose body never
 // lands (gone from the server) is forgotten after it.

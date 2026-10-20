@@ -1326,27 +1326,6 @@ func (m freshMark) fresh(toFetch []string) []string {
 	return freshSince(toFetch, m.lastSeen, m.before)
 }
 
-// freshSince is the ids of toFetch above lastSeen, the highest UID the
-// folder had seen, that were not incomplete stubs already (before): mail
-// that arrived since the last list. A folder never listed (lastSeen 0) has
-// no new mail, only a first list; ids that are not UIDs are not judged.
-func freshSince(toFetch []string, lastSeen uint32, before map[string]struct{}) []string {
-	if lastSeen == 0 {
-		return nil
-	}
-	var out []string
-	for _, id := range toFetch {
-		uid, err := strconv.ParseUint(id, 10, 32)
-		if err != nil || uint32(uid) <= lastSeen {
-			continue
-		}
-		if _, old := before[id]; !old {
-			out = append(out, id)
-		}
-	}
-	return out
-}
-
 // softListError logs a soft error of a list (psync.IsSoftError: a refused
 // flag or delete push stays pending, an unreadable message stays a stub) and
 // returns nil for it: the list's result stands. Any other error is returned.

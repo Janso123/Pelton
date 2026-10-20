@@ -219,8 +219,10 @@ func TestLateBodiesOfRemovedAccountEmitNothing(t *testing.T) {
 	defer release()
 	a.stopAccountScheduler(account.ID, true)
 	recv(t, handled, 10*time.Second, "the late body outcome was never handled")
-	if evs := rec.snapshot()[before:]; len(evs) > 0 {
-		t.Fatalf("a removed account's late bodies emitted %+v", evs[0])
+	for _, e := range rec.snapshot()[before:] {
+		if e.Phase != SyncPhaseVerify {
+			t.Fatalf("a removed account's late bodies emitted %+v", e)
+		}
 	}
 	if syncFailing(t, a) {
 		t.Fatal("a removed account's stopped bodies were recorded as a failure")

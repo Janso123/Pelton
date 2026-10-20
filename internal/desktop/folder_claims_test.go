@@ -33,6 +33,11 @@ func TestFolderClaims(t *testing.T) {
 	if c.held(8) || c.len() != 0 {
 		t.Fatalf("drop left %d claims", c.len())
 	}
+	c.claim(1)
+	c.claim(2)
+	if !c.clear() || c.len() != 0 || c.clear() {
+		t.Fatal("clear did not report and remove every claim exactly once")
+	}
 }
 
 // A holder's token lets it go only of its own claim: once it let go and

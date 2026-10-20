@@ -93,3 +93,10 @@ func (c *folderClaims) held(id int64) bool {
 }
 
 func (c *folderClaims) len() int { return len(c.byID) }
+
+// clear drops every hold and reports whether there was any.
+func (c *folderClaims) clear() (had bool) {
+	had = len(c.byID) > 0
+	c.byID = nil
+	return had
+}

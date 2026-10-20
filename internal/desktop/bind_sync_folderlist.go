@@ -69,8 +69,9 @@ func (s *accountSessions) claimFolderListNoMark(folderID int64) uint64 {
 var folderListPoll = 100 * time.Millisecond
 
 // awaitFolderList claims a folder for a list, waiting while another list of
-// it runs, without marking it dirty. An older listing takes the folder this
-// way: it moves the window, which it may only do while it holds the folder.
+// it runs, without marking it dirty. A full reconcile takes the folder this
+// way: run beside a delta it would store the flags and cursor it read before
+// the delta's newer ones.
 // It returns the claim's token.
 func (s *accountSessions) awaitFolderList(ctx context.Context, folderID int64) (uint64, error) {
 	for {

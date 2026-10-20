@@ -15,6 +15,7 @@ import (
 	"github.com/peltonapp/Pelton/internal/outbox"
 	psmtp "github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
+	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
 var _ mailProtocol = imapProtocol{}
@@ -59,6 +60,11 @@ func (p imapProtocol) firstSync(ctx context.Context, account storage.Account) {
 	// A pass that never reached Inbox (no password, no folder list) starts
 	// IDLE here; it waits for a password on its own.
 	startIdle()
+	// Only a pass that got through: after a refused login or with the
+	// server down every check would fail, each with a login of its own.
+	if ctx.Err() == nil && err == nil {
+		a.enqueueDueReconcile(ctx, account)
+	}
 }
 
 // watch hands IMAP IDLE to the account's scheduler as its push watcher. It
@@ -82,6 +88,12 @@ func (p imapProtocol) limitNeedsBodies(ctx context.Context, f storage.Folder, ne
 		return false
 	}
 	return hasOlder || newLimit == 0
+}
+
+func (p imapProtocol) withListEngine(ctx context.Context, account storage.Account, fn func(*psync.Engine) error) error {
+	return p.a.withIMAPSession(ctx, account, func(client mailClient) error {
+		return fn(p.a.newSyncEngine(pimap.NewAdapter(client), account.ID))
+	})
 }
 
 func (p imapProtocol) transmit(ctx context.Context, account storage.Account, m outbox.Message) error {

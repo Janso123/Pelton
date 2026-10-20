@@ -125,7 +125,7 @@ func TestFastTaskOnOneAccountIgnoresAnotherBusyAccount(t *testing.T) {
 	mustAccountSync(t, a, idB).pool.SetConfigured(1)
 	hold := make(chan struct{})
 	defer close(hold)
-	recv(t, signalJob(rtA.sched, syncsched.KindListStubs, 1, hold), 2*time.Second, "A's task never started")
+	recv(t, signalJob(rtA.sched, syncsched.KindFullCheck, 1, hold), 2*time.Second, "A's task never started")
 
 	ran := make(chan error, 1)
 	go func() {

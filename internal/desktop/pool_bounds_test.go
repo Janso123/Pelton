@@ -14,7 +14,7 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
-	psync "github.com/peltonapp/Pelton/internal/sync"
+	"github.com/peltonapp/Pelton/internal/storage"
 )
 
 // idleQueue waits until the account has no queued or running task.
@@ -45,6 +45,27 @@ func TestNewMailWithoutCursorListsInTheNormalLane(t *testing.T) {
 	}
 	// Only the list is waited for: the 2000 bodies after it are slow under -race.
 	waitUntil(t, 30*time.Second, "the queued list never stored the folder", func() bool { return rowCount(t, a, inbox) == 2000 })
+}
+
+// The full check lists a page per unit, so other work runs between pages.
+func TestFullCheckListsAPagePerUnit(t *testing.T) {
+	client := &pagingIMAP{n: 2000}
+	a, account, inbox, _ := pagingInbox(t, client)
+	var mu sync.Mutex
+	var pages []int
+	client.onHeaders = func() {
+		mu.Lock()
+		pages = append(pages, rowCount(t, a, inbox.ID))
+		mu.Unlock()
+	}
+	a.enqueueFullReconcile(a.ctx, account, []storage.Folder{inbox})
+	waitUntil(t, 30*time.Second, "the check never stored the folder", func() bool { return rowCount(t, a, inbox.ID) == 2000 })
+	mu.Lock()
+	defer mu.Unlock()
+	// Before each page: 0, 50, 550, 1050, 1550 rows stored.
+	if len(pages) < 5 || pages[1] != 50 {
+		t.Fatalf("rows before each header fetch %v, want pages of 50 then 500", pages)
+	}
 }
 
 // "Load older" lists one small page in the fast lane; the rest of the batch
@@ -313,15 +334,14 @@ func TestDeletingTheNewestMailIsNoNewMailBurst(t *testing.T) {
 	}
 	check()
 
-	// The newest 60 go; a full list of the folder sees 140 as the highest
-	// UID.
+	// The newest 60 go; a full check lists the folder and sees 140 as the
+	// highest UID.
 	client.mu.Lock()
 	client.uids = client.uids[:140]
 	client.mu.Unlock()
-	inTask(t, a, account, inbox.ID, func(ctx context.Context) error {
-		_, _, err := a.listStubPage(ctx, account, inbox, &psync.StubPager{}, listOpts{paged: true})
-		return err
-	})
+	if err := a.execFullReconcile(a.ctx, account, inbox); err != nil {
+		t.Fatalf("full check: %v", err)
+	}
 	idleQueue(t, rt)
 	if seen, err := a.store.FolderLastSeenUID(a.ctx, inbox.ID); err != nil || seen != 140 {
 		t.Fatalf("highest UID seen %d (%v), want 140", seen, err)

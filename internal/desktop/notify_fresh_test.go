@@ -162,6 +162,31 @@ func TestOnlyFreshMailNotifies(t *testing.T) {
 	}
 }
 
+// A list asked for while a full check holds the folder runs after it as a
+// delta. Mail that delta finds is new and notifies; what the full list
+// healed into the cache does not.
+func TestDeltaFoldedIntoAFullCheckNotifies(t *testing.T) {
+	client := &inboxIMAP{uids: []imap.UID{5}}
+	a, account, inbox, notified := notifyRig(t, client)
+	rt := mustAccountSync(t, a, account.ID)
+	client.onList = func() {
+		// While the check lists, a push asks for the folder and mail 6 arrives.
+		if rt.shared.claimFolderList(inbox.ID) != 0 {
+			t.Error("the check did not hold the folder")
+		}
+		client.add(6)
+	}
+	if err := a.execFullReconcile(a.ctx, account, inbox); err != nil {
+		t.Fatalf("full reconcile: %v", err)
+	}
+	id := recv(t, notified, 2*time.Second, "mail found by the folded delta raised no notification")
+	m, err := a.store.GetMessage(a.ctx, id)
+	if err != nil || m.UID != 6 {
+		t.Fatalf("notified message %d (uid %d, %v), want uid 6", id, m.UID, err)
+	}
+	noRecv(t, notified, 200*time.Millisecond, "the healed message raised a notification")
+}
+
 // A list asked for while "load older" holds the folder is folded into the
 // older listing, which lists once more. Mail that arrived meanwhile is new
 // and notifies, though the listing it came in is old mail; the older mail
@@ -212,6 +237,31 @@ func TestNewMailFoldedIntoAnOlderListingNotifies(t *testing.T) {
 		t.Fatalf("notified uid %d, want 11", m.UID)
 	}
 	noRecv(t, notified, 200*time.Millisecond, "older mail raised a notification")
+}
+
+// Mail that arrives just before a full folder check is listed by the check
+// itself, quietly, as a stub. It is still new mail: its uid is above the
+// highest the folder had seen when the check started, so its body notifies.
+// Before, the next list found it as an old incomplete stub and nothing ever
+// announced it.
+func TestMailFirstListedByAFullCheckNotifies(t *testing.T) {
+	client := &inboxIMAP{uids: []imap.UID{5}}
+	a, account, inbox, notified := notifyRig(t, client)
+	inTask(t, a, account, inbox.ID, func(ctx context.Context) error {
+		ids, err := listWhole(ctx, a, account, inbox)
+		if err != nil {
+			return err
+		}
+		return a.execIMAPBodies(ctx, account, inbox, ids, false)
+	})
+	recv(t, notified, 2*time.Second, "the first mail raised no notification")
+	client.add(6)
+	a.enqueueFullReconcile(a.ctx, account, []storage.Folder{inbox})
+	id := recv(t, notified, 5*time.Second, "mail first listed by the full check raised no notification")
+	if m := mustGetMessage(t, a.store, id); m.UID != 6 {
+		t.Fatalf("notified uid %d, want 6", m.UID)
+	}
+	noRecv(t, notified, 200*time.Millisecond, "a second notification")
 }
 
 // refusingFlagsIMAP is inboxIMAP on a server that refuses every flag change.

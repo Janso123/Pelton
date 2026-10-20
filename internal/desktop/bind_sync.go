@@ -85,6 +85,15 @@ type accountSync struct {
 	// bodyRuns is, per folder, its body generator's run: whether its
 	// repair pass is running or done (see startFinish).
 	bodyRuns map[int64]*bodyRunState
+	// reconciling holds the folders with a full reconcile queued or running,
+	// so a second request for the same folder is dropped. verifyDone and
+	// verifyTotal drive the "checking folders" progress line.
+	reconciling             folderClaims
+	verifyDone, verifyTotal int
+	// checkQueue holds the claimed folders whose check waits for the one
+	// running (checkRunning): an account runs one check at a time.
+	checkQueue   []storage.Folder
+	checkRunning bool
 	// fresh holds, per folder, the ids a list found as new mail and when;
 	// their bodies notify (see notify_fresh.go).
 	fresh map[int64]map[string]time.Time
@@ -348,6 +357,7 @@ func (a *App) startBackgroundServices() {
 	goSafe("waking snoozed mail", a.runSnoozePoller)
 	goSafe("collecting addresses", a.harvestAddressBook)
 	goSafe("the periodic sync", a.runAutoSyncLoop)
+	goSafe("checking folders", a.runDueReconcileLoop)
 	a.startMCPIfEnabled()
 	goSafe("counting unread mail", a.refreshViewCounts)
 }
@@ -487,7 +497,9 @@ func (a *App) autoSyncAccount(account storage.Account) bool {
 }
 
 // syncListedAccounts syncs every remote account include accepts (all when nil).
-// manual is true when the user asked for the sync.
+// manual is true when the user asked for the sync, which also queues the
+// background full folder check of every folder not checked in the last 24 h;
+// otherwise only folders due by the setting are queued.
 func (a *App) syncListedAccounts(include func(storage.Account) bool, manual bool) error {
 	if err := a.ready(); err != nil {
 		return err
@@ -552,7 +564,10 @@ func (a *App) syncListedAccounts(include func(storage.Account) bool, manual bool
 // syncAccount syncs one account and records how it went, so a failure survives
 // the run it happened in. Every caller goes through here rather than
 // syncAccountOnce, since an unrecorded failure is the bug (#322). manual is
-// true only for a sync the user asked for.
+// true only for a sync the user asked for: a successful one then queues the
+// full folder check of every folder not checked in the last 24 h. A
+// successful timed auto-sync queues it only for folders whose last check is
+// older than the setting.
 func (a *App) syncAccount(account storage.Account, manual bool) error {
 	return a.syncAccountCtx(a.ctx, account, manual)
 }
@@ -577,6 +592,13 @@ func (a *App) syncAccountCtx(ctx context.Context, account storage.Account, manua
 		return nil
 	}
 	a.notePassOutcome(ctx, account.ID, err)
+	if err == nil {
+		if manual {
+			a.enqueueReconcileAfterManual(ctx, account)
+		} else {
+			a.enqueueDueReconcile(ctx, account)
+		}
+	}
 	return err
 }
 
@@ -826,9 +848,20 @@ func progressEvent(accountID int64, email, server string, c syncCounts) SyncProg
 // emitSyncProgressLocked records and sends ev; the caller holds
 // st.progressMu.
 func (a *App) emitSyncProgressLocked(st *accountState, ev SyncProgressEvent) {
-	if ev.Folder == "" {
+	// The verify line is the ui's separate line for the background check,
+	// with a heartbeat of its own (startVerifyHeartbeat).
+	switch {
+	case ev.Phase == SyncPhaseVerify && ev.Folder == "":
+		st.lastVerify = nil
+	case ev.Phase == SyncPhaseVerify:
+		st.lastVerify = &ev
+		if !st.verifyBeating {
+			st.verifyBeating = true
+			a.startVerifyHeartbeat(st)
+		}
+	case ev.Folder == "":
 		st.lastProgress = nil
-	} else {
+	default:
 		st.lastProgress = &ev
 	}
 	a.emit(EventSyncProgress, ev)
@@ -1360,12 +1393,16 @@ func (a *App) stopAccountSchedulerIf(accountID int64, rt *accountSync) {
 	a.stopSyncRuntime(accountID, rt, false)
 }
 
-// stopSyncRuntime stops rt's scheduler (see accountSync.stop); hard also
-// closes the account's sessions.
+// stopSyncRuntime stops rt's scheduler (see accountSync.stop) and closes the
+// "checking folders" line if full reconciles were still queued: they will
+// never run, so no task is left to close it.
 func (a *App) stopSyncRuntime(accountID int64, rt *accountSync, hard bool) {
 	rt.stop(hard)
 	if hard {
 		a.closeAccountSessions(accountID)
+	}
+	if rt.dropReconciles() {
+		a.emitSyncProgress(accountID, a.accountEmail(accountID), "", syncCounts{Phase: SyncPhaseVerify})
 	}
 }
 

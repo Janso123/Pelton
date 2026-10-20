@@ -192,6 +192,8 @@ type App struct {
 	syncStateMu   sync.Mutex
 	syncStateRuns int
 
+	// fullReconcileForTest, when set, replaces execFullReconcile. Tests only.
+	fullReconcileForTest func(ctx context.Context, account storage.Account, folder storage.Folder) error
 	// onDemandFetchForTest, when set, replaces the protocol fetch inside
 	// fetchMessageBodyOnDemand. Production leaves it nil.
 	onDemandFetchForTest func(ctx context.Context, account storage.Account, folder storage.Folder, remoteIDs []string) error

@@ -174,7 +174,7 @@ type SyncProgressEvent struct {
 	FoldersDone  int `json:"foldersDone"`
 	FoldersTotal int `json:"foldersTotal"`
 	// Phase is "stubs" while the named folder is listed, "bodies" while bodies
-	// are fetched, else empty.
+	// are fetched, and "verify" on the background folder check's own line.
 	Phase string `json:"phase"`
 }
 

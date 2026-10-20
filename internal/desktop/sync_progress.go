@@ -8,10 +8,11 @@ import (
 )
 
 // A sync run reports whether it is listing stubs or fetching bodies, so the
-// status bar can say which (#313).
+// status bar can say which (#313). Verify is the background full reconcile.
 const (
 	SyncPhaseStubs  = "stubs"
 	SyncPhaseBodies = "bodies"
+	SyncPhaseVerify = "verify"
 )
 
 // syncTally accumulates what a sync run is doing, so the status bar can show a
@@ -157,7 +158,7 @@ type syncCounts struct {
 	FolderTotal  int
 	FoldersDone  int
 	FoldersTotal int
-	// Phase is stubs or bodies during a sync run.
+	// Phase is stubs or bodies during a sync run, verify for the full check.
 	Phase string
 }
 

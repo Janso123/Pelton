@@ -7,6 +7,7 @@ import (
 
 	"github.com/peltonapp/Pelton/internal/outbox"
 	"github.com/peltonapp/Pelton/internal/storage"
+	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
 // mailProtocol is the protocol-specific half of syncing and changing a
@@ -28,7 +29,7 @@ type mailProtocol interface {
 	bodyBatch(ctx context.Context, account storage.Account, folder storage.Folder) error
 	// planDownload lists the download tasks and the pinned ids since the cutoff.
 	planDownload(ctx context.Context, account storage.Account, folders []storage.Folder, since time.Time) ([]dlTask, []int64, error)
-	// firstSync is the worker's first pass: watch, initial sync.
+	// firstSync is the worker's first pass: watch, initial sync, due reconcile.
 	// It returns when the first pass is done; the worker then waits for ctx.
 	firstSync(ctx context.Context, account storage.Account)
 	// watch starts the account's push watcher on its scheduler.
@@ -40,6 +41,9 @@ type mailProtocol interface {
 	// limitNeedsBodies reports whether a changed sync limit leaves the folder
 	// work to do. A store error is logged and counts as no.
 	limitNeedsBodies(ctx context.Context, folder storage.Folder, newLimit int) bool
+	// withListEngine runs fn with the engine that lists the account's folders
+	// for a full reconcile.
+	withListEngine(ctx context.Context, account storage.Account, fn func(*psync.Engine) error) error
 	// transmit sends one queued outbox message for the account.
 	transmit(ctx context.Context, account storage.Account, m outbox.Message) error
 	// moveMessage moves a cached message to dest on the server, then drops the

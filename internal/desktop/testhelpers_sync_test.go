@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/emersion/go-imap/v2"
-
 	"github.com/peltonapp/Pelton/internal/credentials"
 	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
@@ -406,101 +404,4 @@ func (r *twoAccountRig) park(t *testing.T, accountID int64) parkedJob {
 	})
 	recv(t, running, 2*time.Second, "parked job never started")
 	return p
-}
-
-// reconcileTestApp is an App with a store, one account and its folders.
-func reconcileTestApp(t *testing.T, folders ...storage.Folder) (*App, storage.Account, []storage.Folder) {
-	t.Helper()
-	ctx, stop := testContext(t)
-	db, err := storage.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	// after the store's cleanup, so it runs first: goroutines still using the
-	// store finish before it closes (see testContext).
-	t.Cleanup(stop)
-	if err := db.RunMigrations(ctx); err != nil {
-		t.Fatal(err)
-	}
-	id, err := db.CreateAccount(ctx, &storage.Account{Email: "user@example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	account, err := db.GetAccount(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []storage.Folder
-	for _, f := range folders {
-		folder := f
-		folder.AccountID = id
-		if _, err := db.CreateFolder(ctx, &folder); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, folder)
-	}
-	a := &App{ctx: ctx, store: db, log: slog.New(slog.DiscardHandler), workers: map[int64]*accountWorker{}}
-	useFake(t, a, id, &fakeIMAP{})
-	t.Cleanup(func() { a.stopAccountScheduler(id, false) })
-	return a, *account, out
-}
-
-// reconcileInbox is a reconcileTestApp with one INBOX whose IMAP sessions all
-// use client. The scheduler stops before the account's password goes, so a
-// body job a test queues ends first.
-func reconcileInbox(t *testing.T, client mailClient) (*App, storage.Account, storage.Folder) {
-	t.Helper()
-	a, account, folders := reconcileTestApp(t, storage.Folder{Name: "INBOX", IMAPPath: "INBOX", RemoteID: "INBOX"})
-	t.Cleanup(func() { a.stopAccountScheduler(account.ID, false) })
-	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
-	return a, account, folders[0]
-}
-
-// oneMailIMAP is an INBOX holding one unseen message, UID 5, that the cache
-// does not have yet.
-type oneMailIMAP struct{ fakeIMAP }
-
-func (*oneMailIMAP) Select(mailbox string) (*pimap.Mailbox, error) {
-	return &pimap.Mailbox{Name: mailbox, UIDValidity: 1, UIDNext: 6, NumMessages: 1}, nil
-}
-
-func (*oneMailIMAP) FetchAllFlags() ([]pimap.MessageHeader, error) {
-	return []pimap.MessageHeader{{UID: 5}}, nil
-}
-
-func (*oneMailIMAP) FetchHeaders([]imap.UID, *imap.FetchOptions) ([]pimap.MessageHeader, error) {
-	return []pimap.MessageHeader{{UID: 5, Subject: "old", From: "ada@example.com", Date: time.Now(), HasEnvelope: true}}, nil
-}
-
-func (*oneMailIMAP) FetchMessages(uids []imap.UID, fn func(imap.UID, *pimap.Message, error) error) error {
-	for _, uid := range uids {
-		if err := fn(uid, &pimap.Message{UID: uid, Subject: "old", From: "ada@example.com", Date: time.Now(), Text: "hi"}, nil); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// recordingOneMailIMAP is oneMailIMAP that reports every body fetch.
-type recordingOneMailIMAP struct {
-	oneMailIMAP
-	fetched chan []imap.UID
-}
-
-func (c *recordingOneMailIMAP) FetchMessages(uids []imap.UID, fn func(imap.UID, *pimap.Message, error) error) error {
-	c.fetched <- append([]imap.UID(nil), uids...)
-	return c.oneMailIMAP.FetchMessages(uids, fn)
-}
-
-// holdFolderList runs a list task of the folder until the returned func is
-// called. Body tasks of the folder wait for it.
-func holdFolderList(t *testing.T, rt *accountSync, folderID int64) func() {
-	t.Helper()
-	hold := make(chan struct{})
-	recv(t, signalJob(rt.sched, syncsched.KindListStubs, folderID, hold), 2*time.Second, "list task never started")
-	var once sync.Once
-	release := func() { once.Do(func() { close(hold) }) }
-	t.Cleanup(release)
-	return release
 }
