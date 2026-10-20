@@ -173,8 +173,11 @@ func TestTransmitAppendsACopyToSent(t *testing.T) {
 	if string(client.appended[0]) != string(raw) {
 		t.Errorf("appended %q, want the message that was sent", client.appended[0])
 	}
-	if !client.loggedOut {
-		t.Error("the imap session opened for the append was left open")
+	// The append ran on a pooled session; stopping the runtime logs it out.
+	app.stopAccountScheduler(account.ID, false)
+	app.accountSessionsFor(account.ID, 0).sessions.WaitClosed(context.Background()) // closes run in the background
+	if !client.loggedOut.Load() {
+		t.Error("the pooled imap session was left open after the runtime stopped")
 	}
 }
 

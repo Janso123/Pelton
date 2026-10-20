@@ -167,6 +167,9 @@ type SyncProgressEvent struct {
 	// the "mailbox 3 of 12" part of the line.
 	FoldersDone  int `json:"foldersDone"`
 	FoldersTotal int `json:"foldersTotal"`
+	// Phase is "stubs" while the named folder is listed, "bodies" while bodies
+	// are fetched, else empty.
+	Phase string `json:"phase"`
 }
 
 // SyncStateEvent is the payload for EventSyncState. Error is empty on success.

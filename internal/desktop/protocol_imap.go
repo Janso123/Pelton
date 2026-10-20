@@ -7,16 +7,78 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/emersion/go-imap/v2"
+	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/outbox"
 	psmtp "github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
-	psync "github.com/peltonapp/Pelton/internal/sync"
 )
 
 var _ mailProtocol = imapProtocol{}
+
+func (p imapProtocol) manualSync(ctx context.Context, account storage.Account, manual bool) error {
+	return p.a.runIMAPManualSync(ctx, account, manual)
+}
+
+func (p imapProtocol) olderStep(ctx context.Context, account storage.Account, folder storage.Folder, older *olderList) ([]string, bool, error) {
+	return p.a.imapOlderStep(ctx, account, folder, older)
+}
+
+func (p imapProtocol) bodyBatch(ctx context.Context, account storage.Account, folder storage.Folder) error {
+	return p.a.imapBodyBatch(ctx, account, folder)
+}
+
+func (p imapProtocol) planDownload(ctx context.Context, account storage.Account, folders []storage.Folder, since time.Time) ([]dlTask, []int64, error) {
+	return p.a.planIMAPAccount(ctx, account, folders, since)
+}
+
+func (p imapProtocol) firstSync(ctx context.Context, account storage.Account) {
+	a := p.a
+	startIdle := sync.OnceFunc(func() {
+		goSafe("watching for new mail", func() { a.idleLoop(ctx, account) })
+	})
+	// IDLE starts once Inbox is listed and has its first body batch, so mail
+	// arriving during the rest of the pass (Inbox's older bodies included)
+	// shows at once. At N=1 the scheduler keeps the only session on the
+	// pass and checks new mail between tasks.
+	err := a.syncIMAPInitial(ctx, account, startIdle)
+	if err != nil {
+		if errors.Is(err, errNoCredentials) {
+			a.log.Warn("mailbox has no password, not syncing", "account", account.Email)
+		} else if ctx.Err() == nil {
+			a.log.Error("account sync", "account", account.Email, "err", err)
+		}
+	}
+	// A pass that never reached Inbox (no password, no folder list) starts
+	// IDLE here; it waits for a password on its own.
+	startIdle()
+}
+
+// watch hands IMAP IDLE to the account's scheduler as its push watcher. It
+// returns at once; the scheduler keeps IDLE until it stops.
+func (p imapProtocol) watch(ctx context.Context, account storage.Account) {
+	rt, err := p.a.ensureAccountSync(ctx, account.ID)
+	if err != nil {
+		return
+	}
+	rt.sched.EnablePush(p.a.imapPush(account))
+}
+
+func (p imapProtocol) needsTimedSync(int64) bool { return true }
+
+func (p imapProtocol) lockPerFolder() bool { return false }
+
+func (p imapProtocol) limitNeedsBodies(ctx context.Context, f storage.Folder, newLimit int) bool {
+	hasOlder, err := p.a.store.FolderHasOlderOnServer(ctx, f.ID)
+	if err != nil {
+		p.a.log.Error("sync floor for limit delta", "folder", f.ID, "err", err)
+		return false
+	}
+	return hasOlder || newLimit == 0
+}
 
 func (p imapProtocol) transmit(ctx context.Context, account storage.Account, m outbox.Message) error {
 	t := &accountTransmitter{app: p.a}
@@ -35,47 +97,44 @@ func (p imapProtocol) transmit(ctx context.Context, account storage.Account, m o
 
 func (p imapProtocol) moveMessage(m *storage.Message, source, dest storage.Folder, account storage.Account) (ArchiveUndoDTO, error) {
 	a := p.a
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-	defer client.Logout()
-	if _, err := client.Select(source.IMAPPath); err != nil {
-		return ArchiveUndoDTO{}, fmt.Errorf("move: select %q: %w", source.IMAPPath, err)
-	}
-
-	// the raw source has to be fetched before the move: afterwards the message
-	// lives under a new uid in another mailbox. it rides the connection the move
-	// already opened, and a failure here never blocks the archive.
 	var (
-		raw         []byte
-		exportError string
+		undo     ArchiveUndoDTO
+		localErr error
 	)
-	if exportWanted(account, dest) {
-		raw, err = client.FetchRawMessage(imap.UID(m.UID))
-		if err != nil {
-			raw = nil
-			exportError = err.Error()
-			a.log.Error("archive export: fetch source", "id", m.ID, "err", err)
+	err := a.runNow(a.ctx, account, syncsched.KindMove, source.ID, func(_ context.Context, client mailClient) error {
+		unlock := a.lockMutations(account.ID)
+		defer unlock()
+		if _, err := client.Select(source.IMAPPath); err != nil {
+			return fmt.Errorf("move: select %q: %w", source.IMAPPath, err)
 		}
-	}
-
-	if err := a.moveRecordingUID(client, imap.UID(m.UID), dest, m.MessageID); err != nil {
+		// The raw source has to be fetched before the move: afterwards the
+		// message has a new uid in another mailbox. A failure here never
+		// blocks the archive.
+		var (
+			raw         []byte
+			exportError string
+		)
+		if exportWanted(account, dest) {
+			var err error
+			raw, err = client.FetchRawMessage(imap.UID(m.UID))
+			if err != nil {
+				raw = nil
+				exportError = err.Error()
+				a.log.Error("archive export: fetch source", "id", m.ID, "err", err)
+			}
+		}
+		if err := a.moveRecordingUID(client, imap.UID(m.UID), dest, m.MessageID); err != nil {
+			return err
+		}
+		// A local error is returned past the task, so it does not close a
+		// healthy session.
+		undo, localErr = a.finishMove(m, source, dest, account, raw, exportError)
+		return nil
+	})
+	if err != nil {
 		return ArchiveUndoDTO{}, err
 	}
-	return a.finishMove(m, source, dest, account, raw, exportError)
+	return undo, localErr
 }
 
 // moveBack moves the copy the move made back to dest. It is found by the
@@ -87,69 +146,57 @@ func (p imapProtocol) moveBack(rfcMessageID string, from, dest storage.Folder, a
 	if rfcMessageID == "" {
 		return fmt.Errorf("pelton: this message cannot be moved back (no Message-ID)")
 	}
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return err
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return err
-	}
-	defer client.Logout()
-	box, err := client.Select(from.IMAPPath)
-	if err != nil {
-		return fmt.Errorf("undo move: select %q: %w", from.IMAPPath, err)
-	}
-	moved, err := a.moveBackOnSession(client, rfcMessageID, from, dest, box.UIDValidity)
+	var (
+		moved    imap.UID
+		validity uint32
+	)
+	err := a.runNow(a.ctx, account, syncsched.KindMove, from.ID, func(_ context.Context, client mailClient) error {
+		unlock := a.lockMutations(account.ID)
+		defer unlock()
+		box, err := client.Select(from.IMAPPath)
+		if err != nil {
+			return fmt.Errorf("undo move: select %q: %w", from.IMAPPath, err)
+		}
+		uid := a.movedUIDs.take(from.ID, rfcMessageID, box.UIDValidity)
+		if m := asUIDMover(client); uid != 0 && m != nil {
+			// A UID MOVE of a UID that is gone (another client expunged
+			// it) is an OK that moves nothing. The UID was recorded from
+			// this server's COPYUID, so a move that did happen names its
+			// copy again; none means nothing moved. Another copy with the
+			// same Message-ID is not the one the user moved, so there is
+			// no search then: the undo fails plainly instead.
+			back, _, err := m.MoveUID(uid, dest.IMAPPath)
+			if err != nil {
+				return err
+			}
+			if back != 0 {
+				moved, validity = uid, box.UIDValidity
+			}
+			return nil
+		}
+		if uid == 0 {
+			uids, err := client.SearchByMessageID(rfcMessageID)
+			if err != nil || len(uids) == 0 {
+				return err
+			}
+			uid = uids[len(uids)-1]
+		}
+		if err := client.Move(uid, dest.IMAPPath); err != nil {
+			return err
+		}
+		moved, validity = uid, box.UIDValidity
+		return nil
+	})
 	if err != nil {
 		return err
 	}
 	if moved == 0 {
 		return fmt.Errorf("pelton: moved message not found to restore")
 	}
-	a.dropMovedCopy(account, from, moved, box.UIDValidity)
+	a.dropMovedCopy(account, from, moved, validity)
 	a.emit(EventMailNew, MailNewEvent{AccountID: from.AccountID, FolderID: from.ID})
 	a.emit(EventMailNew, MailNewEvent{AccountID: dest.AccountID, FolderID: dest.ID, Count: 1})
 	return nil
-}
-
-// moveBackOnSession moves the recorded copy, else the search's highest UID,
-// from from (selected on client under validity) to dest. It returns the UID
-// it moved, 0 when nothing was.
-func (a *App) moveBackOnSession(client mailClient, rfcMessageID string, from, dest storage.Folder, validity uint32) (imap.UID, error) {
-	uid := a.movedUIDs.take(from.ID, rfcMessageID, validity)
-	if m := asUIDMover(client); uid != 0 && m != nil {
-		// A UID MOVE of a UID that is gone (another client expunged
-		// it) is an OK that moves nothing. The UID was recorded from
-		// this server's COPYUID, so a move that did happen names its
-		// copy again; none means nothing moved. Another copy with the
-		// same Message-ID is not the one the user moved, so there is
-		// no search then: the undo fails plainly instead.
-		back, _, err := m.MoveUID(uid, dest.IMAPPath)
-		if err != nil || back == 0 {
-			return 0, err
-		}
-		return uid, nil
-	}
-	if uid == 0 {
-		uids, err := client.SearchByMessageID(rfcMessageID)
-		if err != nil || len(uids) == 0 {
-			return 0, err
-		}
-		uid = uids[len(uids)-1]
-	}
-	if err := client.Move(uid, dest.IMAPPath); err != nil {
-		return 0, err
-	}
-	return uid, nil
 }
 
 // dropMovedCopy removes from's row for uid, which a sync of from may have
@@ -185,10 +232,14 @@ type uidMover interface {
 // Message-ID search.
 var _ uidMover = (*pimap.Client)(nil)
 
-// asUIDMover returns client as a uidMover, or nil when the session cannot
-// report COPYUID.
+// asUIDMover returns client as a uidMover, looking through the pool's
+// wrapper, or nil when the session cannot report COPYUID.
 func asUIDMover(client mailClient) uidMover {
-	m, _ := client.(uidMover)
+	c := client
+	if p, ok := c.(*pooledIMAP); ok {
+		c = p.mailClient
+	}
+	m, _ := c.(uidMover)
 	return m
 }
 
@@ -264,28 +315,15 @@ func (m *movedCopies) take(folderID int64, messageID string, validity uint32) im
 
 func (p imapProtocol) source(m storage.Message, folder storage.Folder, account storage.Account) (string, error) {
 	a := p.a
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return "", err
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return "", offlineOrErr(err)
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return "", offlineOrErr(err)
-	}
-	defer client.Logout()
-	if _, err := client.Select(folder.IMAPPath); err != nil {
-		return "", offlineOrErr(err)
-	}
-
-	raw, err := client.FetchRawMessage(imap.UID(m.UID))
+	var raw []byte
+	err := a.runNow(a.ctx, account, syncsched.KindSource, folder.ID, func(_ context.Context, client mailClient) error {
+		if _, err := client.Select(folder.IMAPPath); err != nil {
+			return err
+		}
+		var err error
+		raw, err = client.FetchRawMessage(imap.UID(m.UID))
+		return err
+	})
 	if err != nil {
 		return "", offlineOrErr(err)
 	}
@@ -294,99 +332,112 @@ func (p imapProtocol) source(m storage.Message, folder storage.Folder, account s
 
 func (p imapProtocol) setColor(m storage.Message, folder storage.Folder, account storage.Account, color int) {
 	a := p.a
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return // no credentials: color stays local until sync is possible
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		a.log.Error("color sync: connect", "err", err)
-		return
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		a.log.Error("color sync: login", "err", err)
-		return
-	}
-	defer client.Logout()
-	if _, err := client.Select(folder.IMAPPath); err != nil {
-		a.log.Error("color sync: select", "folder", folder.IMAPPath, "err", err)
-		return
-	}
-
-	uid := imap.UID(m.UID)
-	if err := client.RemoveFlags(uid, colorKeywords...); err != nil {
-		a.log.Error("color sync: clear labels", "err", err)
-	}
-	if color >= 1 && color <= len(colorKeywords) {
-		if err := client.AddFlags(uid, colorKeywords[color-1]); err != nil {
-			a.log.Error("color sync: add label", "err", err)
+	err := a.runNow(a.ctx, account, syncsched.KindFlags, folder.ID, func(_ context.Context, client mailClient) error {
+		unlock := a.lockMutations(account.ID)
+		defer unlock()
+		if _, err := client.Select(folder.IMAPPath); err != nil {
+			return fmt.Errorf("select %q: %w", folder.IMAPPath, err)
 		}
+		uid := imap.UID(m.UID)
+		// A failed step does not stop the next; the first failure is the
+		// task's outcome, for the throttle and the session's health.
+		var failed error
+		if err := client.RemoveFlags(uid, colorKeywords...); err != nil {
+			failed = fmt.Errorf("clear labels: %w", err)
+		}
+		if color >= 1 && color <= len(colorKeywords) {
+			if err := client.AddFlags(uid, colorKeywords[color-1]); err != nil {
+				if failed != nil {
+					a.log.Error("color sync: add label", "err", err)
+				} else {
+					failed = fmt.Errorf("add label: %w", err)
+				}
+			}
+		}
+		return failed
+	})
+	switch {
+	case errors.Is(err, errNoCredentials), errors.Is(err, errAccountSyncHeld):
+		// No password, or the account is going: the colour stays local.
+	case err != nil:
+		a.log.Error("color sync", "err", err)
 	}
-}
-
-// withSession resolves the account's IMAP config (an OAuth refresh may go
-// to the network) before taking syncMu, then runs fn on a fresh logged-in
-// session under it, so a folder operation never races a sync.
-func (p imapProtocol) withSession(account storage.Account, fn func(mailClient) error) error {
-	a := p.a
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return err
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return err
-	}
-	defer client.Logout()
-	return fn(client)
 }
 
 // createFolder creates the mailbox at path, the parent's stored path and
-// delimiter plus name (see folderPath).
-func (p imapProtocol) createFolder(_ context.Context, account storage.Account, _ *storage.Folder, _, path string) (string, error) {
-	err := p.withSession(account, func(client mailClient) error {
+// delimiter plus name (see folderPath), and stores it in the same task.
+func (p imapProtocol) createFolder(ctx context.Context, account storage.Account, _ *storage.Folder, _, path string, apply func(string) error) error {
+	return p.a.runFolderOp(ctx, account, 0, func(client mailClient) error {
 		return client.CreateFolder(path)
-	})
-	return path, err
+	}, func() error { return apply(path) })
 }
 
 // renameFolder renames the mailbox to newPath, computed from its stored path
-// and delimiter. The server moves its children along.
-func (p imapProtocol) renameFolder(_ context.Context, account storage.Account, folder storage.Folder, _, newPath string) error {
-	return p.withSession(account, func(client mailClient) error {
+// and delimiter, and updates the store in the same task. The server moves
+// its children along.
+func (p imapProtocol) renameFolder(ctx context.Context, account storage.Account, folder storage.Folder, _, newPath string, apply func() error) error {
+	return p.a.runFolderOp(ctx, account, folder.ID, func(client mailClient) error {
 		return client.RenameFolder(folder.IMAPPath, newPath)
-	})
+	}, apply)
 }
 
-// deleteFolders deletes the mailboxes in order, on one session.
-func (p imapProtocol) deleteFolders(_ context.Context, account storage.Account, folders []storage.Folder) error {
-	return p.withSession(account, func(client mailClient) error {
+// deleteFolders deletes the mailboxes in order, in one fast-lane task, and
+// drops their rows in it.
+func (p imapProtocol) deleteFolders(ctx context.Context, account storage.Account, folders []storage.Folder, apply func() error) error {
+	return p.a.runFolderOp(ctx, account, 0, func(client mailClient) error {
 		for _, f := range folders {
 			if err := client.DeleteFolder(f.IMAPPath); err != nil {
 				return err
 			}
 		}
 		return nil
-	})
+	}, apply)
 }
 
-func (p imapProtocol) withAdapter(account *storage.Account, fn func(psync.Adapter) error) error {
-	return p.withSession(*account, func(client mailClient) error {
-		return fn(pimap.NewAdapter(client))
+// runFolderOp runs a mailbox command and then apply, its store update, in
+// one fast-lane task. A folder discovery is a barrier, so it runs before or
+// after both, never between. apply's error is the store's: the task ends
+// cleanly and the session stays.
+func (a *App) runFolderOp(ctx context.Context, account storage.Account, folderID int64, server func(mailClient) error, apply func() error) error {
+	var applyErr error
+	err := a.runNow(ctx, account, syncsched.KindFolderOp, folderID, func(_ context.Context, client mailClient) error {
+		if err := server(client); err != nil {
+			return err
+		}
+		applyErr = apply()
+		return nil
 	})
+	if err != nil {
+		return err
+	}
+	return applyErr
+}
+
+// download runs each folder as a normal-lane generator task: one batch per
+// unit, back to the tail while more is left, so the Sent copy and other
+// fast-lane work get a session between batches.
+func (p imapProtocol) download(ctx context.Context, account storage.Account, groups map[int64]*folderTasks, includeAttachments bool, prog *dlProgress) error {
+	a := p.a
+	folders := make([]storage.Folder, 0, len(groups))
+	for _, ft := range groups {
+		folders = append(folders, ft.folder)
+	}
+	// One task per folder key, so a folder's units never run at once.
+	return a.runFolderTasks(ctx, account, syncsched.KindOffline, syncsched.KindOffline.String(), folders,
+		func(taskCtx context.Context, client mailClient, folder storage.Folder) error {
+			if ctx.Err() != nil {
+				return nil
+			}
+			ft := groups[folder.ID]
+			chunk := ft.remoteIDs[:min(downloadBatch, len(ft.remoteIDs))]
+			ft.remoteIDs = ft.remoteIDs[len(chunk):]
+			more := len(ft.remoteIDs) > 0
+			a.fetchDownloadBatch(taskCtx, pimap.NewAdapter(client), account, folder, chunk, includeAttachments, prog)
+			if more {
+				return syncsched.ErrAgain
+			}
+			return nil
+		})
 }
 
 // checkPassword dials the server and logs in with the typed password.
@@ -410,7 +461,7 @@ func (p imapProtocol) checkPassword(account storage.Account, password string) Pa
 	}
 	defer client.Close()
 	if err := client.Login(); err != nil {
-		if errors.Is(err, pimap.ErrAuthFailed) {
+		if loginRefused(err) {
 			return PasswordCheckDTO{Rejected: true, Error: err.Error()}
 		}
 		return PasswordCheckDTO{Error: err.Error()}
@@ -426,28 +477,17 @@ func (p imapProtocol) routeServers(_ storage.Account, requested []routeServer) (
 	return requested, nil
 }
 
-// discoverFolders lists the mailboxes over imap and creates the folder rows.
+// discoverFolders lists the mailboxes and creates the folder rows, as the
+// account's first task: nothing else of the account starts until it ends.
 func (p imapProtocol) discoverFolders(ctx context.Context, account storage.Account) error {
 	a := p.a
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return err
-	}
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return err
-	}
-	defer client.Logout()
-
-	folders, err := client.ListFolders()
-	if err != nil {
-		return err
-	}
-	return a.createFolderTree(account.ID, folders, nil)
+	return a.runFolderTree(ctx, account, func(c mailClient) error {
+		folders, err := c.ListFolders()
+		if err != nil {
+			return err
+		}
+		return a.createFolderTree(account.ID, folders, nil)
+	})
 }
 
 // folderPath is the path of a new folder under parent. A flat mailbox list

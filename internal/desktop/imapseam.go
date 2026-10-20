@@ -20,12 +20,17 @@ import (
 type mailClient interface {
 	Login() error
 	Logout() error
+	// Noop checks that the session still answers.
+	Noop() error
 	Close() error
 	// Addr is the server the client is talking to, host and port, for the log
 	// lines the debug overlay shows.
 	Addr() string
 
 	Select(mailbox string) (*pimap.Mailbox, error)
+	// SelectedMailbox is the mailbox Select last opened on this session, or
+	// nil. The adapter skips a SELECT of the mailbox already open.
+	SelectedMailbox() *pimap.Mailbox
 	ListFolders() ([]pimap.Folder, error)
 	CreateFolder(path string) error
 	RenameFolder(path, newPath string) error
@@ -35,7 +40,6 @@ type mailClient interface {
 	// account's Sent folder, and reports which folder it used.
 	AppendToSent(raw []byte) (string, error)
 
-	FetchMessage(uid imap.UID) (*pimap.Message, error)
 	FetchMessages(uids []imap.UID, fn func(uid imap.UID, msg *pimap.Message, err error) error) error
 	FetchRawMessage(uid imap.UID) ([]byte, error)
 	FetchPartial(uid imap.UID, offset, length int64) (*pimap.Message, error)

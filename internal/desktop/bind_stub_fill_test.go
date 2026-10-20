@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/emersion/go-imap/v2"
 
 	"github.com/peltonapp/Pelton/internal/credentials"
+	"github.com/peltonapp/Pelton/internal/desktop/syncsched"
 	pimap "github.com/peltonapp/Pelton/internal/imap"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
@@ -78,6 +80,8 @@ func stubRig(t *testing.T, client mailClient) (*App, storage.Account, storage.Fo
 	}
 	t.Cleanup(func() { _ = credentials.Delete(accountID) })
 	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
+	// the fast-lane fetch starts the account's runtime; it stops first.
+	t.Cleanup(func() { a.stopAccountScheduler(accountID, false) })
 	account, err := db.GetAccount(ctx, accountID)
 	if err != nil {
 		t.Fatal(err)
@@ -150,18 +154,22 @@ func TestR7OfflinePinRequiresBody(t *testing.T) {
 
 // A date-range download fetches a cached stub (the server's SINCE lists
 // it) and pins it once its body is stored, rather than counting it as
-// downloaded already.
+// downloaded already. The stub keeps its attachments even when the user
+// chose to leave them out, as a sync's body fill would.
 func TestR7RangeDownloadMustIncludeStub(t *testing.T) {
 	a, account, _, id := stubRig(t, &bodyIMAP{})
-	tasks, err := a.planAccount(a.ctx, account, time.Now().AddDate(0, -1, 0))
+	tasks, pin, err := a.planAccount(a.ctx, account, time.Now().AddDate(0, -1, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tasks) != 1 || tasks[0].uid != 7 {
-		t.Fatalf("stub omitted: tasks=%+v", tasks)
+	if len(tasks) != 1 || tasks[0].remoteID != "7" {
+		t.Fatalf("stub omitted: tasks=%+v pin=%v", tasks, pin)
 	}
-	if err := a.runDownload(a.ctx, tasks, true, len(tasks)); err != nil {
+	if err := a.runDownload(a.ctx, tasks, pin, false, len(tasks)); err != nil {
 		t.Fatal(err)
+	}
+	if atts, err := a.store.ListAttachments(a.ctx, id); err != nil || len(atts) != 1 {
+		t.Errorf("stub has %d attachments (%v), want its one", len(atts), err)
 	}
 	if m := mustMessage(t, a, id); !m.Offline || !m.BodyComplete || m.BodyPlain != "the body" {
 		t.Fatalf("after the range download Offline=%v BodyComplete=%v BodyPlain=%q, want a pinned body", m.Offline, m.BodyComplete, m.BodyPlain)
@@ -281,6 +289,46 @@ func TestR8ConcurrentFillKeepsSingleAttachmentAndRevision(t *testing.T) {
 	}
 }
 
+// Opening stubs on a server that refuses them counts toward the throttle:
+// two failures in a row halve the account's sessions.
+func TestR8StubFetchFeedsThrottle(t *testing.T) {
+	c := &bodyIMAP{fail: errors.New("NO [LIMIT] too many open connections")}
+	a, account, _, id := stubRig(t, c)
+	setParallel(t, a, 4)
+	rt := mustAccountSync(t, a, account.ID)
+	for range 2 {
+		if _, err := a.GetMessage(id); err == nil {
+			t.Fatal("expected the refusal")
+		}
+	}
+	if n := rt.pool.Effective(); n != 2 {
+		t.Fatalf("two failed body fetches left effective N=%d, want 2", n)
+	}
+}
+
+// Opening a stub larger than the chunk size fetches it in chunks in the
+// normal lane, never whole in one fast-lane unit, and returns it whole.
+func TestR8LargeOpenComesInChunks(t *testing.T) {
+	const size = 12 << 20
+	client := &pagingIMAP{n: 1, sources: map[imap.UID][]byte{1: bigSource(size)}}
+	a, _, inbox, _ := pagingInbox(t, client)
+	seedStub(t, a, inbox, 1, size)
+	id, err := a.store.MessageIDByRemoteID(a.ctx, inbox.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.GetMessage(id); err != nil {
+		t.Fatalf("GetMessage: %v", err)
+	}
+	ops := client.opsSnapshot()
+	if len(ops) != 3 || !strings.HasPrefix(ops[0], "chunk ") {
+		t.Fatalf("ops %v, want three chunks", ops)
+	}
+	if m := mustMessage(t, a, id); !m.BodyComplete {
+		t.Fatal("the opened message has no body")
+	}
+}
+
 // generationResetIMAP selects INBOX under UIDVALIDITY 111 and, while the
 // FETCH is in flight, runs reset: a listing that found 222 and replaced the
 // local stub of uid 7.
@@ -374,5 +422,79 @@ func TestR9ActualOpenGenerationReset(t *testing.T) {
 	}
 	if m := mustMessage(t, a, newID); m.BodyComplete {
 		t.Fatalf("opening old row %d filled the new-generation row %d: %q", oldID, newID, m.BodyPlain)
+	}
+}
+
+// Two callers that join one open (GetMessage and DownloadMessageOffline
+// while the account is busy) share its one FETCH, and its refusal counts
+// once: N stays 4.
+func TestR9JoinedStubOutcomeCountedOnce(t *testing.T) {
+	c := &bodyIMAP{fail: errors.New("NO [LIMIT] too many open connections")}
+	a, account, folder, id := stubRig(t, c)
+	setParallel(t, a, 4)
+	rt := mustAccountSync(t, a, account.ID)
+	started, release := make(chan struct{}), make(chan struct{})
+	rt.sched.Enqueue(imapTask{Kind: syncsched.KindListStubs, FolderID: folder.ID, Barrier: true, Run: func(context.Context, mailClient) error {
+		close(started)
+		<-release
+		return nil
+	}})
+	<-started
+	out := make(chan error, 2)
+	go func() { _, err := a.GetMessage(id); out <- err }()
+	go func() { out <- a.DownloadMessageOffline(id) }()
+	waitUntil(t, 2*time.Second, "the two opens never joined one queued task", func() bool { return rt.sched.Stats().Fast == 1 })
+	time.Sleep(50 * time.Millisecond)
+	if st := rt.sched.Stats(); st.Fast != 1 {
+		close(release)
+		t.Fatalf("want one joined queued open: %+v", st)
+	}
+	close(release)
+	for range 2 {
+		if err := <-out; err == nil {
+			t.Fatal("expected the fetch failure")
+		}
+	}
+	if c.fetched != 1 {
+		t.Fatalf("%d fetches, want 1", c.fetched)
+	}
+	if n := rt.pool.Effective(); n != 4 {
+		t.Fatalf("one refused FETCH joined by two callers changed N to %d, want 4", n)
+	}
+}
+
+// chunkRefusingIMAP refuses every partial FETCH.
+type chunkRefusingIMAP struct {
+	pagingIMAP
+	calls int
+}
+
+func (c *chunkRefusingIMAP) FetchPartial(imap.UID, int64, int64) (*pimap.Message, error) {
+	c.calls++
+	return nil, errors.New("NO [LIMIT] too many open connections")
+}
+
+// Each refused chunk of a large open counts toward the throttle once: two
+// failed large opens halve N.
+func TestR9L7LargeOpenFeedsThrottle(t *testing.T) {
+	c := &chunkRefusingIMAP{pagingIMAP: pagingIMAP{n: 1}}
+	a, account, folder := reconcileInbox(t, c)
+	setParallel(t, a, 4)
+	rt := mustAccountSync(t, a, account.ID)
+	seedStub(t, a, folder, 1, 12<<20)
+	id, err := a.store.MessageIDByRemoteID(a.ctx, folder.ID, "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if _, err := a.GetMessage(id); err == nil {
+			t.Fatal("expected the refusal")
+		}
+	}
+	if c.calls != 2 {
+		t.Fatalf("%d partial fetches, want 2", c.calls)
+	}
+	if n := rt.pool.Effective(); n != 2 {
+		t.Fatalf("two refused large opens left N=%d, want 2", n)
 	}
 }

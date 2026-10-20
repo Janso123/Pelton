@@ -303,25 +303,16 @@ func (a *App) createAccount(req AddAccountRequest, secret credentials.Secret) (A
 	return toAccountDTO(*account), nil
 }
 
-// StartAccountSync runs the first sync of an account and parks it on idle, in
-// the background. The wizard calls it after the folder choice, which is why
-// adding an account no longer starts syncing on its own. Calling it for an
-// account that is already syncing is harmless: syncAccount serializes on the
-// same lock every other sync uses.
+// StartAccountSync runs the first sync of an account and parks it on idle,
+// replacing any existing worker for that account.
 func (a *App) StartAccountSync(accountID int64) error {
 	if err := a.ready(); err != nil {
 		return err
 	}
-	account, err := a.store.GetAccount(a.ctx, accountID)
-	if err != nil {
+	if _, err := a.store.GetAccount(a.ctx, accountID); err != nil {
 		return err
 	}
-	goSafe("syncing a new mailbox", func() {
-		if err := a.syncAccount(*account); err != nil {
-			a.log.Error("initial sync after add", "account", account.Email, "err", err)
-		}
-		goSafe("waiting for new mail", func() { a.idleLoop(*account) })
-	})
+	a.startAccountWorker(accountID)
 	return nil
 }
 
