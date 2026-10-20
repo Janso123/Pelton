@@ -329,25 +329,11 @@ func (a *App) StartAccountSync(accountID int64) error {
 // rows, preserving the hierarchy via the per-server delimiter so the sidebar
 // tree matches the server.
 func (a *App) discoverFolders(account storage.Account) error {
-	cfg, err := a.resolveIMAP(account)
-	if err != nil {
-		return err
-	}
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return err
-	}
-	defer client.Logout()
+	return a.discoverFoldersCtx(a.ctx, account)
+}
 
-	folders, err := client.ListFolders()
-	if err != nil {
-		return err
-	}
-	return a.createFolderTree(account.ID, folders, nil)
+func (a *App) discoverFoldersCtx(ctx context.Context, account storage.Account) error {
+	return a.protocolFor(account).discoverFolders(ctx, account)
 }
 
 // ensureFolders discovers the folder tree over an already-connected client when
@@ -401,6 +387,7 @@ func (a *App) createFolderTree(accountID int64, folders []pimap.Folder, byPath m
 			AccountID:  accountID,
 			Name:       name,
 			IMAPPath:   f.Name,
+			RemoteID:   f.Name,
 			Delimiter:  delim,
 			ParentID:   parentID,
 			Attributes: attrsToStrings(f.Attrs),

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/peltonapp/Pelton/internal/outbox"
-	psmtp "github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
 	psync "github.com/peltonapp/Pelton/internal/sync"
 
@@ -120,17 +119,7 @@ func (t *accountTransmitter) Transmit(ctx context.Context, m outbox.Message) err
 	if err != nil {
 		return err
 	}
-	cfg, err := t.app.resolveSMTP(*account)
-	if err != nil {
-		return err
-	}
-	sender := psmtp.NewSender(cfg,
-		psmtp.WithLogger(t.app.log),
-		psmtp.WithSentAppender(func(raw []byte) (string, error) {
-			return t.app.appendToSent(*account, raw)
-		}),
-	)
-	return sender.Transmit(ctx, m)
+	return t.app.protocolFor(*account).transmit(ctx, *account, m)
 }
 
 // appendToSent puts a copy of a message that has just been sent in the
@@ -429,13 +418,13 @@ func (a *App) findInboxFolder(accountID int64) (*storage.Folder, error) {
 // progress/new-mail events syncFolders would, without touching any other
 // folder on the account. Used by the idle push handler so a single INBOX
 // update does not pay for a full-account resync.
-func (a *App) syncOneFolder(client mailClient, folder storage.Folder) error {
+func (a *App) syncOneFolder(adapter psync.Adapter, folder storage.Folder) error {
 	// the idle push path reaches this directly, so it has to honour the
 	// exclusion too. An excluded INBOX is unusual but it is the user's call.
 	if folder.SyncExcluded {
 		return nil
 	}
-	engine := a.newSyncEngine(pimap.NewAdapter(client), folder.AccountID)
+	engine := a.newSyncEngine(adapter, folder.AccountID)
 
 	res, err := engine.SyncFolder(a.ctx, folder)
 	if psync.IsSoftError(err) {
@@ -533,7 +522,7 @@ func (a *App) idleSession(ctx context.Context, account storage.Account) error {
 			return nil
 		}
 		syncMu.Lock()
-		err = a.syncOneFolder(client, *inbox)
+		err = a.syncOneFolder(pimap.NewAdapter(client), *inbox)
 		syncMu.Unlock()
 		if err != nil {
 			a.log.Error("idle resync", "err", err)

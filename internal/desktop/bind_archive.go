@@ -3,8 +3,6 @@ package desktop
 import (
 	"fmt"
 
-	"github.com/emersion/go-imap/v2"
-
 	"github.com/peltonapp/Pelton/internal/mailexport"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
@@ -83,47 +81,13 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 	if err != nil {
 		return ArchiveUndoDTO{}, err
 	}
-	cfg, err := a.resolveIMAP(*account)
-	if err != nil {
-		return ArchiveUndoDTO{}, err
-	}
+	return a.protocolFor(*account).moveMessage(m, *source, dest, *account)
+}
 
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-	defer client.Logout()
-	if _, err := client.Select(source.IMAPPath); err != nil {
-		return ArchiveUndoDTO{}, fmt.Errorf("move: select %q: %w", source.IMAPPath, err)
-	}
-
-	// the raw source has to be fetched before the move: afterwards the message
-	// lives under a new uid in another mailbox. it rides the connection the move
-	// already opened, and a failure here never blocks the archive.
-	var (
-		raw         []byte
-		exportError string
-	)
-	if exportWanted(*account, dest) {
-		raw, err = client.FetchRawMessage(imap.UID(m.UID))
-		if err != nil {
-			raw = nil
-			exportError = err.Error()
-			a.log.Error("archive export: fetch source", "id", m.ID, "err", err)
-		}
-	}
-
-	if err := client.Move(imap.UID(m.UID), dest.IMAPPath); err != nil {
-		return ArchiveUndoDTO{}, err
-	}
-
+// finishMove is the local half of a move the server has already accepted: it
+// drops the cached row and its files, announces the destination, and writes the
+// export copy when raw was fetched.
+func (a *App) finishMove(m *storage.Message, source, dest storage.Folder, account storage.Account, raw []byte, exportError string) (ArchiveUndoDTO, error) {
 	if err := a.store.DeleteMessage(a.ctx, m.ID); err != nil {
 		return ArchiveUndoDTO{}, err
 	}
@@ -134,7 +98,8 @@ func (a *App) moveMessageTo(m *storage.Message, dest storage.Folder) (ArchiveUnd
 
 	var path string
 	if len(raw) > 0 {
-		path, err = exportOptions(*account).Write(exportMeta(m), raw)
+		var err error
+		path, err = exportOptions(account).Write(exportMeta(m), raw)
 		if err != nil {
 			exportError = err.Error()
 			a.log.Error("archive export: write file", "id", m.ID, "err", err)
@@ -187,9 +152,6 @@ func (a *App) UnarchiveMessage(rfcMessageID string, fromFolderID, originalFolder
 	if err := a.ready(); err != nil {
 		return err
 	}
-	if rfcMessageID == "" {
-		return fmt.Errorf("pelton: this message cannot be moved back (no Message-ID)")
-	}
 	dest, err := a.store.GetFolder(a.ctx, originalFolderID)
 	if err != nil {
 		return err
@@ -205,38 +167,7 @@ func (a *App) UnarchiveMessage(rfcMessageID string, fromFolderID, originalFolder
 	if err != nil {
 		return err
 	}
-	cfg, err := a.resolveIMAP(*account)
-	if err != nil {
-		return err
-	}
-
-	syncMu.Lock()
-	defer syncMu.Unlock()
-
-	client, err := a.connectIMAP(cfg)
-	if err != nil {
-		return err
-	}
-	defer client.Close()
-	if err := client.Login(); err != nil {
-		return err
-	}
-	defer client.Logout()
-	if _, err := client.Select(from.IMAPPath); err != nil {
-		return fmt.Errorf("undo move: select %q: %w", from.IMAPPath, err)
-	}
-	uids, err := client.SearchByMessageID(rfcMessageID)
-	if err != nil {
-		return err
-	}
-	if len(uids) == 0 {
-		return fmt.Errorf("pelton: moved message not found to restore")
-	}
-	if err := client.Move(uids[len(uids)-1], dest.IMAPPath); err != nil {
-		return err
-	}
-	a.emit(EventMailNew, MailNewEvent{AccountID: dest.AccountID, FolderID: dest.ID, Count: 1})
-	return nil
+	return a.protocolFor(*account).moveBack(rfcMessageID, *from, *dest, *account)
 }
 
 // findArchiveFolder returns the account's archive-role folder, or an error when

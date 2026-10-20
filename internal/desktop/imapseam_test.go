@@ -3,7 +3,10 @@ package desktop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -440,5 +443,184 @@ func TestDeleteFolderRemovesTheDeepestMailboxFirst(t *testing.T) {
 		if f.Name == "Projects" || f.Name == "Pelton" {
 			t.Errorf("folder %q survived the delete locally", f.Name)
 		}
+	}
+}
+
+// Undo moves the copy out of the folder the action put it in. When a sync
+// had stored that copy already, its row leaves too, and both folders'
+// lists are told.
+func TestUndoMoveDropsTheMovedCopy(t *testing.T) {
+	a, db, ctx := moveTestApp(t)
+	inbox, archive, _ := moveTestAccount(t, db, ctx, false)
+	copyID, err := db.InsertMessage(ctx, &storage.Message{
+		AccountID: inbox.AccountID, FolderID: archive.ID, UID: 7, MessageID: "<one@example.com>", Date: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	useFake(t, a, inbox.AccountID, &fakeIMAP{searchResult: []imap.UID{7}})
+	var told []int64
+	a.emitForTest = func(name string, payload any) {
+		if e, ok := payload.(MailNewEvent); ok && name == EventMailNew {
+			told = append(told, e.FolderID)
+		}
+	}
+
+	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err != nil {
+		t.Fatalf("UnarchiveMessage: %v", err)
+	}
+	if _, err := db.GetMessage(ctx, copyID); err == nil {
+		t.Error("the moved copy is still listed in the archive")
+	}
+	for _, id := range []int64{archive.ID, inbox.ID} {
+		if !slices.Contains(told, id) {
+			t.Errorf("mail:new for folders %v, want %d among them", told, id)
+		}
+	}
+}
+
+// validityIMAP reports UIDVALIDITY validity for every mailbox and, with
+// copyUID set, answers MOVE with COPYUID (UIDPLUS): the moved message's UID
+// in the destination.
+type validityIMAP struct {
+	fakeIMAP
+	validity uint32
+	copyUID  imap.UID
+}
+
+func (c *validityIMAP) Select(mailbox string) (*pimap.Mailbox, error) {
+	box, err := c.fakeIMAP.Select(mailbox)
+	if box != nil {
+		box.UIDValidity = c.validity
+	}
+	return box, err
+}
+
+func (c *validityIMAP) MoveUID(uid imap.UID, mailbox string) (imap.UID, uint32, error) {
+	if err := c.fakeIMAP.Move(uid, mailbox); err != nil {
+		return 0, 0, err
+	}
+	return c.copyUID, c.validity, nil
+}
+
+// undoRig is an account whose message <one@example.com> was archived; the
+// archive holds a synced copy of it at each of uids, all with that
+// Message-ID (one is the moved copy, the rest are other copies).
+func undoRig(t *testing.T, uids ...uint32) (*App, *storage.DB, storage.Folder, storage.Folder, map[uint32]int64) {
+	t.Helper()
+	a, db, ctx := moveTestApp(t)
+	inbox, archive, _ := moveTestAccount(t, db, ctx, false)
+	if err := db.SetFolderUIDValidity(ctx, archive.ID, 5); err != nil {
+		t.Fatal(err)
+	}
+	archive.UIDValidity = 5
+	rows := make(map[uint32]int64)
+	for _, uid := range uids {
+		id, err := db.InsertMessageWithAttachments(ctx, &storage.Message{
+			AccountID: inbox.AccountID, FolderID: archive.ID, UID: uid, RemoteID: fmt.Sprint(uid),
+			MessageID: "<one@example.com>", Date: time.Now(),
+		}, []storage.IncomingAttachment{{Filename: "a.txt", ContentType: "text/plain", Content: strings.NewReader("x")}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows[uid] = id
+	}
+	return a, db, inbox, archive, rows
+}
+
+// Undo moves back the very copy the archive made, by the UID COPYUID named
+// at move time, and drops only that copy's row: another copy with the same
+// Message-ID stays, and so do its attachment files.
+func TestUndoMovesTheCopyCOPYUIDNamed(t *testing.T) {
+	a, db, inbox, archive, rows := undoRig(t, 7, 9)
+	client := &validityIMAP{validity: 5, copyUID: 7}
+	client.searchResult = []imap.UID{7, 9}
+	useFake(t, a, inbox.AccountID, &client.fakeIMAP)
+	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
+	moved, err := db.InsertMessage(a.ctx, &storage.Message{
+		AccountID: inbox.AccountID, FolderID: inbox.ID, UID: 3, MessageID: "<one@example.com>", Date: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.ArchiveMessage(moved); err != nil {
+		t.Fatalf("ArchiveMessage: %v", err)
+	}
+	atts, err := db.ListAttachments(a.ctx, rows[7])
+	if err != nil || len(atts) != 1 {
+		t.Fatalf("attachments of the moved copy: %v %v", atts, err)
+	}
+	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err != nil {
+		t.Fatalf("UnarchiveMessage: %v", err)
+	}
+	if got := client.moved[len(client.moved)-1].uid; got != 7 {
+		t.Fatalf("undo moved uid %d, want 7 from COPYUID", got)
+	}
+	if _, err := db.GetMessage(a.ctx, rows[7]); err == nil {
+		t.Error("the moved copy is still listed in the archive")
+	}
+	if _, err := a.store.OpenAttachment(atts[0].DiskPath); err == nil {
+		t.Error("the moved copy's attachment files are still on disk")
+	}
+	if _, err := db.GetMessage(a.ctx, rows[9]); err != nil {
+		t.Errorf("another copy with the same Message-ID was dropped: %v", err)
+	}
+}
+
+// Without COPYUID undo falls back to the highest UID with the Message-ID.
+// When the archive holds no row for it yet (no sync stored the copy), there
+// is nothing to drop and the undo still works.
+func TestUndoWithoutCOPYUIDAndNoStoredCopy(t *testing.T) {
+	a, db, inbox, archive, _ := undoRig(t)
+	client := &fakeIMAP{searchResult: []imap.UID{4, 8}}
+	useFake(t, a, inbox.AccountID, client)
+	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err != nil {
+		t.Fatalf("UnarchiveMessage: %v", err)
+	}
+	if len(client.moved) != 1 || client.moved[0].uid != 8 || client.moved[0].dest != inbox.IMAPPath {
+		t.Fatalf("moved %+v, want uid 8 back to %s", client.moved, inbox.IMAPPath)
+	}
+	if msgs, err := db.ListMessages(a.ctx, archive.ID, 0); err != nil || len(msgs) != 0 {
+		t.Fatalf("archive rows %d (%v), want none", len(msgs), err)
+	}
+}
+
+// After the server reset the archive's UIDVALIDITY, a stored row with the
+// moved UID may be another message: undo leaves the cache alone, and the
+// next sync of the folder resets it.
+func TestUndoKeepsRowsOfAnotherUIDValidity(t *testing.T) {
+	a, db, inbox, archive, rows := undoRig(t, 7)
+	client := &validityIMAP{validity: 6}
+	client.searchResult = []imap.UID{7}
+	useFake(t, a, inbox.AccountID, &client.fakeIMAP)
+	a.newIMAPClient = func(pimap.Config) (mailClient, error) { return client, nil }
+	if err := a.UnarchiveMessage("<one@example.com>", archive.ID, inbox.ID); err != nil {
+		t.Fatalf("UnarchiveMessage: %v", err)
+	}
+	if _, err := db.GetMessage(a.ctx, rows[7]); err != nil {
+		t.Fatalf("a row of the old UIDVALIDITY was dropped: %v", err)
+	}
+}
+
+// Undo never moves a message between accounts: the two folders must belong
+// to the same one, and the server is not asked.
+func TestUndoRefusesAMoveAcrossAccounts(t *testing.T) {
+	a, db, ctx := moveTestApp(t)
+	inbox, _, _ := moveTestAccount(t, db, ctx, false)
+	other, err := db.CreateAccount(ctx, &storage.Account{Email: "other@example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign := &storage.Folder{AccountID: other, Name: "Archive", IMAPPath: "Archive"}
+	if _, err := db.CreateFolder(ctx, foreign); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeIMAP{searchResult: []imap.UID{7}}
+	useFake(t, a, inbox.AccountID, client)
+	if err := a.UnarchiveMessage("<one@example.com>", foreign.ID, inbox.ID); err == nil {
+		t.Fatal("UnarchiveMessage moved a message from another account's folder")
+	}
+	if len(client.selected) != 0 || len(client.moved) != 0 {
+		t.Fatalf("the server was asked (selected %v, moved %v), want nothing", client.selected, client.moved)
 	}
 }
