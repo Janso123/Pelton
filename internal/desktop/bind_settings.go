@@ -142,6 +142,9 @@ const (
 	// settingSyncProgress shows a progress bar with real message counts while a
 	// sync or a backfill runs, rather than a spinner (#313).
 	settingSyncProgress = "sync_progress_bar"
+	// the clock and the unread count in the status bar (#488). On by default.
+	settingStatusClock  = "status_clock"
+	settingStatusUnread = "status_unread"
 	// what the window's close button does: "background" (default) or "quit".
 	// See close.go.
 	settingCloseAction = "close_button_action"
@@ -387,6 +390,10 @@ type UIPrefsDTO struct {
 	// progress bar next to it, counting message bodies rather than mailboxes.
 	VerboseSync     bool `json:"verboseSync"`
 	SyncProgressBar bool `json:"syncProgressBar"`
+	// StatusClock shows the date and time in the status bar, StatusUnread the
+	// unread count of the unified inbox.
+	StatusClock  bool `json:"statusClock"`
+	StatusUnread bool `json:"statusUnread"`
 	// CloseAction is what the window's close button does: "background" keeps
 	// Pelton running and syncing with the window hidden, "quit" exits.
 	CloseAction string `json:"closeAction"`
@@ -494,6 +501,8 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		NotifyNewMail:              a.boolSetting(settingNotifyNewMail, false),
 		VerboseSync:                a.boolSetting(settingVerboseSync, false),
 		SyncProgressBar:            a.boolSetting(settingSyncProgress, true),
+		StatusClock:                a.boolSetting(settingStatusClock, true),
+		StatusUnread:               a.boolSetting(settingStatusUnread, true),
 		CloseAction:                a.stringSetting(settingCloseAction, closeActionBackground),
 		SyncMessageLimit:           a.syncMessageLimit(),
 		SyncAutoBackfill:           a.boolSetting(settingSyncAutoBackfill, true),

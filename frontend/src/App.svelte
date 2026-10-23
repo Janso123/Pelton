@@ -68,7 +68,7 @@
   import { liabilityAccepted } from './lib/liability'
   import { setDemoActive } from './lib/demo'
   import { recordArchived } from './stores/undoarchive'
-  import { onMailNew, onMailRepaired, onSyncState, onSyncProgress, onOutboxChanged, onMenu, onViewsChanged, onProfileChanged, onMailtoCompose, onAgentProposals, onOpenMessage, type Unsubscribe, type MailtoDraft } from './lib/events'
+  import { onMailNew, onMailRepaired, onSyncState, onSyncProgress, onOutboxChanged, onMenu, onViewsChanged, onFoldersChanged, onProfileChanged, onMailtoCompose, onAgentProposals, onOpenMessage, type Unsubscribe, type MailtoDraft } from './lib/events'
   import { loadViews, editingView, closeViewEditor, openViewEditor, views as savedViews } from './stores/views'
   import { selectSavedView } from './stores/selection'
   import { isMac } from './lib/i18n'
@@ -149,6 +149,19 @@
   import type { EditorMode, MessageSummary, ThemePref, ThemeInfo, Folder, Account } from './lib/types'
 
   let settingsOpen = false
+  // the settings screen is code-split and loaded on first open. A load that
+  // fails used to leave settingsOpen stuck true with nothing on screen, so every
+  // later attempt set it to true again and nothing happened until a restart. It
+  // now closes again and says so, and the next attempt starts a fresh load.
+  let settingsPanel: Promise<typeof import('./components/settings/SettingsPanel.svelte') | null> | null = null
+  $: if (settingsOpen && !settingsPanel) {
+    settingsPanel = import('./components/settings/SettingsPanel.svelte').catch((err) => {
+      settingsPanel = null
+      settingsOpen = false
+      toastError(errorMessage(err))
+      return null
+    })
+  }
   // the contacts screen (#168), opened over the mail view and code-split the
   // same way settings is.
   let contactsOpen = false
@@ -390,6 +403,7 @@
       }),
     )
     unsubscribers.push(onViewsChanged(() => void loadViews()))
+    unsubscribers.push(onFoldersChanged(() => void refreshSidebar()))
     unsubscribers.push(onProfileChanged(() => void reloadForProfile()))
     unsubscribers.push(onAgentProposals(() => void loadProposals()))
     void loadProposals()
@@ -1420,14 +1434,16 @@
   {/await}
 {/if}
 
-{#if settingsOpen}
-  {#await import('./components/settings/SettingsPanel.svelte') then m}
-    <svelte:component
-      this={m.default}
-      initialCategory={settingsCategory}
-      on:close={() => (settingsOpen = false)}
-      on:rerunOnboarding={rerunOnboarding}
-    />
+{#if settingsOpen && settingsPanel}
+  {#await settingsPanel then m}
+    {#if m}
+      <svelte:component
+        this={m.default}
+        initialCategory={settingsCategory}
+        on:close={() => (settingsOpen = false)}
+        on:rerunOnboarding={rerunOnboarding}
+      />
+    {/if}
   {/await}
 {/if}
 
