@@ -2291,6 +2291,7 @@ export namespace desktop {
 	    statusClock: boolean;
 	    statusUnread: boolean;
 	    markReadOnOpen: boolean;
+	    signatureAboveQuote: boolean;
 	    closeAction: string;
 	    startHidden: boolean;
 	    syncMessageLimit: number;
@@ -2384,6 +2385,7 @@ export namespace desktop {
 	        this.statusClock = source["statusClock"];
 	        this.statusUnread = source["statusUnread"];
 	        this.markReadOnOpen = source["markReadOnOpen"];
+	        this.signatureAboveQuote = source["signatureAboveQuote"];
 	        this.closeAction = source["closeAction"];
 	        this.startHidden = source["startHidden"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
