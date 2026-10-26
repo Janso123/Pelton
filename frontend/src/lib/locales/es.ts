@@ -1385,6 +1385,7 @@ const es: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Mostrar el correo del buzón en lugar del nombre',
   'settingsPanel.hint.multiSelect': 'Cmd/Ctrl-clic o Mayús-clic en las filas para seleccionar varias a la vez.',
   'settingsPanel.toggle.multiSelect': 'Seleccionar varios mensajes a la vez',
+  'settingsPanel.toggle.markReadOnOpen': 'Marcar los mensajes como leídos al abrirlos',
   'settingsPanel.toggle.showSelectedCount': 'Mostrar el recuento "N seleccionados"',
   'settingsPanel.toggle.showSelectedCountAria': 'Mostrar recuento de seleccionados',
   'settingsPanel.hint.indentGuides': 'Dibuja líneas guía verticales que conectan las carpetas anidadas.',

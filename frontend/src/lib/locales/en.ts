@@ -1385,6 +1385,7 @@ const en: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Show mailbox email instead of name',
   'settingsPanel.hint.multiSelect': 'Cmd/Ctrl-click or Shift-click rows to select several at once.',
   'settingsPanel.toggle.multiSelect': 'Select multiple messages at once',
+  'settingsPanel.toggle.markReadOnOpen': 'Mark messages as read when opened',
   'settingsPanel.toggle.showSelectedCount': 'Show "N selected" count',
   'settingsPanel.toggle.showSelectedCountAria': 'Show selected count',
   'settingsPanel.hint.indentGuides': 'Draw vertical guide lines connecting nested folders.',

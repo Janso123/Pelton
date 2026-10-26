@@ -570,6 +570,8 @@ export interface UIPrefs {
   // unread count of the unified inbox (#488).
   statusClock: boolean
   statusUnread: boolean
+  // markReadOnOpen marks a message read when it is opened (#517).
+  markReadOnOpen: boolean
   // closeAction is what the window's close button does: 'background' keeps
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction

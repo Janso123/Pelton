@@ -1386,6 +1386,7 @@ const zhCN: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': '显示邮箱地址而非名称',
   'settingsPanel.hint.multiSelect': '按住 Cmd/Ctrl 点击或按住 Shift 点击可一次选中多行。',
   'settingsPanel.toggle.multiSelect': '允许一次选中多封邮件',
+  'settingsPanel.toggle.markReadOnOpen': '打开邮件时标记为已读',
   'settingsPanel.toggle.showSelectedCount': '显示“已选中 N 封”计数',
   'settingsPanel.toggle.showSelectedCountAria': '显示已选中计数',
   'settingsPanel.hint.indentGuides': '绘制连接嵌套文件夹的竖向辅助线。',

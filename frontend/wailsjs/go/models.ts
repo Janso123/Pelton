@@ -2290,6 +2290,7 @@ export namespace desktop {
 	    syncProgressBar: boolean;
 	    statusClock: boolean;
 	    statusUnread: boolean;
+	    markReadOnOpen: boolean;
 	    closeAction: string;
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
@@ -2381,6 +2382,7 @@ export namespace desktop {
 	        this.syncProgressBar = source["syncProgressBar"];
 	        this.statusClock = source["statusClock"];
 	        this.statusUnread = source["statusUnread"];
+	        this.markReadOnOpen = source["markReadOnOpen"];
 	        this.closeAction = source["closeAction"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];

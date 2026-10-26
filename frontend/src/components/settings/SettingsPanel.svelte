@@ -61,6 +61,7 @@
     setAvatarSource,
     setAvatarStyle,
     setMultiSelectEnabled,
+    setMarkReadOnOpen,
     setSelectAllScope,
     setSearchSort,
     searchSortPref,
@@ -209,6 +210,7 @@
     { cat: 'list', label: $t('settingsPanel.label.previewLines'), kw: 'preview lines' },
     { cat: 'list', label: $t('settingsPanel.label.flaggedHighlight'), kw: 'flag highlight' },
     { cat: 'list', label: $t('settingsPanel.toggle.showMailboxEmail'), kw: 'account email' },
+    { cat: 'list', label: $t('settingsPanel.toggle.markReadOnOpen'), kw: 'mark read seen unread open automatically' },
     { cat: 'list', label: $t('settingsPanel.toggle.multiSelect'), kw: 'select multiple' },
     { cat: 'list', label: $t('settingsPanel.toggle.indentGuides'), kw: 'sidebar folders' },
     { cat: 'list', label: $t('settingsPanel.toggle.flaggedCount'), kw: 'sidebar flagged count' },
@@ -1098,6 +1100,14 @@
               checked={$prefs.showAccountEmail}
               label={$t('settingsPanel.toggle.showMailboxEmail')}
               on:change={(e) => setShowAccountEmail(e.detail)}
+            />
+          </div>
+          <div class="toggle">
+            <span class="row-label">{$t('settingsPanel.toggle.markReadOnOpen')}</span>
+            <ToggleSwitch
+              checked={$prefs.markReadOnOpen}
+              label={$t('settingsPanel.toggle.markReadOnOpen')}
+              on:change={(e) => setMarkReadOnOpen(e.detail)}
             />
           </div>
           <div class="toggle" title={$t('settingsPanel.hint.multiSelect')}>

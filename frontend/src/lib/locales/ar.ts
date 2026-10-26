@@ -1385,6 +1385,7 @@ const ar: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'إظهار بريد صندوق البريد بدلاً من اسمه',
   'settingsPanel.hint.multiSelect': 'انقر مع Cmd/Ctrl أو Shift على الصفوف لتحديد عدة صفوف دفعة واحدة.',
   'settingsPanel.toggle.multiSelect': 'تحديد عدة رسائل دفعة واحدة',
+  'settingsPanel.toggle.markReadOnOpen': 'تعليم الرسائل كمقروءة عند فتحها',
   'settingsPanel.toggle.showSelectedCount': 'إظهار عدد "المحددة N"',
   'settingsPanel.toggle.showSelectedCountAria': 'إظهار عدد المحدد',
   'settingsPanel.hint.indentGuides': 'رسم خطوط إرشادية عمودية تصل المجلدات المتداخلة.',
