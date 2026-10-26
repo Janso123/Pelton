@@ -1,8 +1,9 @@
 name: Release builds
 
 # Builds Pelton and attaches the installers to the release for a version tag.
-# All builds are unsigned (no Apple notarization, no Windows code signing) -
-# see README/CI notes for what that means for users.
+# The Windows exe and installer are code signed through SignPath once it is set
+# up (see the windows job); the other builds are unsigned (no Apple
+# notarization) - see README/CI notes for what that means for users.
 #
 # The builds run on the *tag push*, not on publish, so the assets are already
 # sitting on the draft by the time anyone looks at it: pushing v1.2.3 has
@@ -184,13 +185,27 @@ jobs:
             --clobber
 
   # ---------------------------------------------------------------------------
-  # Windows amd64, packaged with Wails' built-in NSIS installer support (free,
-  # no signing). windows-latest ships NSIS preinstalled.
+  # Windows amd64, packaged with Wails' built-in NSIS installer support.
+  # windows-latest ships NSIS preinstalled.
+  #
+  # Code signing goes through SignPath Foundation, free for open source: the
+  # exe is signed first, the installer is rebuilt around the signed exe, and
+  # then the installer itself is signed. It only runs for a release tag and
+  # once the SIGNPATH_* repository variables and the SIGNPATH_API_TOKEN secret
+  # exist, so an unconfigured fork or a dry run still builds, unsigned. The
+  # SignPath artifact configurations it names (exe, installer) are kept in
+  # .signpath/artifact-configurations. The uninstaller the installer writes is
+  # not signed: NSIS can only sign it mid-compile, which a remote signing
+  # service cannot do.
   # ---------------------------------------------------------------------------
   windows:
     needs: draft
     if: github.event_name != 'release'
     runs-on: windows-latest
+    permissions:
+      contents: write
+      # SignPath downloads the unsigned artifacts through the job's token.
+      actions: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -252,6 +267,73 @@ jobs:
       - name: Build + NSIS installer
         run: wails build -platform windows/amd64 -nsis -ldflags "-X main.version=${{ steps.version.outputs.version }}"
 
+      - name: Upload the exe for signing
+        id: unsigned-exe
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-exe-unsigned
+          path: build/bin/Pelton.exe
+          if-no-files-found: error
+
+      - name: Sign the exe
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: exe
+          github-artifact-id: ${{ steps.unsigned-exe.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/exe
+
+      # wails build left the rendered NSIS project behind, so makensis runs it
+      # again the way wails does, only around the signed exe.
+      - name: Rebuild the installer around the signed exe
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        shell: pwsh
+        run: |
+          Copy-Item signed/exe/Pelton.exe build/bin/Pelton.exe -Force
+          Push-Location build/windows/installer
+          makensis "-DARG_WAILS_AMD64_BINARY=$env:GITHUB_WORKSPACE\build\bin\Pelton.exe" project.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+
+      - name: Upload the installer for signing
+        id: unsigned-installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-installer-unsigned
+          path: build/bin/Pelton-amd64-installer.exe
+          if-no-files-found: error
+
+      - name: Sign the installer
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed/installer
+
+      - name: Check the signatures
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && env.RELEASE_TAG != ''
+        shell: pwsh
+        run: |
+          Copy-Item signed/installer/Pelton-amd64-installer.exe build/bin/Pelton-amd64-installer.exe -Force
+          foreach ($file in "build/bin/Pelton.exe", "build/bin/Pelton-amd64-installer.exe") {
+            $sig = Get-AuthenticodeSignature $file
+            Write-Output "$file`: $($sig.Status) by $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { exit 1 }
+          }
+
       - name: Rename installer
         shell: bash
         run: mv "build/bin/Pelton-amd64-installer.exe" "build/bin/Pelton-${{ steps.version.outputs.version }}-windows-amd64-installer.exe"
@@ -259,8 +341,8 @@ jobs:
       # the exe the installer wraps, shipped on its own for a portable install
       # (#377). Pelton is a single executable, so the installer only adds the
       # shortcuts and the uninstall entry; the same build runs from wherever it
-      # is put, including a usb stick. Same binary, same signature-less state,
-      # so this costs a copy rather than a second build.
+      # is put, including a usb stick. Same binary, signed or not alike, so
+      # this costs a copy rather than a second build.
       - name: Stage portable exe
         shell: bash
         run: cp "build/bin/Pelton.exe" "build/bin/Pelton-${{ steps.version.outputs.version }}-windows-amd64-portable.exe"
