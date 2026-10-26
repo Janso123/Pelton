@@ -93,6 +93,7 @@ const defaults: UIPrefs = {
   statusUnread: true,
   markReadOnOpen: true,
   closeAction: 'background',
+  startHidden: false,
   syncMessageLimit: 50,
   syncAutoBackfill: true,
   startupSelection: 'view:inbox',
@@ -556,6 +557,12 @@ export function setMarkReadOnOpen(value: boolean): void {
 export function setCloseAction(value: CloseAction): void {
   prefs.update((p) => ({ ...p, closeAction: value }))
   void setSetting(SettingKeys.closeAction, value)
+}
+
+// setStartHidden picks whether Pelton launches with its window hidden.
+export function setStartHidden(value: boolean): void {
+  prefs.update((p) => ({ ...p, startHidden: value }))
+  void setSetting(SettingKeys.startHidden, String(value))
 }
 
 // setSyncMessageLimit caps how many of a folder's newest messages a first sync

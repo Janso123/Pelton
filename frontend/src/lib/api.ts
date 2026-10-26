@@ -1363,6 +1363,7 @@ export const SettingKeys = {
   statusUnread: 'status_unread',
   markReadOnOpen: 'mark_read_on_open',
   closeAction: 'close_button_action',
+  startHidden: 'start_hidden',
   syncMessageLimit: 'sync_message_limit',
   syncAutoBackfill: 'sync_auto_backfill',
   startupSelection: 'startup_selection',

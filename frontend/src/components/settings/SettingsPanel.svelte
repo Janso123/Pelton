@@ -93,6 +93,7 @@
     setStatusClock,
     setStatusUnread,
     setCloseAction,
+    setStartHidden,
     setSyncMessageLimit,
     setSyncAutoBackfill,
     setDefaultEditorMode,
@@ -263,6 +264,7 @@
     { cat: 'power', label: $t('settingsPanel.toggle.verboseSync'), kw: 'sync status' },
     { cat: 'power', label: $t('settingsPanel.toggle.syncProgressBar'), kw: 'sync progress bar percent count' },
     { cat: 'power', label: $t('settingsPanel.label.closeAction'), kw: 'close button tray background quit exit' },
+    { cat: 'power', label: $t('settingsPanel.toggle.startHidden'), kw: 'start minimized hidden tray background launch login autostart' },
     { cat: 'power', label: $t('settingsPanel.label.syncMessageLimit'), kw: 'sync limit messages older initial download' },
     { cat: 'power', label: $t('settingsPanel.toggle.syncAutoBackfill'), kw: 'older mail backfill scroll load more' },
     { cat: 'power', label: $t('settingsPanel.toggle.offlineIndicator'), kw: 'offline' },
@@ -1559,6 +1561,15 @@
           <p class="hint">
             {$t('settingsPanel.hint.closeAction')}
           </p>
+          <div class="toggle">
+            <span class="row-label">{$t('settingsPanel.toggle.startHidden')}</span>
+            <ToggleSwitch
+              checked={$prefs.startHidden}
+              label={$t('settingsPanel.toggle.startHidden')}
+              on:change={(e) => setStartHidden(e.detail)}
+            />
+          </div>
+          <p class="hint">{isMac ? $t('settingsPanel.hint.startHiddenMac') : $t('settingsPanel.hint.startHidden')}</p>
           <div class="toggle" title={$t('settingsPanel.hint.lowPowerToggle')}>
             <span class="row-label">{$t('settingsPanel.toggle.lowPowerMode')}</span>
             <ToggleSwitch
