@@ -87,7 +87,6 @@
   import { openInTab } from '../../stores/tabs'
   import { errorMessage, toastError } from '../../stores/toast'
   import { isVIPAddress } from '../../stores/vip'
-  import { sidebar } from '../../stores/accounts'
   import type { Selection, MessageSummary, SwipeAction, EditorMode, SearchSortPref } from '../../lib/types'
   import { t } from '../../lib/i18n'
   import {
