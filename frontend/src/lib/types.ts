@@ -574,6 +574,8 @@ export interface UIPrefs {
   statusUnread: boolean
   // markReadOnOpen marks a message read when it is opened (#517).
   markReadOnOpen: boolean
+  // signatureAboveQuote puts a reply's footer above the quoted original (#512).
+  signatureAboveQuote: boolean
   // closeAction is what the window's close button does: 'background' keeps
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction

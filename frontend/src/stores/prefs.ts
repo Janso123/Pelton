@@ -92,6 +92,7 @@ const defaults: UIPrefs = {
   statusClock: true,
   statusUnread: true,
   markReadOnOpen: true,
+  signatureAboveQuote: false,
   closeAction: 'background',
   startHidden: false,
   syncMessageLimit: 50,
@@ -550,6 +551,12 @@ export function setStatusUnread(value: boolean): void {
 export function setMarkReadOnOpen(value: boolean): void {
   prefs.update((p) => ({ ...p, markReadOnOpen: value }))
   void setSetting(SettingKeys.markReadOnOpen, String(value))
+}
+
+// setSignatureAboveQuote picks whether a reply's footer goes above the quote.
+export function setSignatureAboveQuote(value: boolean): void {
+  prefs.update((p) => ({ ...p, signatureAboveQuote: value }))
+  void setSetting(SettingKeys.signatureAboveQuote, String(value))
 }
 
 // setCloseAction picks what the window's close button does. The backend reads

@@ -1368,6 +1368,7 @@ export const SettingKeys = {
   statusClock: 'status_clock',
   statusUnread: 'status_unread',
   markReadOnOpen: 'mark_read_on_open',
+  signatureAboveQuote: 'signature_above_quote',
   closeAction: 'close_button_action',
   startHidden: 'start_hidden',
   syncMessageLimit: 'sync_message_limit',

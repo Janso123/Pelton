@@ -99,6 +99,7 @@
     setDefaultEditorMode,
     setComposeAutocomplete,
     setComposeChips,
+    setSignatureAboveQuote,
     setEmptyStateImage,
     setEmptyStateFullscreen,
     setMenuBarInApp,
@@ -235,6 +236,7 @@
     { cat: 'composing', label: $t('settingsPanel.label.defaultEditor'), kw: 'editor html plain markdown' },
     { cat: 'composing', label: $t('settingsPanel.toggle.autocomplete'), kw: 'autocomplete recipients' },
     { cat: 'composing', label: $t('settingsPanel.toggle.chipRecipients'), kw: 'chips recipients' },
+    { cat: 'composing', label: $t('settingsPanel.toggle.signatureAboveQuote'), kw: 'signature footer reply quote above below' },
     { cat: 'composing', label: $t('onboarding.extras.vimEditor'), kw: 'vim' },
     { cat: 'composing', label: $t('settingsPanel.label.undoSendWindow'), kw: 'undo send delay' },
     { cat: 'signatures', label: $t('settingsPanel.category.signatures'), kw: 'signature footer' },
@@ -1735,6 +1737,14 @@
           {#if !$prefs.composeChips}
             <p class="hint">{$t('settingsPanel.hint.plainRecipients')}</p>
           {/if}
+          <div class="toggle">
+            <span class="row-label">{$t('settingsPanel.toggle.signatureAboveQuote')}</span>
+            <ToggleSwitch
+              checked={$prefs.signatureAboveQuote}
+              label={$t('settingsPanel.toggle.signatureAboveQuote')}
+              on:change={(e) => setSignatureAboveQuote(e.detail)}
+            />
+          </div>
           <div class="toggle" title={$t('settingsPanel.hint.vimEditor')}>
             <span class="row-label">{$t('onboarding.extras.vimEditor')} <span class="badge-experimental">{$t('common.experimental')}</span></span>
             <ToggleSwitch
