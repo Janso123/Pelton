@@ -1007,6 +1007,12 @@ export function setAccountCA(accountId: number, pem: string): Promise<void> {
   return App.SetAccountCA(accountId, pem)
 }
 
+// setAccountColor sets the colour marking an account's mail in mixed views;
+// '' removes it.
+export function setAccountColor(accountId: number, color: string): Promise<void> {
+  return App.SetAccountColor(accountId, color)
+}
+
 // addPasswordAccount creates a password-authenticated account (stores the
 // password in the keyring, discovers folders, syncs).
 export function addPasswordAccount(req: AddAccountRequest): Promise<Account> {
