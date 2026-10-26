@@ -1379,6 +1379,7 @@ const de: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Postfach-E-Mail-Adresse statt Name anzeigen',
   'settingsPanel.hint.multiSelect': 'Cmd/Strg-Klick oder Umschalt-Klick auf Zeilen, um mehrere gleichzeitig auszuwählen.',
   'settingsPanel.toggle.multiSelect': 'Mehrere Nachrichten gleichzeitig auswählen',
+  'settingsPanel.toggle.markReadOnOpen': 'Nachrichten beim Öffnen als gelesen markieren',
   'settingsPanel.toggle.showSelectedCount': 'Anzahl „N ausgewählt" anzeigen',
   'settingsPanel.toggle.showSelectedCountAria': 'Anzahl der Auswahl anzeigen',
   'settingsPanel.hint.indentGuides': 'Zeichnet vertikale Hilfslinien, die verschachtelte Ordner verbinden.',

@@ -1379,6 +1379,7 @@ const ru: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Показывать адрес электронной почты вместо имени отправителя',
   'settingsPanel.hint.multiSelect': 'Cmd/Ctrl-клик или Shift-клик, чтобы выбрать сразу несколько строк.',
   'settingsPanel.toggle.multiSelect': 'Выбор нескольких сообщений одновременно',
+  'settingsPanel.toggle.markReadOnOpen': 'Отмечать сообщения прочитанными при открытии',
   'settingsPanel.toggle.showSelectedCount': 'Показывать счётчик "N выбрано"',
   'settingsPanel.toggle.showSelectedCountAria': 'Показывает счётчик выбранных сообщений',
   'settingsPanel.hint.indentGuides': 'Рисует вертикальную линию, соединяющую вложенные папки одного аккаунта.',

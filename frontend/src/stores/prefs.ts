@@ -91,6 +91,7 @@ const defaults: UIPrefs = {
   syncProgressBar: true,
   statusClock: true,
   statusUnread: true,
+  markReadOnOpen: true,
   closeAction: 'background',
   syncMessageLimit: 50,
   syncAutoBackfill: true,
@@ -542,6 +543,12 @@ export function setStatusClock(value: boolean): void {
 export function setStatusUnread(value: boolean): void {
   prefs.update((p) => ({ ...p, statusUnread: value }))
   void setSetting(SettingKeys.statusUnread, String(value))
+}
+
+// setMarkReadOnOpen picks whether opening a message marks it read.
+export function setMarkReadOnOpen(value: boolean): void {
+  prefs.update((p) => ({ ...p, markReadOnOpen: value }))
+  void setSetting(SettingKeys.markReadOnOpen, String(value))
 }
 
 // setCloseAction picks what the window's close button does. The backend reads

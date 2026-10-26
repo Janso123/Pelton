@@ -145,6 +145,8 @@ const (
 	// the clock and the unread count in the status bar (#488). On by default.
 	settingStatusClock  = "status_clock"
 	settingStatusUnread = "status_unread"
+	// opening a message marks it read (#517). On by default.
+	settingMarkReadOnOpen = "mark_read_on_open"
 	// what the window's close button does: "background" (default) or "quit".
 	// See close.go.
 	settingCloseAction = "close_button_action"
@@ -394,6 +396,8 @@ type UIPrefsDTO struct {
 	// unread count of the unified inbox.
 	StatusClock  bool `json:"statusClock"`
 	StatusUnread bool `json:"statusUnread"`
+	// MarkReadOnOpen marks a message read when it is opened in the list.
+	MarkReadOnOpen bool `json:"markReadOnOpen"`
 	// CloseAction is what the window's close button does: "background" keeps
 	// Pelton running and syncing with the window hidden, "quit" exits.
 	CloseAction string `json:"closeAction"`
@@ -503,6 +507,7 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		SyncProgressBar:            a.boolSetting(settingSyncProgress, true),
 		StatusClock:                a.boolSetting(settingStatusClock, true),
 		StatusUnread:               a.boolSetting(settingStatusUnread, true),
+		MarkReadOnOpen:             a.boolSetting(settingMarkReadOnOpen, true),
 		CloseAction:                a.stringSetting(settingCloseAction, closeActionBackground),
 		SyncMessageLimit:           a.syncMessageLimit(),
 		SyncAutoBackfill:           a.boolSetting(settingSyncAutoBackfill, true),

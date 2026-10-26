@@ -1361,6 +1361,7 @@ export const SettingKeys = {
   syncProgressBar: 'sync_progress_bar',
   statusClock: 'status_clock',
   statusUnread: 'status_unread',
+  markReadOnOpen: 'mark_read_on_open',
   closeAction: 'close_button_action',
   syncMessageLimit: 'sync_message_limit',
   syncAutoBackfill: 'sync_auto_backfill',

@@ -1332,6 +1332,7 @@ const pl: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Pokazuj adres skrzynki zamiast nazwy',
   'settingsPanel.hint.multiSelect': 'Kliknij wiersze z Cmd/Ctrl lub Shift, aby zaznaczyć kilka naraz.',
   'settingsPanel.toggle.multiSelect': 'Zaznaczaj wiele wiadomości naraz',
+  'settingsPanel.toggle.markReadOnOpen': 'Oznaczaj wiadomości jako przeczytane po otwarciu',
   'settingsPanel.toggle.showSelectedCount': 'Pokazuj licznik „N zaznaczono”',
   'settingsPanel.toggle.showSelectedCountAria': 'Pokazuj licznik zaznaczonych',
   'settingsPanel.hint.indentGuides': 'Rysuj pionowe linie prowadzące łączące zagnieżdżone foldery.',

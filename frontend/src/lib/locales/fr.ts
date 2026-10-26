@@ -1379,6 +1379,7 @@ const fr: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'Afficher l\'e-mail de la boîte mail à la place du nom',
   'settingsPanel.hint.multiSelect': 'Cmd/Ctrl-clic ou Maj-clic sur les lignes pour en sélectionner plusieurs à la fois.',
   'settingsPanel.toggle.multiSelect': 'Sélectionner plusieurs messages à la fois',
+  'settingsPanel.toggle.markReadOnOpen': 'Marquer les messages comme lus à l\'ouverture',
   'settingsPanel.toggle.showSelectedCount': 'Afficher le compteur « N sélectionnés »',
   'settingsPanel.toggle.showSelectedCountAria': 'Afficher le nombre sélectionné',
   'settingsPanel.hint.indentGuides': 'Trace des lignes de guidage verticales reliant les dossiers imbriqués.',

@@ -1379,6 +1379,7 @@ const nl: Record<string, string> = {
   'settingsPanel.toggle.showMailboxEmail': 'E-mailadres van mailbox tonen in plaats van naam',
   'settingsPanel.hint.multiSelect': 'Cmd/Ctrl-klik of Shift-klik op rijen om er meerdere tegelijk te selecteren.',
   'settingsPanel.toggle.multiSelect': 'Meerdere berichten tegelijk selecteren',
+  'settingsPanel.toggle.markReadOnOpen': 'Berichten als gelezen markeren bij openen',
   'settingsPanel.toggle.showSelectedCount': 'Aantal "N geselecteerd" tonen',
   'settingsPanel.toggle.showSelectedCountAria': 'Aantal geselecteerde items tonen',
   'settingsPanel.hint.indentGuides': 'Teken verticale hulplijnen die geneste mappen verbinden.',

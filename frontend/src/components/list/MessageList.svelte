@@ -300,7 +300,7 @@
     applySearch($searchQuery.trim(), searchFilter)
   }
 
-  // open marks the message seen if needed and shows it in the detail pane. a
+  // open marks the message seen if needed (and wanted) and shows it in the detail pane. a
   // plain open also clears any multi-selection.
   async function open(index: number): Promise<void> {
     const item = items[index]
@@ -312,7 +312,7 @@
     // the row that was opened is where a following shift-click measures from.
     anchorAt(item.id)
     openMessage(item.id)
-    if (!item.seen) {
+    if (!item.seen && $prefs.markReadOnOpen) {
       patchInList(item.id, { seen: true })
       try {
         await setSeen(item.id, true)
