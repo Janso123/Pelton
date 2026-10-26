@@ -27,7 +27,7 @@ buildGoModule (finalAttrs: {
 
   proxyVendor = true;
 
-  vendorHash = "sha256-jZZqRfZz2xuBsr4KHZNj4WmY4I7cX+T/oWbW3/34hOM=";
+  vendorHash = "sha256-/gjV5hvshkPTXTjXpVUQ7Q+dmulhW0hwkxG9xo3aHlI=";
 
   overrideModAttrs = {
     preBuild = ''
