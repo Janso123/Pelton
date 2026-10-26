@@ -47,6 +47,7 @@ export namespace desktop {
 	    exportSubfolders: string;
 	    exportNameTemplate: string;
 	    pgpDefault: string;
+	    color: string;
 	    passwordPromptDismissed: boolean;
 	    trustedCerts: string[];
 	    caSubjects: string[];
@@ -76,6 +77,7 @@ export namespace desktop {
 	        this.exportSubfolders = source["exportSubfolders"];
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
+	        this.color = source["color"];
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caSubjects = source["caSubjects"];

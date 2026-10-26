@@ -41,6 +41,8 @@ export interface Account {
   // how this account starts a new message: '' unprotected, 'sign', or 'auto'
   // to sign and encrypt whenever every recipient has a key.
   pgpDefault: string
+  // marks this account's mail in lists that mix accounts (#486); '' is none.
+  color?: string
   // the user told the missing-password prompt to stop asking about this
   // account. It still cannot sync; the ui marks it instead of interrupting.
   passwordPromptDismissed: boolean
