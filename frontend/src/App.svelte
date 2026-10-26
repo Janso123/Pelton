@@ -73,7 +73,8 @@
   import { selectSavedView } from './stores/selection'
   import { isMac } from './lib/i18n'
   import { Quit, Hide, WindowIsFullscreen, WindowFullscreen, WindowUnfullscreen } from '../wailsjs/runtime/runtime'
-  import { matchShortcut, comboHasModifier, type ShortcutAction } from './lib/shortcuts'
+  import { matchShortcut, comboHasModifier, isFunctionKeyCombo, type ShortcutAction } from './lib/shortcuts'
+  import { cyclePane, focusPane as focusPaneArea } from './lib/panes'
   import { bindings, recording, initShortcuts } from './stores/shortcuts'
   import { initMenuBar } from './stores/menubar'
   import { triggerUndo } from './stores/undosend'
@@ -125,6 +126,7 @@
     bulkArchive,
     reportArchiveExport,
     dropDeleted,
+    toggleSpam,
   } from './lib/messageactions'
   import { buildCommands, mailCommands, type CommandContext, type MessageOp, type FolderOp } from './lib/commands'
   import { catalogByAction } from './lib/menuactions'
@@ -706,9 +708,7 @@
         case 'archive': {
           const undo = await archiveMessage(msg.id)
           reportArchiveExport(undo)
-          if (undo.messageId) {
-            recordArchived(msg, undo.messageId, undo.originalFolderId)
-          }
+          recordArchived(msg, undo)
           removeFromList(msg.id)
           closeTab(msg.id)
           if (get(openMessageId) === msg.id) {
@@ -716,6 +716,11 @@
           }
           break
         }
+        case 'toggle-spam':
+          if (await toggleSpam(msg)) {
+            closeTab(msg.id)
+          }
+          break
       }
     } catch (err) {
       toastError(errorMessage(err))
@@ -779,6 +784,7 @@
       case 'download-offline':
       case 'delete-message':
       case 'archive':
+      case 'toggle-spam':
       case 'unsubscribe':
         void messageAction(action)
         break
@@ -799,6 +805,21 @@
         break
       case 'prev-profile':
         void switchRelative(-1)
+        break
+      case 'next-pane':
+        cyclePane(1)
+        break
+      case 'prev-pane':
+        cyclePane(-1)
+        break
+      case 'focus-sidebar':
+        focusPaneArea('sidebar')
+        break
+      case 'focus-list':
+        focusPaneArea('list')
+        break
+      case 'focus-reader':
+        focusPaneArea('reader')
         break
       case 'undo':
         if (!triggerUndo() && !triggerUndoDelete() && !triggerUndoArchive()) {
@@ -1267,7 +1288,7 @@
     const action = matchShortcut(event, $bindings)
     if (action) {
       // a modifier-less custom binding must not hijack typing in a field.
-      if (!comboHasModifier($bindings[action]) && isEditableTarget(event.target)) {
+      if (!comboHasModifier($bindings[action]) && !isFunctionKeyCombo($bindings[action]) && isEditableTarget(event.target)) {
         return
       }
       event.preventDefault()

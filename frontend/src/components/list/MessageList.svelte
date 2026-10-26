@@ -33,6 +33,8 @@
     IconStarFilled,
     IconLayoutColumns,
     IconArchive,
+    IconAlertTriangle,
+    IconMailCheck,
   } from '@tabler/icons-svelte'
   import { selection, searchQuery, openMessageId, openMessage } from '../../stores/selection'
   import {
@@ -85,6 +87,7 @@
   import { openInTab } from '../../stores/tabs'
   import { errorMessage, toastError } from '../../stores/toast'
   import { isVIPAddress } from '../../stores/vip'
+  import { sidebar } from '../../stores/accounts'
   import type { Selection, MessageSummary, SwipeAction, EditorMode, SearchSortPref } from '../../lib/types'
   import { t } from '../../lib/i18n'
   import {
@@ -101,6 +104,8 @@
     bulkArchive,
     bulkTrash,
     reportArchiveExport,
+    spamState,
+    toggleSpam,
   } from '../../lib/messageactions'
 
   // the meta-bar title. built-in unified views are localized by key (matching the
@@ -192,6 +197,9 @@
   }
 
   $: items = $messageList.data?.items ?? []
+  // each account's colour (#486), shown only while the list mixes accounts.
+  $: accountColors = Object.fromEntries(($sidebar.data?.accounts ?? []).map((a) => [a.id, a.color ?? '']))
+  $: mixedAccounts = items.some((m) => m.accountId !== items[0].accountId)
   // a result set pages too: a broad query matches far more than one page, and
   // stopping at the first page is what made a match ranked below it look like
   // no match at all.
@@ -298,7 +306,7 @@
     applySearch($searchQuery.trim(), searchFilter)
   }
 
-  // open marks the message seen if needed and shows it in the detail pane. a
+  // open marks the message seen if needed (and wanted) and shows it in the detail pane. a
   // plain open also clears any multi-selection. A draft Pelton saved on this
   // device opens in the composer instead; any other draft is only read.
   async function open(index: number): Promise<void> {
@@ -323,7 +331,7 @@
     // the row that was opened is where a following shift-click measures from.
     anchorAt(item.id)
     openMessage(item.id)
-    if (!item.seen) {
+    if (!item.seen && $prefs.markReadOnOpen) {
       patchInList(item.id, { seen: true })
       try {
         await setSeen(item.id, true)
@@ -498,9 +506,7 @@
     try {
       const undo = await archiveMessage(item.id)
       reportArchiveExport(undo)
-      if (undo.messageId) {
-        recordArchived(item, undo.messageId, undo.originalFolderId)
-      }
+      recordArchived(item, undo)
     } catch (err) {
       toastError(errorMessage(err))
       // the move failed; bring the row back so nothing is silently lost.
@@ -598,6 +604,7 @@
       'separator',
       { label: $t('messageList.menu.snooze'), icon: IconClockPause, hint: menuHint('snooze'), action: () => openSnooze(item.id, item.subject) },
       { label: $t('messageList.menu.moveTo'), icon: IconFolderSymlink, hint: menuHint('move-to'), action: () => openMove(item) },
+      ...spamEntry(item),
       item.offline
         ? { label: $t('messageList.menu.removeOffline'), icon: IconDownloadOff, hint: menuHint('remove-offline'), action: () => void toggleOffline(item) }
         : { label: $t('shortcut.downloadOffline'), icon: IconDownload, hint: menuHint('download-offline'), action: () => void toggleOffline(item) },
@@ -605,6 +612,19 @@
       { label: $t('action.delete'), icon: IconTrash, danger: true, hint: menuHint('delete-message'), action: () => void remove(item) },
     ]
     openContextMenu(event.clientX, event.clientY, entries)
+  }
+
+  // spamEntry is the context menu's spam item: "not spam" inside the spam folder,
+  // "mark as spam" elsewhere, and nothing for an account without a spam folder.
+  function spamEntry(item: MessageSummary): MenuEntry[] {
+    switch (spamState(item)) {
+      case 'spam':
+        return [{ label: $t('spam.notSpam'), icon: IconMailCheck, hint: menuHint('toggle-spam'), action: () => void toggleSpam(item) }]
+      case 'markable':
+        return [{ label: $t('spam.mark'), icon: IconAlertTriangle, hint: menuHint('toggle-spam'), action: () => void toggleSpam(item) }]
+      default:
+        return []
+    }
   }
 
   // middle-click opens a message in a tab, the way it opens a link in a browser.
@@ -790,6 +810,7 @@
         <div id={`msg-${item.id}`}>
           <MessageRow
             message={item}
+            accountColor={mixedAccounts ? (accountColors[item.accountId] ?? '') : ''}
             selected={item.id === $openMessageId || index === activeIndex}
             checked={$selectedIds.has(item.id)}
             on:click={(e) => onRowClick(e, index)}

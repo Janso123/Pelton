@@ -47,6 +47,7 @@ export namespace desktop {
 	    exportSubfolders: string;
 	    exportNameTemplate: string;
 	    pgpDefault: string;
+	    color: string;
 	    passwordPromptDismissed: boolean;
 	    trustedCerts: string[];
 	    caSubjects: string[];
@@ -76,6 +77,7 @@ export namespace desktop {
 	        this.exportSubfolders = source["exportSubfolders"];
 	        this.exportNameTemplate = source["exportNameTemplate"];
 	        this.pgpDefault = source["pgpDefault"];
+	        this.color = source["color"];
 	        this.passwordPromptDismissed = source["passwordPromptDismissed"];
 	        this.trustedCerts = source["trustedCerts"];
 	        this.caSubjects = source["caSubjects"];
@@ -342,6 +344,7 @@ export namespace desktop {
 	export class ArchiveUndoDTO {
 	    messageId: string;
 	    originalFolderId: number;
+	    destFolderId: number;
 	    exportPath: string;
 	    exportError: string;
 	
@@ -353,6 +356,7 @@ export namespace desktop {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.messageId = source["messageId"];
 	        this.originalFolderId = source["originalFolderId"];
+	        this.destFolderId = source["destFolderId"];
 	        this.exportPath = source["exportPath"];
 	        this.exportError = source["exportError"];
 	    }
@@ -2290,7 +2294,10 @@ export namespace desktop {
 	    syncProgressBar: boolean;
 	    statusClock: boolean;
 	    statusUnread: boolean;
+	    markReadOnOpen: boolean;
+	    signatureAboveQuote: boolean;
 	    closeAction: string;
+	    startHidden: boolean;
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
 	    startupSelection: string;
@@ -2381,7 +2388,10 @@ export namespace desktop {
 	        this.syncProgressBar = source["syncProgressBar"];
 	        this.statusClock = source["statusClock"];
 	        this.statusUnread = source["statusUnread"];
+	        this.markReadOnOpen = source["markReadOnOpen"];
+	        this.signatureAboveQuote = source["signatureAboveQuote"];
 	        this.closeAction = source["closeAction"];
+	        this.startHidden = source["startHidden"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];
 	        this.startupSelection = source["startupSelection"];
