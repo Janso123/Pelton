@@ -353,7 +353,9 @@ func (a *App) SaveDraft(id int64, req ComposeRequest) (int64, error) {
 			return 0, err
 		}
 		entry.Sealed = sealed
-		entry.Request = ComposeRequest{AccountID: req.AccountID, Protection: req.Protection}
+		// the Message-ID stays in the clear: it is what finds a plaintext copy
+		// an earlier save put on the server, so a failed removal can be retried.
+		entry.Request = ComposeRequest{AccountID: req.AccountID, Protection: req.Protection, DraftMessageID: req.DraftMessageID}
 	} else if req.DraftMessageID == "" {
 		// the Message-ID is fixed at the first save, so every server copy of
 		// this draft carries the same one, whatever the composer still knows.
@@ -381,13 +383,22 @@ func (a *App) SaveDraft(id int64, req ComposeRequest) (int64, error) {
 		if i < 0 {
 			return 0, ErrDraftNotFound
 		}
-		if kept := drafts[i].Request.DraftMessageID; kept != "" && entry.Sealed == "" {
+		if kept := drafts[i].Request.DraftMessageID; kept != "" {
 			entry.Request.DraftMessageID = kept
 		}
 		drafts[i] = entry
 	}
 	if err := a.store.SetJSON(a.ctx, draftsKey, drafts); err != nil {
 		return 0, err
+	}
+	// a draft now sealed must leave no plaintext copy on the server. Every
+	// sealed save tries again, and DeleteDraft once more on send or delete.
+	if messageID := entry.Request.DraftMessageID; entry.Sealed != "" && messageID != "" {
+		goSafe("removing the plaintext copy of an encrypted draft", func() {
+			if err := a.RemoveServerDraft(entry.AccountID, messageID); err != nil {
+				a.log.Error("remove plaintext draft from the server", "err", err)
+			}
+		})
 	}
 	return id, nil
 }

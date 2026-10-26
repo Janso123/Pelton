@@ -289,6 +289,48 @@ func TestUploadDraftKeepsEncryptedDraftsOffTheServer(t *testing.T) {
 	}
 }
 
+// A draft uploaded in the clear and then switched to encrypt must not leave its
+// plaintext copy on the server, even when the composer's own removal never
+// happened (offline, or the session failed): the sealed draft keeps the
+// Message-ID, its save removes the copy, and so does deleting it after send.
+func TestEncryptingAnUploadedDraftRemovesThePlaintextCopy(t *testing.T) {
+	app, _, accountID := pgpTestApp(t, []string{"me@example.com"}, []string{"a@example.com"})
+	client := &fakeIMAP{}
+	useFake(t, app, accountID, client)
+	addFolder(t, app, accountID, "Drafts", `\Drafts`)
+
+	req := ComposeRequest{AccountID: accountID, To: addr("a@example.com"), Subject: "numbers", Text: "plain"}
+	id := saveDraft(t, app, 0, req)
+	messageID, err := app.UploadDraft(id)
+	settle(t)
+	if err != nil || messageID == "" {
+		t.Fatalf("UploadDraft = %q, %v", messageID, err)
+	}
+
+	// the composer has lost the Message-ID, as when its removal failed.
+	req.Protection = protectionEncrypt
+	saveDraft(t, app, id, req)
+	settle(t)
+	if !slices.Equal(client.removedDrafts, []string{messageID}) {
+		t.Fatalf("after the encrypted save removed %v, want %q", client.removedDrafts, messageID)
+	}
+	var stored []storedDraft
+	if err := app.store.GetJSON(app.ctx, draftsKey, &stored); err != nil {
+		t.Fatalf("read drafts: %v", err)
+	}
+	if len(stored) != 1 || stored[0].Sealed == "" || stored[0].Request.DraftMessageID != messageID {
+		t.Fatalf("stored %+v, want one sealed draft still linked to %q", stored, messageID)
+	}
+
+	if err := app.DeleteDraft(id); err != nil {
+		t.Fatalf("DeleteDraft: %v", err)
+	}
+	settle(t)
+	if !slices.Equal(client.removedDrafts, []string{messageID, messageID}) {
+		t.Fatalf("after delete removed %v, want %q tried again", client.removedDrafts, messageID)
+	}
+}
+
 // Two compose panes autosaving at once must not lose a draft to each other's
 // load, modify, write of the one drafts value.
 func TestConcurrentDraftSavesKeepEveryDraft(t *testing.T) {
