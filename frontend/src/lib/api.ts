@@ -1362,6 +1362,7 @@ export const SettingKeys = {
   statusClock: 'status_clock',
   statusUnread: 'status_unread',
   closeAction: 'close_button_action',
+  startHidden: 'start_hidden',
   syncMessageLimit: 'sync_message_limit',
   syncAutoBackfill: 'sync_auto_backfill',
   startupSelection: 'startup_selection',

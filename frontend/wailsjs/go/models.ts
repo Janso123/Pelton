@@ -2291,6 +2291,7 @@ export namespace desktop {
 	    statusClock: boolean;
 	    statusUnread: boolean;
 	    closeAction: string;
+	    startHidden: boolean;
 	    syncMessageLimit: number;
 	    syncAutoBackfill: boolean;
 	    startupSelection: string;
@@ -2382,6 +2383,7 @@ export namespace desktop {
 	        this.statusClock = source["statusClock"];
 	        this.statusUnread = source["statusUnread"];
 	        this.closeAction = source["closeAction"];
+	        this.startHidden = source["startHidden"];
 	        this.syncMessageLimit = source["syncMessageLimit"];
 	        this.syncAutoBackfill = source["syncAutoBackfill"];
 	        this.startupSelection = source["startupSelection"];

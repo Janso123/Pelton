@@ -573,6 +573,8 @@ export interface UIPrefs {
   // closeAction is what the window's close button does: 'background' keeps
   // Pelton running and syncing with the window hidden, 'quit' exits.
   closeAction: CloseAction
+  // startHidden keeps the window hidden at launch (#483).
+  startHidden: boolean
   // syncMessageLimit caps how many of a folder's newest messages the first sync
   // fetches; older mail stays on the server until asked for. 0 means no limit.
   syncMessageLimit: number

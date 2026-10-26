@@ -397,6 +397,8 @@ type UIPrefsDTO struct {
 	// CloseAction is what the window's close button does: "background" keeps
 	// Pelton running and syncing with the window hidden, "quit" exits.
 	CloseAction string `json:"closeAction"`
+	// StartHidden keeps the window hidden at launch (#483).
+	StartHidden bool `json:"startHidden"`
 	// SyncMessageLimit caps how many of a folder's newest messages the first
 	// sync fetches; older mail stays on the server until it is asked for. 0
 	// means no limit. SyncAutoBackfill fetches the next batch automatically on
@@ -504,6 +506,7 @@ func (a *App) GetUIPrefs() (UIPrefsDTO, error) {
 		StatusClock:                a.boolSetting(settingStatusClock, true),
 		StatusUnread:               a.boolSetting(settingStatusUnread, true),
 		CloseAction:                a.stringSetting(settingCloseAction, closeActionBackground),
+		StartHidden:                a.startHiddenEnabled(),
 		SyncMessageLimit:           a.syncMessageLimit(),
 		SyncAutoBackfill:           a.boolSetting(settingSyncAutoBackfill, true),
 		StartupSelection:           a.stringSetting(settingStartupSelection, defaultStartupSelection),
@@ -550,6 +553,11 @@ func (a *App) SetSetting(key, value string) error {
 	}
 	if key == settingCharsetFallback {
 		a.applyCharsetFallback()
+	}
+	if key == settingStartHidden {
+		if err := a.writeStartHidden(value == "true"); err != nil {
+			return err
+		}
 	}
 	if key == settingUnreadBadge || key == settingLanguage {
 		a.applyUnreadBadge()
