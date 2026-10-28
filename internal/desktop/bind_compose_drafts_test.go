@@ -3,6 +3,7 @@ package desktop
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -421,11 +422,22 @@ func TestDraftMessageIDsFromTheFrontendAreChecked(t *testing.T) {
 		"<a@>",
 		"<a@b@example.com>",
 		"<a b@example.com>",
+		"<" + strings.Repeat("a", 967) + "@example.com>", // 981 bytes
+		`<"quoted"@example.com>`,
+		"<é@example.com>",
+		"<a@exämple.com>",
+		"<.a@example.com>",
+		"<a.@example.com>",
+		"<a..b@example.com>",
+		"<a@.example.com>",
+		"<a@example..com>",
+		"<a@example.com.>",
 	} {
-		if _, err := app.SaveDraft(0, ComposeRequest{AccountID: accountID, DraftMessageID: bad}); !errors.Is(err, errBadMessageID) {
+		want := fmt.Sprintf("pelton: a draft Message-ID must have the form <local@domain>: %q", bad)
+		if _, err := app.SaveDraft(0, ComposeRequest{AccountID: accountID, DraftMessageID: bad}); !errors.Is(err, errBadMessageID) || err.Error() != want {
 			t.Errorf("SaveDraft(%q) = %v, want errBadMessageID", bad, err)
 		}
-		if err := app.RemoveServerDraft(accountID, bad); !errors.Is(err, errBadMessageID) {
+		if err := app.RemoveServerDraft(accountID, bad); !errors.Is(err, errBadMessageID) || err.Error() != want {
 			t.Errorf("RemoveServerDraft(%q) = %v, want errBadMessageID", bad, err)
 		}
 	}
@@ -448,4 +460,72 @@ func TestDraftMessageIDsFromTheFrontendAreChecked(t *testing.T) {
 		t.Fatalf("RemoveServerDraft(%s): %v", good, err)
 	}
 	settle(t)
+
+	maxID := "<" + strings.Repeat("a", 966) + "@example.com>" // 980 bytes
+	maxDraftID := saveDraft(t, app, 0, ComposeRequest{AccountID: accountID, DraftMessageID: maxID})
+	if drafts := listDrafts(t, app); len(drafts) != 2 || drafts[1].ID != maxDraftID || drafts[1].Request.DraftMessageID != maxID {
+		t.Fatalf("drafts = %+v, want accepted 980-byte Message-ID", drafts)
+	}
+	if err := app.RemoveServerDraft(accountID, maxID); err != nil {
+		t.Fatalf("RemoveServerDraft(980 bytes): %v", err)
+	}
+	settle(t)
+}
+
+func TestOpenDraftRejectsMalformedMessageIDs(t *testing.T) {
+	for _, tt := range []struct {
+		name, cached, local string
+		wantMatch           bool
+		prependInvalid      bool
+	}{
+		{"bare cache bracketed local", "parent@example.com", "<parent@example.com>", true, false},
+		{"bracketed cache bracketed local", "<parent@example.com>", "<parent@example.com>", true, false},
+		{"bare cache bare local", "parent@example.com", "parent@example.com", true, false},
+		{"bracketed cache bare local", "<parent@example.com>", "parent@example.com", true, false},
+		{"nested cache", "<<parent@example.com>>", "<parent@example.com>", false, false},
+		{"nested local", "parent@example.com", "<<parent@example.com>>", false, false},
+		{"invalid cache and local", "<<parent@example.com>>", "<<parent@example.com>>", false, false},
+		{"empty cache and invalid local", "", "<<parent@example.com>>", false, false},
+		{"skip invalid candidate", "parent@example.com", "<parent@example.com>", true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			app, db, accountID := pgpTestApp(t, nil, nil)
+			folder := addFolder(t, app, accountID, "Drafts", `\Drafts`)
+			localID := saveDraft(t, app, 0, ComposeRequest{
+				AccountID: accountID, Subject: "editable local draft", DraftMessageID: "<parent@example.com>",
+			})
+			var drafts []storedDraft
+			if err := db.GetJSON(app.ctx, draftsKey, &drafts); err != nil {
+				t.Fatalf("read local draft: %v", err)
+			}
+			drafts[0].Request.DraftMessageID = tt.local
+			if tt.prependInvalid {
+				invalid := drafts[0]
+				invalid.ID = localID + 1
+				invalid.Request.DraftMessageID = "<<parent@example.com>>"
+				drafts = append([]storedDraft{invalid}, drafts...)
+			}
+			if err := db.SetJSON(app.ctx, draftsKey, drafts); err != nil {
+				t.Fatalf("seed legacy local_drafts: %v", err)
+			}
+			id, err := db.InsertMessage(app.ctx, &storage.Message{
+				AccountID: accountID, FolderID: folder.ID, UID: 1, MessageID: tt.cached,
+				Subject: "server copy", Date: time.Now(),
+			})
+			if err != nil {
+				t.Fatalf("insert cached draft: %v", err)
+			}
+			got, err := app.OpenDraft(id)
+			if err != nil {
+				t.Fatalf("OpenDraft: %v", err)
+			}
+			if tt.wantMatch {
+				if got.ID != localID || got.Request.Subject != "editable local draft" {
+					t.Errorf("OpenDraft = %+v, want editable local draft %d", got, localID)
+				}
+			} else if !reflect.DeepEqual(got, DraftDTO{}) {
+				t.Errorf("OpenDraft = %+v, want DraftDTO{}", got)
+			}
+		})
+	}
 }

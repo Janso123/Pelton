@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/peltonapp/Pelton/internal/messageid"
 	"github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
@@ -661,16 +662,10 @@ func (a *App) RemoveServerDraft(accountID int64, messageID string) error {
 // a line break would start a header of its own.
 var errBadMessageID = errors.New("pelton: a draft Message-ID must have the form <local@domain>")
 
-// checkMessageID returns errBadMessageID unless id is <local@domain> with no
-// whitespace, control characters, brackets or second @ inside.
+// checkMessageID requires one enclosing bracket pair around a valid Message-ID.
 func checkMessageID(id string) error {
-	inner, ok := strings.CutPrefix(id, "<")
-	if ok {
-		inner, ok = strings.CutSuffix(inner, ">")
-	}
-	local, domain, _ := strings.Cut(inner, "@")
-	invalid := func(r rune) bool { return r <= ' ' || r == 0x7f || strings.ContainsRune("<>@", r) }
-	if !ok || local == "" || domain == "" || strings.ContainsFunc(local+domain, invalid) {
+	_, ok := messageid.Normalize(id)
+	if !ok || !strings.HasPrefix(id, "<") || !strings.HasSuffix(id, ">") {
 		return fmt.Errorf("%w: %q", errBadMessageID, id)
 	}
 	return nil
@@ -691,8 +686,8 @@ func (a *App) OpenDraft(messageID int64) (DraftDTO, error) {
 	}
 	// sync stores the Message-ID without its angle brackets, the builder
 	// writes it with them.
-	want := strings.Trim(m.MessageID, "<>")
-	if want == "" {
+	want, ok := messageid.Normalize(m.MessageID)
+	if !ok {
 		return DraftDTO{}, nil
 	}
 	a.draftsMu.Lock()
@@ -702,7 +697,8 @@ func (a *App) OpenDraft(messageID int64) (DraftDTO, error) {
 		return DraftDTO{}, err
 	}
 	for _, d := range drafts {
-		if strings.Trim(d.Request.DraftMessageID, "<>") == want {
+		candidate, ok := messageid.Normalize(d.Request.DraftMessageID)
+		if ok && candidate == want {
 			return a.toDraftDTO(d), nil
 		}
 	}
