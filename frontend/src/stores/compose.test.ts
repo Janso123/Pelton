@@ -175,8 +175,8 @@ describe('compose threading snapshots', () => {
       { name: 'one inReplyTo is a fallback', inReplyTo: ['a@example.com'], references: [], want: ['a@example.com', 'parent@example.com'] },
       { name: 'multiple inReplyTo is not a fallback', inReplyTo: ['a@example.com', 'b@example.com'], references: [], want: ['parent@example.com'] },
       { name: 'duplicate inReplyTo is not a fallback', inReplyTo: ['a@example.com', 'a@example.com'], references: [], want: ['parent@example.com'] },
-      { name: 'invalidated inReplyTo is not a fallback', inReplyTo: [], references: [], want: ['parent@example.com'] },
-      { name: 'legacy NULL rows behave like phase one', inReplyTo: [], references: [], want: ['parent@example.com'] },
+      // Go invalidates malformed In-Reply-To and maps legacy NULL ancestry to these same empty DTO lists.
+      { name: 'empty DTO ancestry uses only the parent', inReplyTo: [], references: [], want: ['parent@example.com'] },
       { name: 'references keep duplicates and parent position for Go to normalize', inReplyTo: [], references: ['parent@example.com', 'a@example.com', 'a@example.com'], want: ['parent@example.com', 'a@example.com', 'a@example.com', 'parent@example.com'] },
     ])('$name', ({ inReplyTo, references, want }) => {
       openReply(detail({ messageId: 'parent@example.com', inReplyTo, references }), mode, replyAll)
