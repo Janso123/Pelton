@@ -86,6 +86,13 @@ func TestReferences(t *testing.T) {
 			}
 		})
 	}
+	t.Run("count cap then length floor", func(t *testing.T) {
+		ids := referenceIDs(21, 300)
+		want := []string{ids[0], ids[18], ids[19], ids[20]}
+		if got := References(ids[:20], ids[20]); !reflect.DeepEqual(got, want) {
+			t.Fatalf("References = %v; want exact root and last three %v", got, want)
+		}
+	})
 	for _, n := range []int{20, 21, 100} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			ids := referenceIDs(n, 6)

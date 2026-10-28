@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/peltonapp/Pelton/internal/messageid"
+	"golang.org/x/net/idna"
 )
 
 const (
@@ -85,13 +86,18 @@ func formatAddressList(addrs []Address) string {
 }
 
 // NewMessageID builds a unique Message-ID using the sender's domain so it
-// looks like it came from that host.
+// looks like it came from that host. Domains are IDNA-encoded; an invalid or
+// oversized token uses a safe ASCII fallback.
 func NewMessageID(senderEmail string) (string, error) {
 	buf := make([]byte, messageIDBytes)
 	if _, err := rand.Read(buf); err != nil {
 		return "", fmt.Errorf("smtp: generate message id: %w", err)
 	}
-	return fmt.Sprintf("<%x@%s>", buf, domainOf(senderEmail)), nil
+	id := fmt.Sprintf("<%x@%s>", buf, domainOf(senderEmail))
+	if _, ok := messageid.Normalize(id); !ok {
+		id = fmt.Sprintf("<%x@%s>", buf, fallbackDomain)
+	}
+	return id, nil
 }
 
 // domainOf returns the part after the @ in an address, or a safe fallback.
@@ -108,7 +114,11 @@ func domainOf(email string) string {
 	}) {
 		return fallbackDomain
 	}
-	return domain
+	ascii, err := idna.ToASCII(domain)
+	if err != nil {
+		return fallbackDomain
+	}
+	return ascii
 }
 
 // referenceChain validates and bounds reply ancestry, then folds between whole

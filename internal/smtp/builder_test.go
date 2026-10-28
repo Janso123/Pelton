@@ -386,15 +386,25 @@ func TestBuildDraft(t *testing.T) {
 // in the account address must not reach the header.
 func TestNewMessageIDKeepsTheDomainClean(t *testing.T) {
 	for email, domain := range map[string]string{
-		"me@example.com":     "example.com",
-		" me@example.com ":   "example.com",
-		"me@exa mple.com":    fallbackDomain,
-		"me@exa\r\nmple.com": fallbackDomain,
-		"me":                 fallbackDomain,
+		"me@bücher.de":                            "xn--bcher-kva.de",
+		"me@exämple.com":                          "xn--exmple-cua.com",
+		"me@example.com.":                         fallbackDomain,
+		"me@.example.com":                         fallbackDomain,
+		"me@example..com":                         fallbackDomain,
+		"me@" + strings.Repeat("a", 980) + ".com": fallbackDomain,
+		"me@\xff.com":                             fallbackDomain,
+		"me@example.com":                          "example.com",
+		" me@example.com ":                        "example.com",
+		"me@exa mple.com":                         fallbackDomain,
+		"me@exa\r\nmple.com":                      fallbackDomain,
+		"me":                                      fallbackDomain,
 	} {
 		id, err := NewMessageID(email)
 		if err != nil {
 			t.Fatalf("NewMessageID(%q): %v", email, err)
+		}
+		if _, ok := messageid.Normalize(id); !ok {
+			t.Errorf("NewMessageID(%q) = %q, want a strict reply token", email, id)
 		}
 		if !strings.HasSuffix(id, "@"+domain+">") {
 			t.Errorf("NewMessageID(%q) = %q, want the domain %q", email, id, domain)

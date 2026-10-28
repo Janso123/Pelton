@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/peltonapp/Pelton/internal/messageid"
 	"github.com/peltonapp/Pelton/internal/smtp"
 	"github.com/peltonapp/Pelton/internal/storage"
 )
@@ -662,13 +661,27 @@ func (a *App) RemoveServerDraft(accountID int64, messageID string) error {
 // a line break would start a header of its own.
 var errBadMessageID = errors.New("pelton: a draft Message-ID must have the form <local@domain>")
 
-// checkMessageID requires one enclosing bracket pair around a valid Message-ID.
+// checkMessageID keeps legacy draft keys injection-safe. Reply tokens use a
+// stricter syntax and length policy; applying it here would orphan old drafts.
 func checkMessageID(id string) error {
-	_, ok := messageid.Normalize(id)
-	if !ok || !strings.HasPrefix(id, "<") || !strings.HasSuffix(id, ">") {
+	inner, ok := strings.CutPrefix(id, "<")
+	if ok {
+		inner, ok = strings.CutSuffix(inner, ">")
+	}
+	local, domain, _ := strings.Cut(inner, "@")
+	invalid := func(r rune) bool { return r <= ' ' || r == 0x7f || strings.ContainsRune("<>@", r) }
+	if !ok || local == "" || domain == "" || strings.ContainsFunc(local+domain, invalid) {
 		return fmt.Errorf("%w: %q", errBadMessageID, id)
 	}
 	return nil
+}
+
+// draftLookupID removes one optional bracket pair without rewriting the key.
+func draftLookupID(id string) (string, bool) {
+	if strings.HasPrefix(id, "<") && strings.HasSuffix(id, ">") {
+		id = id[1 : len(id)-1]
+	}
+	return id, id != "" && !strings.ContainsAny(id, "<>")
 }
 
 // OpenDraft returns the local draft behind a message in a Drafts folder, given
@@ -686,7 +699,7 @@ func (a *App) OpenDraft(messageID int64) (DraftDTO, error) {
 	}
 	// sync stores the Message-ID without its angle brackets, the builder
 	// writes it with them.
-	want, ok := messageid.Normalize(m.MessageID)
+	want, ok := draftLookupID(m.MessageID)
 	if !ok {
 		return DraftDTO{}, nil
 	}
@@ -697,7 +710,7 @@ func (a *App) OpenDraft(messageID int64) (DraftDTO, error) {
 		return DraftDTO{}, err
 	}
 	for _, d := range drafts {
-		candidate, ok := messageid.Normalize(d.Request.DraftMessageID)
+		candidate, ok := draftLookupID(d.Request.DraftMessageID)
 		if ok && candidate == want {
 			return a.toDraftDTO(d), nil
 		}
