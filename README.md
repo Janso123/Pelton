@@ -176,7 +176,7 @@ Refer to our [Documentation (docs.pelton.app)](https://docs.pelton.app/install/)
 *We also support copr (dnf). We also have rpm and deb packages as well as a generic binary. Find installation instructions [here (docs.pelton.app/install/linux](https://docs.pelton.app/install/linux/)*
 
 > [!NOTE]
-> Windows code signing through the [SignPath Foundation](https://signpath.org) is being set up, see the [code signing policy](#-code-signing-policy). Until the first signed release, Windows may warn on the first launch: choose **More info**, then **Run anyway**.
+> Windows code signing through the [SignPath Foundation](https://signpath.org) is being set up, see the [code signing policy](#-code-signing-policy).
 
 ## <img src="https://api.iconify.design/tabler/shield-check.svg?color=white" width="26" style="vertical-align: -4px;"> Code signing policy
 
