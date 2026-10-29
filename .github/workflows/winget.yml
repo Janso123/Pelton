@@ -5,9 +5,9 @@ name: Publish to winget
 # hash. The action can only update a package that exists, so the first version
 # went in by hand from packaging/winget.
 #
-# Off until the WINGET_PUBLISH repo variable is "true". WINGET_TOKEN is a
-# classic token with public_repo and workflow scope from the account that owns
-# the winget-pkgs fork the pull requests come from.
+# Off until the WINGET_PUBLISH repo variable is "true". The pull requests come
+# from the peltonapp/winget-pkgs fork. WINGET_TOKEN is a classic token with
+# public_repo and workflow scope from an account that can push to it.
 
 on:
   release:
@@ -31,5 +31,4 @@ jobs:
           identifier: peltonapp.Pelton
           release-tag: ${{ inputs.tag || github.event.release.tag_name }}
           installers-regex: '-windows-amd64-installer\.exe$'
-          fork-user: TRC-Loop
           token: ${{ secrets.WINGET_TOKEN }}
